@@ -1,0 +1,247 @@
+<div class="flex flex-col h-full">
+  <%!-- Header bar --%>
+  <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
+    <div class="flex items-center gap-4">
+      <h1 class="text-sm font-medium text-fg">Active issues</h1>
+      <span class="text-xs text-fg-muted">{@ticket_count}</span>
+
+      <%!-- Filter dropdown --%>
+      <div class="dropdown dropdown-end">
+        <label
+          tabindex="0"
+          class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
+        >
+          <.icon name="hero-funnel" class="size-3" /> Filter
+        </label>
+        <ul
+          tabindex="0"
+          class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-48 p-1 shadow-lg mt-1"
+        >
+          <li>
+            <button
+              phx-click="clear_filters"
+              class={["text-xs rounded", !@filter_status && "text-fg bg-accent-indigo/10"]}
+            >
+              All statuses
+            </button>
+          </li>
+          <li :for={status <- @statuses}>
+            <button
+              phx-click="filter"
+              phx-value-status={status}
+              class={[
+                "text-xs rounded",
+                @filter_status == status && "text-fg bg-accent-indigo/10"
+              ]}
+            >
+              <.status_icon status={status} /> {status_label(status)}
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <%!-- Sort dropdown --%>
+      <div class="dropdown dropdown-end">
+        <label
+          tabindex="0"
+          class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
+        >
+          <.icon name="hero-arrows-up-down" class="size-3" /> Sort
+        </label>
+        <ul
+          tabindex="0"
+          class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-44 p-1 shadow-lg mt-1"
+        >
+          <li>
+            <button
+              phx-click="sort"
+              phx-value-sort_by="priority"
+              class={["text-xs rounded", @sort_by == :priority && "text-fg bg-accent-indigo/10"]}
+            >
+              Priority
+            </button>
+          </li>
+          <li>
+            <button
+              phx-click="sort"
+              phx-value-sort_by="inserted_at"
+              class={[
+                "text-xs rounded",
+                @sort_by == :inserted_at && "text-fg bg-accent-indigo/10"
+              ]}
+            >
+              Date created
+            </button>
+          </li>
+          <li>
+            <button
+              phx-click="sort"
+              phx-value-sort_by="title"
+              class={["text-xs rounded", @sort_by == :title && "text-fg bg-accent-indigo/10"]}
+            >
+              Title
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <%!-- View toggle --%>
+      <div class="flex bg-surface-raised border border-border rounded overflow-hidden">
+        <button
+          phx-click="toggle_view"
+          phx-value-view="board"
+          class={[
+            "px-2 py-1 transition-colors",
+            @view_mode == :board && "bg-accent-indigo/15 text-fg",
+            @view_mode != :board && "text-fg-muted hover:text-fg"
+          ]}
+          title="Board view"
+        >
+          <.icon name="hero-view-columns" class="size-3.5" />
+        </button>
+        <button
+          phx-click="toggle_view"
+          phx-value-view="list"
+          class={[
+            "px-2 py-1 transition-colors",
+            @view_mode == :list && "bg-accent-indigo/15 text-fg",
+            @view_mode != :list && "text-fg-muted hover:text-fg"
+          ]}
+          title="List view"
+        >
+          <.icon name="hero-bars-3" class="size-3.5" />
+        </button>
+      </div>
+
+      <%!-- New ticket button --%>
+      <.link
+        patch={~p"/tickets/new"}
+        class="flex bg-accent-indigo hover:bg-accent-indigo-hover text-white rounded overflow-hidden cursor-pointer"
+      >
+        <span class="px-3 py-1 text-sm font-medium">+ Issue</span>
+      </.link>
+    </div>
+  </header>
+
+  <%!-- Board view --%>
+  <div :if={@view_mode == :board} class="flex gap-4 overflow-x-auto p-4 flex-1">
+    <.status_column
+      :for={status <- @statuses}
+      status={status}
+      count={length(Map.get(@tickets_by_status, status, []))}
+      stream={stream_for(@streams, status)}
+    />
+  </div>
+
+  <%!-- List view --%>
+  <div :if={@view_mode == :list} class="flex-1 overflow-auto px-2 py-2">
+    <div :for={status <- @statuses} :if={Map.get(@tickets_by_status, status, []) != []}>
+      <div class="flex items-center gap-2 px-3 py-1.5">
+        <.status_icon status={status} />
+        <span class="text-xs font-medium text-fg-secondary">{status_label(status)}</span>
+        <span class="text-[10px] text-fg-muted">
+          {length(Map.get(@tickets_by_status, status, []))}
+        </span>
+      </div>
+      <div
+        id={"list-#{status}"}
+        phx-update="stream"
+      >
+        <.ticket_row
+          :for={{dom_id, ticket} <- stream_for(@streams, status)}
+          ticket={ticket}
+          id={dom_id}
+        />
+      </div>
+    </div>
+    <div
+      :if={@ticket_count == 0}
+      class="text-center text-fg-muted py-12 text-sm"
+    >
+      No issues found.
+    </div>
+  </div>
+</div>
+
+<%!-- Create/Edit modal --%>
+<.modal
+  :if={@live_action in [:new, :edit]}
+  id="ticket-modal"
+  show
+  on_cancel={JS.patch(~p"/tickets")}
+>
+  <.live_component
+    module={AlgedoniaWeb.TicketLive.TicketFormComponent}
+    id={(@ticket && @ticket.id) || :new}
+    ticket={@ticket}
+    action={@live_action}
+    patch={~p"/tickets"}
+  />
+</.modal>
+
+<%!-- Show/Detail modal --%>
+<.modal
+  :if={@live_action == :show && @ticket}
+  id="ticket-detail-modal"
+  show
+  on_cancel={JS.patch(~p"/tickets")}
+>
+  <div class="space-y-4">
+    <div class="flex items-center justify-between">
+      <span class="font-mono text-xs text-fg-muted">{String.slice(@ticket.id, 0, 8)}</span>
+      <div class="flex gap-1">
+        <.link
+          patch={~p"/tickets/#{@ticket}/edit"}
+          class="flex items-center gap-1 px-2 py-1 text-xs text-fg-secondary hover:text-fg transition-colors rounded hover:bg-surface-raised"
+        >
+          <.icon name="hero-pencil" class="size-3" /> Edit
+        </.link>
+        <button
+          phx-click="delete"
+          phx-value-id={@ticket.id}
+          data-confirm="Are you sure you want to delete this issue?"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-status-red hover:text-status-red/80 transition-colors rounded hover:bg-surface-raised"
+        >
+          <.icon name="hero-trash" class="size-3" /> Delete
+        </button>
+      </div>
+    </div>
+
+    <h2 class="text-lg font-semibold text-fg">{@ticket.title}</h2>
+
+    <div class="flex flex-wrap items-center gap-3 text-xs">
+      <div class="flex items-center gap-1.5">
+        <.status_icon status={@ticket.status} />
+        <span class="text-fg-secondary">{status_label(@ticket.status)}</span>
+      </div>
+      <span class="text-border">|</span>
+      <div class="flex items-center gap-1.5">
+        <.priority_icon priority={@ticket.priority} />
+        <span class="text-fg-secondary">P{@ticket.priority}</span>
+      </div>
+      <span class="text-border">|</span>
+      <.type_badge type={@ticket.type} />
+      <span :if={@ticket.assignee} class="text-border">|</span>
+      <span :if={@ticket.assignee} class="text-fg-secondary">{@ticket.assignee}</span>
+    </div>
+
+    <div :if={@ticket.description} class="space-y-1 pt-2 border-t border-border">
+      <h3 class="text-xs font-medium text-fg-muted uppercase tracking-wide">Description</h3>
+      <p class="text-sm text-fg-secondary whitespace-pre-wrap">{@ticket.description}</p>
+    </div>
+
+    <div :if={@ticket.acceptance_criteria} class="space-y-1">
+      <h3 class="text-xs font-medium text-fg-muted uppercase tracking-wide">
+        Acceptance Criteria
+      </h3>
+      <p class="text-sm text-fg-secondary whitespace-pre-wrap">{@ticket.acceptance_criteria}</p>
+    </div>
+
+    <div :if={@ticket.rubric} class="space-y-1">
+      <h3 class="text-xs font-medium text-fg-muted uppercase tracking-wide">Rubric</h3>
+      <p class="text-sm text-fg-secondary whitespace-pre-wrap">{@ticket.rubric}</p>
+    </div>
+  </div>
+</.modal>

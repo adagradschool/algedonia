@@ -1,0 +1,73 @@
+<div>
+  <.form
+    for={@form}
+    id="ticket-form"
+    phx-target={@myself}
+    phx-change="validate"
+    phx-submit="save"
+    class="space-y-4"
+  >
+    <.input
+      field={@form[:title]}
+      type="text"
+      label="Title"
+      placeholder="Issue title"
+      class="w-full input input-lg text-lg font-semibold bg-surface border-border"
+      required
+    />
+    <.input
+      field={@form[:description]}
+      type="textarea"
+      label="Description"
+      placeholder="Add description"
+      rows="4"
+      class="w-full textarea bg-surface border-border"
+    />
+    <.input
+      field={@form[:acceptance_criteria]}
+      type="textarea"
+      label="Acceptance Criteria"
+      placeholder="Add acceptance criteria"
+      rows="3"
+      class="w-full textarea bg-surface border-border"
+    />
+
+    <div class="flex flex-wrap gap-3 pt-2">
+      <.input
+        field={@form[:status]}
+        type="select"
+        label="Status"
+        options={status_options()}
+      />
+      <.input
+        field={@form[:priority]}
+        type="select"
+        label="Priority"
+        options={priority_options()}
+      />
+      <.input
+        field={@form[:type]}
+        type="select"
+        label="Type"
+        options={type_options()}
+      />
+      <.input
+        field={@form[:assignee]}
+        type="text"
+        label="Assignee"
+        placeholder="Assignee"
+        class="w-full input max-w-40 bg-surface border-border"
+      />
+    </div>
+
+    <div class="flex justify-end pt-2">
+      <button
+        type="submit"
+        phx-disable-with="Saving..."
+        class="px-4 py-1.5 bg-accent-indigo hover:bg-accent-indigo-hover text-white text-sm font-medium rounded transition-colors"
+      >
+        {@action_label}
+      </button>
+    </div>
+  </.form>
+</div>

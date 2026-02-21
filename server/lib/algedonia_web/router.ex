@@ -18,6 +18,11 @@ defmodule AlgedoniaWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+
+    live "/tickets", TicketLive.Index, :index
+    live "/tickets/new", TicketLive.Index, :new
+    live "/tickets/:id", TicketLive.Index, :show
+    live "/tickets/:id/edit", TicketLive.Index, :edit
   end
 
   # Other scopes may use custom stacks.

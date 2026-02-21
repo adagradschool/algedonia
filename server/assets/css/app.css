@@ -17,56 +17,57 @@
   themes: false;
 }
 
-/* daisyUI theme plugin. You can update this file by fetching the latest version with:
-  curl -sLO https://github.com/saadeghi/daisyui/releases/latest/download/daisyui-theme.js
-  We ship with two themes, a light one inspired on Phoenix colors and a dark one inspired
-  on Elixir colors. Build your own at: https://daisyui.com/theme-generator/ */
+/* Algedonia dark theme — Linear-inspired */
 @plugin "../vendor/daisyui-theme" {
   name: "dark";
-  default: false;
+  default: true;
   prefersdark: true;
   color-scheme: "dark";
-  --color-base-100: oklch(30.33% 0.016 252.42);
-  --color-base-200: oklch(25.26% 0.014 253.1);
-  --color-base-300: oklch(20.15% 0.012 254.09);
-  --color-base-content: oklch(97.807% 0.029 256.847);
-  --color-primary: oklch(58% 0.233 277.117);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(58% 0.233 277.117);
-  --color-secondary-content: oklch(96% 0.018 272.314);
-  --color-accent: oklch(60% 0.25 292.717);
-  --color-accent-content: oklch(96% 0.016 293.756);
-  --color-neutral: oklch(37% 0.044 257.287);
-  --color-neutral-content: oklch(98% 0.003 247.858);
-  --color-info: oklch(58% 0.158 241.966);
-  --color-info-content: oklch(97% 0.013 236.62);
-  --color-success: oklch(60% 0.118 184.704);
-  --color-success-content: oklch(98% 0.014 180.72);
-  --color-warning: oklch(66% 0.179 58.318);
-  --color-warning-content: oklch(98% 0.022 95.277);
-  --color-error: oklch(58% 0.253 17.585);
-  --color-error-content: oklch(96% 0.015 12.422);
+  /* base: bg #0d0e12, cards #1a1b22, sidebar #16171d */
+  --color-base-100: oklch(14.5% 0.008 270);
+  --color-base-200: oklch(17.5% 0.006 270);
+  --color-base-300: oklch(12% 0.006 270);
+  --color-base-content: oklch(93% 0.003 270);
+  /* primary: indigo #5e6ad2 */
+  --color-primary: oklch(54% 0.17 277);
+  --color-primary-content: oklch(98% 0.01 277);
+  --color-secondary: oklch(54% 0.17 277);
+  --color-secondary-content: oklch(98% 0.01 277);
+  --color-accent: oklch(54% 0.17 277);
+  --color-accent-content: oklch(98% 0.01 277);
+  /* neutral: border #26272e */
+  --color-neutral: oklch(24% 0.012 270);
+  --color-neutral-content: oklch(93% 0.003 270);
+  /* semantic */
+  --color-info: oklch(62% 0.17 240);
+  --color-info-content: oklch(97% 0.01 240);
+  --color-success: oklch(63% 0.17 155);
+  --color-success-content: oklch(98% 0.01 155);
+  --color-warning: oklch(72% 0.17 70);
+  --color-warning-content: oklch(20% 0.02 70);
+  --color-error: oklch(60% 0.22 25);
+  --color-error-content: oklch(97% 0.01 25);
   --radius-selector: 0.25rem;
-  --radius-field: 0.25rem;
+  --radius-field: 0.375rem;
   --radius-box: 0.5rem;
   --size-selector: 0.21875rem;
   --size-field: 0.21875rem;
-  --border: 1.5px;
-  --depth: 1;
+  --border: 1px;
+  --depth: 0;
   --noise: 0;
 }
 
 @plugin "../vendor/daisyui-theme" {
   name: "light";
-  default: true;
+  default: false;
   prefersdark: false;
   color-scheme: "light";
   --color-base-100: oklch(98% 0 0);
   --color-base-200: oklch(96% 0.001 286.375);
   --color-base-300: oklch(92% 0.004 286.32);
   --color-base-content: oklch(21% 0.006 285.885);
-  --color-primary: oklch(70% 0.213 47.604);
-  --color-primary-content: oklch(98% 0.016 73.684);
+  --color-primary: oklch(54% 0.17 277);
+  --color-primary-content: oklch(98% 0.01 277);
   --color-secondary: oklch(55% 0.027 264.364);
   --color-secondary-content: oklch(98% 0.002 247.839);
   --color-accent: oklch(0% 0 0);
@@ -82,11 +83,11 @@
   --color-error: oklch(58% 0.253 17.585);
   --color-error-content: oklch(96% 0.015 12.422);
   --radius-selector: 0.25rem;
-  --radius-field: 0.25rem;
+  --radius-field: 0.375rem;
   --radius-box: 0.5rem;
   --size-selector: 0.21875rem;
   --size-field: 0.21875rem;
-  --border: 1.5px;
+  --border: 1px;
   --depth: 1;
   --noise: 0;
 }
@@ -102,4 +103,79 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
-/* This file is for your main application CSS */
+/* ── Fonts ─────────────────────────────────────── */
+@font-face {
+  font-family: 'Satoshi';
+  src: url('https://api.fontsource.org/v1/fonts/satoshi/latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('https://api.fontsource.org/v1/fonts/satoshi/latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('https://api.fontsource.org/v1/fonts/satoshi/latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Azeret Mono';
+  src: url('https://api.fontsource.org/v1/fonts/azeret-mono/latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Theme overrides ───────────────────────────── */
+@theme {
+  --font-sans: 'Satoshi', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Azeret Mono', ui-monospace, monospace;
+  /* Design palette as custom colors */
+  --color-surface: #0d0e12;
+  --color-surface-raised: #1a1b22;
+  --color-surface-sidebar: #16171d;
+  --color-border: #26272e;
+  --color-fg: #e8e8ea;
+  --color-fg-secondary: #a8aaae;
+  --color-fg-muted: #666b7a;
+  --color-accent-indigo: #5e6ad2;
+  --color-accent-indigo-hover: #4f59b0;
+  --color-status-green: #22c55e;
+  --color-status-orange: #f97316;
+  --color-status-red: #ef4444;
+  --color-status-yellow: #eab308;
+  --color-status-cyan: #06b6d4;
+  --color-status-blue: #3b82f6;
+}
+
+/* ── Global styles ─────────────────────────────── */
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: var(--color-fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-fg-muted);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-secondary);
+}

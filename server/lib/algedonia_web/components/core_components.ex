@@ -446,6 +446,66 @@ defmodule AlgedoniaWeb.CoreComponents do
     """
   end
 
+  @doc """
+  Renders a modal dialog.
+
+  ## Examples
+
+      <.modal id="my-modal" show on_cancel={JS.patch(~p"/")}>
+        Modal content
+      </.modal>
+  """
+  attr :id, :string, required: true
+  attr :show, :boolean, default: false
+  attr :on_cancel, JS, default: %JS{}
+
+  slot :inner_block, required: true
+
+  def modal(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      phx-mounted={@show && show_modal(@id)}
+      phx-remove={hide_modal(@id)}
+      data-cancel={JS.exec(@on_cancel, "phx-remove")}
+      class="modal"
+    >
+      <div id={"#{@id}-bg"} class="modal-backdrop" aria-hidden="true" />
+      <div
+        class="modal-box relative max-w-2xl bg-surface-raised border border-border"
+        aria-labelledby={"#{@id}-title"}
+        aria-describedby={"#{@id}-description"}
+        role="dialog"
+        aria-modal="true"
+        tabindex="0"
+      >
+        <button
+          phx-click={JS.exec("data-cancel", to: "##{@id}")}
+          type="button"
+          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          aria-label={gettext("close")}
+        >
+          <.icon name="hero-x-mark" class="size-5" />
+        </button>
+        <div id={"#{@id}-content"}>
+          {render_slot(@inner_block)}
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp show_modal(id) do
+    %JS{}
+    |> JS.add_class("modal-open", to: "##{id}")
+    |> JS.focus_first(to: "##{id}-content")
+  end
+
+  defp hide_modal(id) do
+    %JS{}
+    |> JS.remove_class("modal-open", to: "##{id}")
+  end
+
   ## JS Commands
 
   def show(js \\ %JS{}, selector) do
