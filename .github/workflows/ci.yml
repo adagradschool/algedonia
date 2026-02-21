@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "daemon/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "daemon/**"
+      - ".github/workflows/ci.yml"
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      daemon: ${{ steps.filter.outputs.daemon }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            server:
+              - "server/**"
+              - ".github/workflows/ci.yml"
+            daemon:
+              - "daemon/**"
+              - ".github/workflows/ci.yml"
+
+  server:
+    name: Server (Elixir)
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: algedonia_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27"
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            server/deps
+            server/_build
+          key: elixir-${{ runner.os }}-${{ hashFiles('server/mix.lock') }}
+          restore-keys: elixir-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix credo --strict
+      - run: mix test
+
+  daemon:
+    name: Daemon (Go)
+    needs: changes
+    if: needs.changes.outputs.daemon == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: daemon
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
