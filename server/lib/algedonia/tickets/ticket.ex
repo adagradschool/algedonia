@@ -22,6 +22,8 @@ defmodule Algedonia.Tickets.Ticket do
     field :acceptance_criteria, :string
     field :rubric, :string
 
+    has_many :comments, Algedonia.Tickets.Comment
+
     timestamps(type: :utc_datetime_usec)
   end
 

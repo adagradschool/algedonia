@@ -83,4 +83,61 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Progress one"
     end
   end
+
+  describe "Comments" do
+    test "ticket detail shows activity section", %{conn: conn} do
+      ticket = insert_ticket!(%{title: "Commentable"})
+      {:ok, _view, html} = live(conn, ~p"/tickets/#{ticket}")
+      assert html =~ "Activity"
+      assert html =~ "Leave a comment..."
+    end
+
+    test "user can post a comment and it appears", %{conn: conn} do
+      ticket = insert_ticket!(%{title: "Has comments"})
+      {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket}")
+
+      view
+      |> form(~s{form[phx-submit="submit_comment"]},
+        comment: %{body: "My first comment"}
+      )
+      |> render_submit()
+
+      assert render(view) =~ "My first comment"
+    end
+
+    test "user can reply to a comment", %{conn: conn} do
+      ticket = insert_ticket!()
+
+      {:ok, parent} =
+        Algedonia.Tickets.create_comment(%{ticket_id: ticket.id, author: "bob", body: "Parent"})
+
+      {:ok, view, html} = live(conn, ~p"/tickets/#{ticket}")
+      assert html =~ "Parent"
+
+      view
+      |> element(~s{button[phx-click="start_reply"][phx-value-comment-id="#{parent.id}"]})
+      |> render_click()
+
+      view
+      |> form(~s{form[phx-submit="submit_reply"]},
+        comment: %{body: "A reply"}
+      )
+      |> render_submit()
+
+      assert render(view) =~ "A reply"
+    end
+
+    test "comment appears in real time via PubSub", %{conn: conn} do
+      ticket = insert_ticket!()
+      {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket}")
+
+      Algedonia.Tickets.create_comment(%{
+        ticket_id: ticket.id,
+        author: "external",
+        body: "PubSub comment"
+      })
+
+      assert render(view) =~ "PubSub comment"
+    end
+  end
 end

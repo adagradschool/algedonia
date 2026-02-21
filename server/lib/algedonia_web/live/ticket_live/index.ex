@@ -5,9 +5,10 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   use AlgedoniaWeb, :live_view
 
   alias Algedonia.Tickets
-  alias Algedonia.Tickets.Ticket
+  alias Algedonia.Tickets.{Comment, Ticket}
 
   import AlgedoniaWeb.TicketComponents
+  import AlgedoniaWeb.CommentComponents
 
   @statuses [:backlog, :decomposing, :decomposition_failed, :in_progress, :completed, :archived]
 
@@ -63,7 +64,30 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   defp apply_action(socket, :show, %{"id" => id}) do
     ticket = Tickets.get_ticket!(id)
-    assign(socket, page_title: ticket.title, ticket: ticket)
+
+    if connected?(socket) do
+      # Unsubscribe from previous ticket's comments if any
+      old_ticket = socket.assigns[:ticket]
+
+      if old_ticket && old_ticket.id != id do
+        Phoenix.PubSub.unsubscribe(Algedonia.PubSub, "ticket:#{old_ticket.id}")
+      end
+
+      Tickets.subscribe_comments(id)
+    end
+
+    comments = Tickets.list_comments(id)
+    comment_changeset = Tickets.change_comment(%Comment{ticket_id: id})
+
+    assign(socket,
+      page_title: ticket.title,
+      ticket: ticket,
+      comments: comments,
+      comment_form: to_form(comment_changeset),
+      comment_form_id: "new_comment_0",
+      reply_to: nil,
+      reply_form: nil
+    )
   end
 
   defp apply_action(socket, :edit, %{"id" => id}) do
@@ -102,10 +126,71 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, push_patch(socket, to: ~p"/tickets?#{%{view: view}}")}
   end
 
+  def handle_event("submit_comment", %{"comment" => params}, socket) do
+    ticket = socket.assigns.ticket
+
+    attrs =
+      params
+      |> Map.put("ticket_id", ticket.id)
+      |> Map.put("author", "You")
+
+    case Tickets.create_comment(attrs) do
+      {:ok, _comment} ->
+        changeset = Tickets.change_comment(%Comment{ticket_id: ticket.id})
+        counter = next_form_counter(socket.assigns.comment_form_id)
+
+        {:noreply,
+         assign(socket,
+           comment_form: to_form(changeset),
+           comment_form_id: "new_comment_#{counter}"
+         )}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, comment_form: to_form(changeset))}
+    end
+  end
+
+  def handle_event("start_reply", %{"comment-id" => comment_id}, socket) do
+    ticket = socket.assigns.ticket
+
+    changeset =
+      Tickets.change_comment(%Comment{ticket_id: ticket.id, parent_id: comment_id})
+
+    {:noreply, assign(socket, reply_to: comment_id, reply_form: to_form(changeset))}
+  end
+
+  def handle_event("submit_reply", %{"comment" => params}, socket) do
+    ticket = socket.assigns.ticket
+
+    attrs =
+      params
+      |> Map.put("ticket_id", ticket.id)
+      |> Map.put("author", "You")
+
+    case Tickets.create_comment(attrs) do
+      {:ok, _comment} ->
+        {:noreply, assign(socket, reply_to: nil, reply_form: nil)}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, reply_form: to_form(changeset))}
+    end
+  end
+
   @impl true
   def handle_info({event, _ticket}, socket)
       when event in [:ticket_created, :ticket_updated, :ticket_deleted] do
     {:noreply, stream_tickets(socket)}
+  end
+
+  def handle_info({:comment_created, _comment}, socket) do
+    ticket = socket.assigns[:ticket]
+
+    if ticket do
+      comments = Tickets.list_comments(ticket.id)
+      {:noreply, assign(socket, comments: comments)}
+    else
+      {:noreply, socket}
+    end
   end
 
   defp stream_tickets(socket) do
@@ -171,6 +256,14 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   defp view_string(:list), do: "list"
   defp view_string(_), do: "board"
+
+  defp next_form_counter(current_id) do
+    current_id
+    |> String.split("_")
+    |> List.last()
+    |> String.to_integer()
+    |> Kernel.+(1)
+  end
 
   @doc false
   def stream_for(streams, status) do
