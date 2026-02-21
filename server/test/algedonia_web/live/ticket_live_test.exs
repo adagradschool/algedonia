@@ -83,4 +83,119 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Progress one"
     end
   end
+
+  describe "Comments" do
+    test "ticket detail shows activity section", %{conn: conn} do
+      ticket = insert_ticket!(%{title: "Commentable"})
+      {:ok, _view, html} = live(conn, ~p"/tickets/#{ticket}")
+      assert html =~ "Activity"
+      assert html =~ "Leave a comment..."
+    end
+
+    test "user can post a comment and it appears", %{conn: conn} do
+      ticket = insert_ticket!(%{title: "Has comments"})
+      {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket}")
+
+      view
+      |> form(~s{form[phx-submit="submit_comment"]},
+        comment: %{body: "My first comment"}
+      )
+      |> render_submit()
+
+      assert render(view) =~ "My first comment"
+    end
+
+    test "user can reply to a comment", %{conn: conn} do
+      ticket = insert_ticket!()
+
+      {:ok, parent} =
+        Algedonia.Tickets.create_comment(%{ticket_id: ticket.id, author: "bob", body: "Parent"})
+
+      {:ok, view, html} = live(conn, ~p"/tickets/#{ticket}")
+      assert html =~ "Parent"
+
+      view
+      |> element(~s{button[phx-click="start_reply"][phx-value-comment-id="#{parent.id}"]})
+      |> render_click()
+
+      view
+      |> form(~s{form[phx-submit="submit_reply"]},
+        comment: %{body: "A reply"}
+      )
+      |> render_submit()
+
+      assert render(view) =~ "A reply"
+    end
+
+    test "user can edit a comment", %{conn: conn} do
+      ticket = insert_ticket!()
+
+      {:ok, comment} =
+        Algedonia.Tickets.create_comment(%{ticket_id: ticket.id, author: "You", body: "Original"})
+
+      {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket}")
+      assert render(view) =~ "Original"
+
+      view
+      |> element(~s{button[phx-click="edit_comment"][phx-value-id="#{comment.id}"]})
+      |> render_click()
+
+      assert render(view) =~ "edit_#{comment.id}"
+
+      view
+      |> form(~s{form[phx-submit="update_comment"]}, comment: %{body: "Edited"})
+      |> render_submit()
+
+      assert render(view) =~ "Edited"
+      refute render(view) =~ "edit_#{comment.id}"
+    end
+
+    test "user can cancel editing a comment", %{conn: conn} do
+      ticket = insert_ticket!()
+
+      {:ok, comment} =
+        Algedonia.Tickets.create_comment(%{ticket_id: ticket.id, author: "You", body: "Keep me"})
+
+      {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket}")
+
+      view
+      |> element(~s{button[phx-click="edit_comment"][phx-value-id="#{comment.id}"]})
+      |> render_click()
+
+      view
+      |> element(~s{button[phx-click="cancel_edit"]})
+      |> render_click()
+
+      refute render(view) =~ "edit_#{comment.id}"
+      assert render(view) =~ "Keep me"
+    end
+
+    test "user can delete a comment", %{conn: conn} do
+      ticket = insert_ticket!()
+
+      Algedonia.Tickets.create_comment(%{ticket_id: ticket.id, author: "bob", body: "Delete me"})
+
+      {:ok, view, html} = live(conn, ~p"/tickets/#{ticket}")
+      assert html =~ "Delete me"
+
+      view
+      |> element(~s{button[phx-click="delete_comment"]})
+      |> render_click()
+
+      refute render(view) =~ "Delete me"
+    end
+
+    test "comment appears in real time via PubSub", %{conn: conn} do
+      ticket = insert_ticket!()
+      {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket}")
+
+      Algedonia.Tickets.create_comment(%{
+        ticket_id: ticket.id,
+        author: "external",
+        body: "PubSub comment"
+      })
+
+      assert render(view) =~ "PubSub comment"
+    end
+  end
 end

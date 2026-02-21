@@ -5,7 +5,7 @@ defmodule Algedonia.Tickets do
   import Ecto.Query
 
   alias Algedonia.Repo
-  alias Algedonia.Tickets.Ticket
+  alias Algedonia.Tickets.{Comment, Ticket}
 
   @topic "tickets"
 
@@ -104,6 +104,93 @@ defmodule Algedonia.Tickets do
   defp filter_by_status(query, nil), do: query
   defp filter_by_status(query, ""), do: query
   defp filter_by_status(query, status), do: where(query, [t], t.status == ^status)
+
+  # -- Comments --
+
+  @doc """
+  Lists comments for a ticket, threaded. Returns top-level comments with
+  replies preloaded one level deep, ordered by insertion time.
+  """
+  @spec list_comments(binary()) :: [Comment.t()]
+  def list_comments(ticket_id) do
+    replies_query = from(c in Comment, order_by: [asc: c.inserted_at])
+
+    Comment
+    |> where([c], c.ticket_id == ^ticket_id and is_nil(c.parent_id))
+    |> order_by([c], asc: c.inserted_at)
+    |> preload(replies: ^replies_query)
+    |> Repo.all()
+  end
+
+  @doc """
+  Gets a single comment. Raises `Ecto.NoResultsError` if not found.
+  """
+  @spec get_comment!(binary()) :: Comment.t()
+  def get_comment!(id), do: Repo.get!(Comment, id)
+
+  @doc """
+  Creates a comment on a ticket.
+  """
+  @spec create_comment(map()) :: {:ok, Comment.t()} | {:error, Ecto.Changeset.t()}
+  def create_comment(attrs) do
+    %Comment{}
+    |> Comment.changeset(attrs)
+    |> Repo.insert()
+    |> broadcast_comment()
+  end
+
+  @doc """
+  Updates a comment's body.
+  """
+  @spec update_comment(Comment.t(), map()) :: {:ok, Comment.t()} | {:error, Ecto.Changeset.t()}
+  def update_comment(%Comment{} = comment, attrs) do
+    comment
+    |> Comment.changeset(attrs)
+    |> Repo.update()
+    |> broadcast_comment(:comment_updated)
+  end
+
+  @doc """
+  Deletes a comment and its replies.
+  """
+  @spec delete_comment(Comment.t()) :: {:ok, Comment.t()} | {:error, Ecto.Changeset.t()}
+  def delete_comment(%Comment{} = comment) do
+    from(c in Comment, where: c.parent_id == ^comment.id) |> Repo.delete_all()
+
+    comment
+    |> Repo.delete()
+    |> broadcast_comment(:comment_deleted)
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for tracking comment changes.
+  """
+  @spec change_comment(Comment.t(), map()) :: Ecto.Changeset.t()
+  def change_comment(%Comment{} = comment, attrs \\ %{}) do
+    Comment.changeset(comment, attrs)
+  end
+
+  @doc """
+  Subscribes the caller to comment notifications for a specific ticket.
+  """
+  @spec subscribe_comments(binary()) :: :ok | {:error, term()}
+  def subscribe_comments(ticket_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, "ticket:#{ticket_id}")
+  end
+
+  defp broadcast_comment(result), do: broadcast_comment(result, :comment_created)
+
+  defp broadcast_comment({:ok, comment} = result, event) do
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      "ticket:#{comment.ticket_id}",
+      {event, comment}
+    )
+
+    result
+  end
+
+  defp broadcast_comment({:error, _} = result, _event), do: result
 
   defp filter_by_assignee(query, nil), do: query
   defp filter_by_assignee(query, ""), do: query
