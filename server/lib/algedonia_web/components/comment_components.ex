@@ -15,6 +15,8 @@ defmodule AlgedoniaWeb.CommentComponents do
   attr :ticket_id, :string, required: true
   attr :current_user, :string, default: "You"
   attr :created_at, :any, required: true
+  attr :editing_comment_id, :string, default: nil
+  attr :edit_form, :map, default: nil
 
   def activity_feed(assigns) do
     ~H"""
@@ -40,6 +42,8 @@ defmodule AlgedoniaWeb.CommentComponents do
           reply_to={@reply_to}
           reply_form={@reply_form}
           current_user={@current_user}
+          editing_comment_id={@editing_comment_id}
+          edit_form={@edit_form}
         />
       </div>
 
@@ -63,10 +67,12 @@ defmodule AlgedoniaWeb.CommentComponents do
   attr :reply_to, :string, default: nil
   attr :reply_form, :map, default: nil
   attr :current_user, :string, default: "You"
+  attr :editing_comment_id, :string, default: nil
+  attr :edit_form, :map, default: nil
 
   def comment_block(assigns) do
     ~H"""
-    <div class="rounded-lg border border-border bg-surface-raised">
+    <div class="rounded-lg border border-border bg-surface-raised group/comment">
       <div class="px-3 py-2.5">
         <div class="flex items-center gap-2 mb-1.5">
           <.avatar name={@comment.author} />
@@ -74,9 +80,69 @@ defmodule AlgedoniaWeb.CommentComponents do
           <span class="text-xs text-fg-muted">
             <.relative_time datetime={@comment.inserted_at} />
           </span>
+          <div class="ml-auto flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 transition-opacity">
+            <button
+              phx-click="edit_comment"
+              phx-value-id={@comment.id}
+              class="size-6 rounded flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface transition-colors"
+              title="Edit"
+            >
+              <svg
+                class="size-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                />
+              </svg>
+            </button>
+            <button
+              phx-click="delete_comment"
+              phx-value-id={@comment.id}
+              data-confirm="Delete this comment?"
+              class="size-6 rounded flex items-center justify-center text-fg-muted hover:text-red-400 hover:bg-surface transition-colors"
+              title="Delete"
+            >
+              <svg
+                class="size-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="text-sm text-fg-secondary pl-7 max-w-none break-words comment-markdown">
+        <div
+          :if={@editing_comment_id != @comment.id}
+          class="text-sm text-fg-secondary pl-7 max-w-none break-words comment-markdown"
+        >
           {render_markdown(@comment.body)}
+        </div>
+        <div :if={@editing_comment_id == @comment.id && @edit_form} class="pl-7">
+          <.compose_form
+            form={@edit_form}
+            placeholder="Edit comment..."
+            submit_event="update_comment"
+            form_id={"edit_#{@comment.id}"}
+          />
+          <button
+            phx-click="cancel_edit"
+            class="text-xs text-fg-muted hover:text-fg mt-1 cursor-pointer"
+          >
+            Cancel
+          </button>
         </div>
       </div>
 

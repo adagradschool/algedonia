@@ -71,6 +71,47 @@ defmodule Algedonia.Tickets.CommentTest do
     end
   end
 
+  describe "update_comment/2" do
+    test "updates the body of a comment" do
+      ticket = insert_ticket!()
+      {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "old"})
+      assert {:ok, updated} = Tickets.update_comment(comment, %{body: "new"})
+      assert updated.body == "new"
+      assert updated.id == comment.id
+    end
+
+    test "returns error for invalid update" do
+      ticket = insert_ticket!()
+      {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "ok"})
+      assert {:error, %Ecto.Changeset{}} = Tickets.update_comment(comment, %{body: nil})
+    end
+  end
+
+  describe "delete_comment/1" do
+    test "deletes a comment" do
+      ticket = insert_ticket!()
+      {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "bye"})
+      assert {:ok, _} = Tickets.delete_comment(comment)
+      assert Tickets.list_comments(ticket.id) == []
+    end
+
+    test "deletes a comment and its replies" do
+      ticket = insert_ticket!()
+      {:ok, parent} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "top"})
+
+      {:ok, _reply} =
+        Tickets.create_comment(%{
+          ticket_id: ticket.id,
+          author: "b",
+          body: "child",
+          parent_id: parent.id
+        })
+
+      assert {:ok, _} = Tickets.delete_comment(parent)
+      assert Tickets.list_comments(ticket.id) == []
+    end
+  end
+
   describe "PubSub" do
     test "broadcasts comment_created on new comment" do
       ticket = insert_ticket!()
@@ -80,6 +121,26 @@ defmodule Algedonia.Tickets.CommentTest do
         Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "hi"})
 
       assert_receive {:comment_created, ^comment}
+    end
+
+    test "broadcasts comment_updated on edit" do
+      ticket = insert_ticket!()
+      Tickets.subscribe_comments(ticket.id)
+      {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "v1"})
+      assert_receive {:comment_created, _}
+
+      {:ok, updated} = Tickets.update_comment(comment, %{body: "v2"})
+      assert_receive {:comment_updated, ^updated}
+    end
+
+    test "broadcasts comment_deleted on delete" do
+      ticket = insert_ticket!()
+      Tickets.subscribe_comments(ticket.id)
+      {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "bye"})
+      assert_receive {:comment_created, _}
+
+      {:ok, deleted} = Tickets.delete_comment(comment)
+      assert_receive {:comment_deleted, ^deleted}
     end
   end
 

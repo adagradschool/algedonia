@@ -86,7 +86,9 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       comment_form: to_form(comment_changeset),
       comment_form_id: "new_comment_0",
       reply_to: nil,
-      reply_form: nil
+      reply_form: nil,
+      editing_comment_id: nil,
+      edit_form: nil
     )
   end
 
@@ -159,6 +161,34 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, assign(socket, reply_to: comment_id, reply_form: to_form(changeset))}
   end
 
+  def handle_event("edit_comment", %{"id" => id}, socket) do
+    comment = Tickets.get_comment!(id)
+    changeset = Tickets.change_comment(comment)
+    {:noreply, assign(socket, editing_comment_id: id, edit_form: to_form(changeset))}
+  end
+
+  def handle_event("update_comment", %{"comment" => params}, socket) do
+    comment = Tickets.get_comment!(socket.assigns.editing_comment_id)
+
+    case Tickets.update_comment(comment, params) do
+      {:ok, _comment} ->
+        {:noreply, assign(socket, editing_comment_id: nil, edit_form: nil)}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, edit_form: to_form(changeset))}
+    end
+  end
+
+  def handle_event("cancel_edit", _params, socket) do
+    {:noreply, assign(socket, editing_comment_id: nil, edit_form: nil)}
+  end
+
+  def handle_event("delete_comment", %{"id" => id}, socket) do
+    comment = Tickets.get_comment!(id)
+    {:ok, _} = Tickets.delete_comment(comment)
+    {:noreply, socket}
+  end
+
   def handle_event("submit_reply", %{"comment" => params}, socket) do
     ticket = socket.assigns.ticket
 
@@ -182,7 +212,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, stream_tickets(socket)}
   end
 
-  def handle_info({:comment_created, _comment}, socket) do
+  def handle_info({event, _comment}, socket)
+      when event in [:comment_created, :comment_updated, :comment_deleted] do
     ticket = socket.assigns[:ticket]
 
     if ticket do
