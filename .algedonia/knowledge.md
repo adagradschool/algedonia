@@ -33,6 +33,18 @@ Ink-based TUI agents (like Claude Code) do not read stdin as lines. They process
 4. Send `\r` (carriage return), NOT `\n` (line feed). TUI terminals expect CR.
 This mirrors how tmux `send-keys` works and is the same approach used by the `scope` tool.
 
+### Monorepo path discipline — use `just` recipes (Slice 6)
+Running `mix test`, `mix format`, `go vet`, etc. from the repo root fails silently or with confusing errors because those tools expect to be in `server/` or `daemon/` respectively. This happened repeatedly. Always use `just test`, `just lint`, `just format` (and their `-server`/`-daemon` variants) from the repo root. The justfile handles the `cd` automatically. If you must run a raw command, specify the full path: `cd server && mix test`, never just `mix test`.
+
+### Base64 passthrough for stdin data (Slice 6)
+User terminal input flows browser (xterm.js `onData` -> `btoa`) -> LiveView (`pushEvent`) -> server (`push_stdin_input`) -> daemon channel -> daemon (`base64.StdEncoding.DecodeString`). The server never decodes or re-encodes the base64 — it passes the string through as-is via `DaemonChannel.push_stdin_input/3`. Only the daemon decodes. This keeps the server simple and avoids double-encoding bugs. The same pattern applies in reverse for terminal output (daemon encodes, server decodes in `handle_in("terminal_output", ...)` for the TerminalBuffer, then re-encodes in the LiveView `push_event`).
+
+### Agent pause/resume is keyboard events, not signals (Slice 6)
+Ink-based TUI agents (Claude Code, etc.) cannot be paused/resumed with SIGSTOP/SIGCONT. They are full-screen terminal applications that manage their own input loop. To pause or resume, send the appropriate keyboard sequences through the PTY (e.g., Escape `\x1b`, Shift+Tab `\x1b[Z`). Additionally, macOS has PTY + Setpgid conflicts (see existing gotcha) that make process group signals unreliable anyway.
+
+### xterm.js `onData` captures all input including special keys (Slice 6)
+The xterm.js `onData` callback receives raw terminal input including Escape (`\x1b`), Ctrl+C (`\x03`), Shift+Tab (`\x1b[Z`), and all other special key sequences. No special key handling or filtering is needed in the hook — raw passthrough via base64 to the daemon PTY works correctly for all inputs.
+
 ## Gotchas
 
 ### `attach_hook/4` is in `Phoenix.LiveView`, not `Phoenix.Component`
@@ -74,6 +86,20 @@ Three approaches that do NOT work for delivering prompts to Claude Code:
 2. Pattern matching for `>` in output to detect readiness — `>` appears constantly in ANSI escape sequences and splash screen content, triggers false positives immediately.
 3. Idle detection with incorrect duration math — see the `time.Duration` double-conversion gotcha above; the timeout comparison will never fire.
 
+### Always read before writing to existing files (Slice 6)
+When adding content to an existing file (like the justfile), use `Edit` (targeted replacement) rather than `Write` (full file overwrite). During Slice 6, the existing `build-cli` and `server` recipes in the justfile were destroyed by a `Write` that replaced the entire file. Rule: always `Read` first, then `Edit` to append or modify specific sections.
+
 ## Useful Commands
+
+```bash
+# Monorepo commands (run from repo root)
+just test                    # All tests
+just lint                    # All linters
+just format                  # All formatters
+just test-server             # Elixir tests only
+just test-daemon             # Go tests only
+just build-cli               # Build daemon CLI as "ag" and install to ~/bin
+just server                  # Start Phoenix dev server
+```
 
 ## Rubric Notes

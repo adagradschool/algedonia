@@ -269,6 +269,38 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	return m.StartLoop(ctx, loopID, command, args, workdir, prompt)
 }
 
+// SendInput writes raw bytes to the PTY stdin of a running loop.
+func (m *Manager) SendInput(loopID string, data []byte) error {
+	m.mu.Lock()
+	lp, exists := m.loops[loopID]
+	m.mu.Unlock()
+	if !exists {
+		return fmt.Errorf("loop %s not found", loopID)
+	}
+	_, err := lp.Session.Write(data)
+	if err != nil {
+		return fmt.Errorf("writing stdin to loop %s: %w", loopID, err)
+	}
+	return nil
+}
+
+// HandleStdinInput is a command handler for "stdin_input" events from the server.
+func (m *Manager) HandleStdinInput(_ context.Context, payload map[string]interface{}) error {
+	loopID, _ := payload["loop_id"].(string)
+	if loopID == "" {
+		return fmt.Errorf("missing loop_id in stdin_input payload")
+	}
+	dataStr, _ := payload["data"].(string)
+	if dataStr == "" {
+		return nil
+	}
+	data, err := base64.StdEncoding.DecodeString(dataStr)
+	if err != nil {
+		return fmt.Errorf("decoding stdin_input base64: %w", err)
+	}
+	return m.SendInput(loopID, data)
+}
+
 // HandleStopLoop is a command handler for "stop_loop" events from the server.
 func (m *Manager) HandleStopLoop(_ context.Context, payload map[string]interface{}) error {
 	loopID, _ := payload["loop_id"].(string)

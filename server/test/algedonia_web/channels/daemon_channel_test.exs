@@ -102,6 +102,25 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
+  describe "stdin_input push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards stdin_input broadcast to daemon", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_stdin_input(
+        @daemon_id,
+        "loop-stdin-test",
+        "aGVsbG8="
+      )
+
+      assert_push "stdin_input", %{"loop_id" => "loop-stdin-test", "data" => "aGVsbG8="}
+    end
+  end
+
   describe "start_loop push" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =

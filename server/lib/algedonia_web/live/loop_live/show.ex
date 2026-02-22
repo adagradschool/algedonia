@@ -41,6 +41,17 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     end
   end
 
+  def handle_event("terminal_input", %{"data" => data}, socket) do
+    daemons = Daemons.list_daemons()
+    online = Enum.find(daemons, &(&1.status == :online))
+
+    if online do
+      DaemonChannel.push_stdin_input(online.name, socket.assigns.loop_id, data)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_event("stop_loop", _params, socket) do
     daemons = Daemons.list_daemons()
     online = Enum.find(daemons, &(&1.status == :online))

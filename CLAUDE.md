@@ -29,24 +29,32 @@ algedonia/
 
 ## Build & Test Commands
 
+All common commands have `just` recipes (run from repo root):
+
+```bash
+just test                         # Run all tests (server + daemon)
+just test-server                  # Elixir tests only
+just test-daemon                  # Go tests only
+just lint                         # Run all linters (server + daemon)
+just lint-server                  # mix compile --warnings-as-errors + format check + credo --strict
+just lint-daemon                  # go vet + go build
+just format                       # Run all formatters (server + daemon)
+just format-server                # mix format
+just format-daemon                # go fmt
+```
+
+Setup and other commands (run from respective directories):
+
 ```bash
 # Server (Elixir)
 cd server
 mix deps.get
 mix ecto.setup                    # Create DB + run migrations + seeds
-mix compile --warnings-as-errors
-mix format --check-formatted
-mix credo --strict
-mix test
 mix test --cover
 mix phx.server                    # Start dev server on port 4000
 
 # Daemon (Go)
 cd daemon
-go build ./...
-go vet ./...
-go fmt ./...
-go test ./...
 go test -cover ./...
 go build -o algedonia-agent ./cmd/algedonia-agent
 ```

@@ -23,6 +23,10 @@ const XTerm = {
     this.term.open(this.el)
     this.fitAddon.fit()
 
+    this.term.onData((data) => {
+      this.pushEvent("terminal_input", { data: btoa(data) })
+    })
+
     this.resizeObserver = new ResizeObserver(() => {
       this.fitAddon.fit()
     })

@@ -43,6 +43,15 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert render(view) =~ loop_id
     end
 
+    test "terminal_input event is a graceful no-op without online daemon", %{conn: conn} do
+      loop_id = "stdin-test-#{System.unique_integer([:positive])}"
+      {:ok, view, _html} = live(conn, "/loops/#{loop_id}")
+
+      # Should not crash even with no online daemon
+      render_hook(view, "terminal_input", %{"data" => Base.encode64("hello")})
+      assert render(view) =~ loop_id
+    end
+
     test "handles terminal_ended event", %{conn: conn} do
       loop_id = "ended-test-#{System.unique_integer([:positive])}"
       Terminals.start_buffer(loop_id)

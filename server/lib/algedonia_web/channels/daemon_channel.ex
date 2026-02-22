@@ -7,7 +7,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   alias Algedonia.Daemons
   alias Algedonia.Terminals
 
-  intercept ["start_loop", "stop_loop"]
+  intercept ["start_loop", "stop_loop", "stdin_input"]
 
   @impl true
   def join("daemon:" <> daemon_id, payload, socket) do
@@ -90,6 +90,17 @@ defmodule AlgedoniaWeb.DaemonChannel do
     AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "stop_loop", %{
       "loop_id" => loop_id,
       "reason" => reason
+    })
+  end
+
+  @doc """
+  Pushes stdin_input to the daemon connected on the given topic.
+  Data is base64-encoded and forwarded as-is to the daemon for decoding.
+  """
+  def push_stdin_input(daemon_name, loop_id, data) do
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "stdin_input", %{
+      "loop_id" => loop_id,
+      "data" => data
     })
   end
 

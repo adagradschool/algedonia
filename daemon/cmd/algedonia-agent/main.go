@@ -80,6 +80,7 @@ func newConnectCmd() *cobra.Command {
 			mgr := loopmanager.NewManager(client.SendEvent)
 			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
+			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)
 			client.SetRunningLoopsFn(mgr.RunningCount)
 
 			go func() {

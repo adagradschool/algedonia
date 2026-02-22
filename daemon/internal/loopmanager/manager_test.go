@@ -216,6 +216,126 @@ func TestHandleStopLoop(t *testing.T) {
 	}
 }
 
+func TestSendInput(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events))
+
+	ctx := context.Background()
+	// Start cat — it echoes stdin back to stdout via PTY
+	err := mgr.StartLoop(ctx, "loop-stdin", "cat", nil, "", "")
+	if err != nil {
+		t.Fatalf("StartLoop: %v", err)
+	}
+	defer mgr.StopLoop("loop-stdin", "test cleanup")
+
+	// Give cat time to start
+	time.Sleep(300 * time.Millisecond)
+
+	err = mgr.SendInput("loop-stdin", []byte("hello\n"))
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+
+	// Wait for the echo to appear in terminal_output
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for echoed output")
+		default:
+		}
+
+		mu.Lock()
+		var output string
+		for _, e := range events {
+			if e.Event == "terminal_output" {
+				if encoded, ok := e.Payload["data"].(string); ok {
+					decoded, _ := base64.StdEncoding.DecodeString(encoded)
+					output += string(decoded)
+				}
+			}
+		}
+		mu.Unlock()
+
+		if strings.Contains(output, "hello") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestSendInputNotFound(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+
+	err := mgr.SendInput("nonexistent", []byte("data"))
+	if err == nil {
+		t.Fatal("expected error for nonexistent loop")
+	}
+}
+
+func TestHandleStdinInput(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events))
+
+	ctx := context.Background()
+	err := mgr.StartLoop(ctx, "loop-handler-stdin", "cat", nil, "", "")
+	if err != nil {
+		t.Fatalf("StartLoop: %v", err)
+	}
+	defer mgr.StopLoop("loop-handler-stdin", "test cleanup")
+
+	time.Sleep(300 * time.Millisecond)
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("world\n"))
+	err = mgr.HandleStdinInput(ctx, map[string]interface{}{
+		"loop_id": "loop-handler-stdin",
+		"data":    encoded,
+	})
+	if err != nil {
+		t.Fatalf("HandleStdinInput: %v", err)
+	}
+
+	// Wait for echo
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for echoed output")
+		default:
+		}
+
+		mu.Lock()
+		var output string
+		for _, e := range events {
+			if e.Event == "terminal_output" {
+				if enc, ok := e.Payload["data"].(string); ok {
+					decoded, _ := base64.StdEncoding.DecodeString(enc)
+					output += string(decoded)
+				}
+			}
+		}
+		mu.Unlock()
+
+		if strings.Contains(output, "world") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestHandleStdinInputMissingID(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+
+	err := mgr.HandleStdinInput(context.Background(), map[string]interface{}{})
+	if err == nil {
+		t.Fatal("expected error for missing loop_id")
+	}
+}
+
 func TestSendFuncError(t *testing.T) {
 	// SendFunc that always fails — manager should still function
 	mgr := NewManager(func(string, map[string]interface{}) error {
