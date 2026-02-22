@@ -24,6 +24,7 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/algedonia"
 import topbar from "../vendor/topbar"
+import Sortable from "sortablejs"
 import XTerm from "./hooks/xterm"
 import DagGraph from "./hooks/dag_graph"
 
@@ -31,6 +32,63 @@ const Hooks = {
   ...colocatedHooks,
   XTerm,
   DagGraph,
+  TicketShortcuts: {
+    mounted() {
+      this.onKeyDown = (event) => {
+        const tag = event.target?.tagName?.toLowerCase()
+        const isEditable = event.target?.isContentEditable
+        if (isEditable || tag === "input" || tag === "textarea" || tag === "select") return
+
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+          event.preventDefault()
+          this.pushEvent("toggle_view_shortcut", {})
+        }
+      }
+      window.addEventListener("keydown", this.onKeyDown)
+    },
+    destroyed() {
+      window.removeEventListener("keydown", this.onKeyDown)
+    }
+  },
+  KanbanBoard: {
+    mounted() {
+      this.sortables = []
+      this.setup()
+    },
+    updated() {
+      this.destroy()
+      this.setup()
+    },
+    destroyed() {
+      this.destroy()
+    },
+    destroy() {
+      if (!this.sortables) return
+      this.sortables.forEach((instance) => instance.destroy())
+      this.sortables = []
+    },
+    setup() {
+      const columns = this.el.querySelectorAll("[data-kanban-column]")
+      columns.forEach((column) => {
+        const sortable = new Sortable(column, {
+          group: "kanban",
+          animation: 150,
+          ghostClass: "kanban-ghost",
+          chosenClass: "kanban-chosen",
+          dragClass: "kanban-drag",
+          delay: 80,
+          delayOnTouchOnly: true,
+          onEnd: (evt) => {
+            const ticketId = evt.item?.dataset?.ticketId
+            const status = evt.to?.dataset?.status
+            if (!ticketId || !status) return
+            this.pushEvent("move_ticket", { id: ticketId, status })
+          }
+        })
+        this.sortables.push(sortable)
+      })
+    }
+  },
   AutoResize: {
     mounted() {
       this.el.style.overflow = "hidden"
@@ -99,4 +157,3 @@ if (process.env.NODE_ENV === "development") {
     window.liveReloader = reloader
   })
 }
-

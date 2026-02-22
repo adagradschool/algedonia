@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "@xterm/xterm": "^5.5.0",
-    "@xterm/addon-fit": "^0.10.0"
+    "@xterm/addon-fit": "^0.10.0",
+    "sortablejs": "^1.15.2"
   }
 }

@@ -6,17 +6,36 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   alias Algedonia.Tickets
   alias Algedonia.Tickets.{Comment, Ticket}
+  alias Algedonia.Workspaces
 
   import AlgedoniaWeb.TicketComponents
   import AlgedoniaWeb.CommentComponents
   import AlgedoniaWeb.PresenceComponents
 
-  @statuses [:backlog, :decomposing, :decomposition_failed, :in_progress, :completed, :archived]
+  @statuses [:backlog, :decomposing, :halted, :in_progress, :completed, :archived]
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, session, socket) do
     if connected?(socket), do: Tickets.subscribe()
-    {:ok, assign(socket, statuses: @statuses)}
+    workspace_slug = params["workspace"] || session["current_workspace_slug"]
+
+    current_workspace =
+      socket.assigns[:current_workspace] ||
+        if session["current_workspace_id"] do
+          Workspaces.get_workspace!(session["current_workspace_id"])
+        else
+          nil
+        end
+
+    {:ok,
+     socket
+     |> assign(:statuses, @statuses)
+     |> assign(:confirm_delete, false)
+     |> assign(:current_user_id, session["user_id"])
+     |> assign(:current_workspace_id, session["current_workspace_id"])
+     |> assign(:current_workspace, current_workspace)
+     |> assign(:workspace_prefix, session["current_workspace_prefix"] || "AG")
+     |> assign(:workspace_slug, workspace_slug)}
   end
 
   @impl true
@@ -45,9 +64,21 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         sort_order: sort_order
       )
 
-    socket = if filters_changed?, do: stream_tickets(socket), else: socket
+    prior_action = socket.assigns[:last_live_action]
 
-    {:noreply, apply_action(socket, socket.assigns.live_action, params)}
+    socket =
+      if filters_changed? || prior_action == :show do
+        stream_tickets(socket)
+      else
+        socket
+      end
+
+    socket =
+      socket
+      |> assign(:last_live_action, socket.assigns.live_action)
+      |> apply_action(socket.assigns.live_action, params)
+
+    {:noreply, socket}
   end
 
   defp apply_action(socket, :index, _params) do
@@ -79,13 +110,16 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
     comments = Tickets.list_comments(id)
     comment_changeset = Tickets.change_comment(%Comment{ticket_id: id})
+    ticket_changeset = Tickets.change_ticket(ticket)
 
     assign(socket,
       page_title: ticket.title,
       ticket: ticket,
+      ticket_form: to_form(ticket_changeset),
       comments: comments,
       comment_form: to_form(comment_changeset),
       comment_form_id: "new_comment_0",
+      confirm_delete: false,
       reply_to: nil,
       reply_form: nil,
       editing_comment_id: nil,
@@ -106,27 +140,65 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply,
      socket
      |> put_flash(:info, "Ticket deleted")
-     |> push_patch(to: ~p"/tickets")}
+     |> push_patch(to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
+  end
+
+  def handle_event("confirm_delete", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete, true)}
+  end
+
+  def handle_event("cancel_delete", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete, false)}
+  end
+
+  def handle_event("confirm_delete_now", %{"id" => id}, socket) do
+    ticket = Tickets.get_ticket!(id)
+    {:ok, _} = Tickets.delete_ticket(ticket)
+
+    {:noreply,
+     socket
+     |> assign(:confirm_delete, false)
+     |> put_flash(:info, "Ticket deleted")
+     |> push_patch(to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
+  end
+
+  def handle_event("move_ticket", %{"id" => id, "status" => status}, socket) do
+    ticket = Tickets.get_ticket!(id)
+
+    status = parse_status(status) || ticket.status
+
+    case Tickets.update_ticket(ticket, %{status: status}) do
+      {:ok, _ticket} -> {:noreply, socket}
+      {:error, _changeset} -> {:noreply, socket}
+    end
   end
 
   def handle_event("toggle_view", %{"view" => view}, socket) do
     params = build_query_params(socket.assigns, view: view)
-    {:noreply, push_patch(socket, to: ~p"/tickets?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
+  end
+
+  def handle_event("toggle_view_shortcut", _params, socket) do
+    view = if socket.assigns.view_mode == :list, do: "board", else: "list"
+    params = build_query_params(socket.assigns, view: view)
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
   end
 
   def handle_event("filter", %{"status" => status}, socket) do
     params = build_query_params(socket.assigns, status: status)
-    {:noreply, push_patch(socket, to: ~p"/tickets?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
   end
 
   def handle_event("sort", %{"sort_by" => sort_by}, socket) do
     params = build_query_params(socket.assigns, sort_by: sort_by)
-    {:noreply, push_patch(socket, to: ~p"/tickets?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
   end
 
   def handle_event("clear_filters", _params, socket) do
     view = if socket.assigns.view_mode == :list, do: "list", else: "board"
-    {:noreply, push_patch(socket, to: ~p"/tickets?#{%{view: view}}")}
+
+    {:noreply,
+     push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{%{view: view}}")}
   end
 
   def handle_event("submit_comment", %{"comment" => params}, socket) do
@@ -150,6 +222,23 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
       {:error, changeset} ->
         {:noreply, assign(socket, comment_form: to_form(changeset))}
+    end
+  end
+
+  def handle_event("autosave_ticket", %{"ticket" => params}, socket) do
+    ticket = socket.assigns.ticket
+
+    case Tickets.update_ticket(ticket, params) do
+      {:ok, updated} ->
+        changeset = Tickets.change_ticket(updated)
+
+        {:noreply,
+         socket
+         |> assign(:ticket, updated)
+         |> assign(:ticket_form, to_form(changeset))}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :ticket_form, to_form(changeset))}
     end
   end
 
@@ -229,7 +318,14 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     %{filter_status: status, filter_assignee: assignee, sort_by: sort_by, sort_order: sort_order} =
       socket.assigns
 
-    opts = [status: status, assignee: assignee, sort_by: sort_by, sort_order: sort_order]
+    opts = [
+      status: status,
+      assignee: assignee,
+      sort_by: sort_by,
+      sort_order: sort_order,
+      workspace_id: socket.assigns.current_workspace_id
+    ]
+
     grouped = Tickets.list_tickets_by_status(opts)
     all_count = grouped |> Map.values() |> List.flatten() |> length()
 

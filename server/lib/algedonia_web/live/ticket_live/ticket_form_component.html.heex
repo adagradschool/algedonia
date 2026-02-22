@@ -1,4 +1,12 @@
-<div>
+<div class="space-y-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-sm font-semibold text-fg">
+        {if @action == :new, do: "New issue", else: "Edit issue"}
+      </h2>
+      <p class="text-xs text-fg-muted">Keep it tight and actionable.</p>
+    </div>
+  </div>
   <.form
     for={@form}
     id="ticket-form"
@@ -12,7 +20,7 @@
       type="text"
       label="Title"
       placeholder="Issue title"
-      class="w-full input input-lg text-lg font-semibold bg-surface border-border"
+      class="w-full rounded-md bg-surface-panel border border-border text-sm font-medium text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo"
       required
     />
     <.input
@@ -21,7 +29,7 @@
       label="Description"
       placeholder="Add description"
       rows="4"
-      class="w-full textarea bg-surface border-border"
+      class="w-full rounded-md bg-surface-panel border border-border text-sm text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo min-h-24"
     />
     <.input
       field={@form[:acceptance_criteria]}
@@ -29,34 +37,37 @@
       label="Acceptance Criteria"
       placeholder="Add acceptance criteria"
       rows="3"
-      class="w-full textarea bg-surface border-border"
+      class="w-full rounded-md bg-surface-panel border border-border text-sm text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo"
     />
 
-    <div class="flex flex-wrap gap-3 pt-2">
+    <div class="grid grid-cols-2 gap-3 pt-2">
       <.input
         field={@form[:status]}
         type="select"
         label="Status"
         options={status_options()}
+        class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg px-2.5 py-2 focus:outline-none focus:border-accent-indigo"
       />
       <.input
         field={@form[:priority]}
         type="select"
         label="Priority"
         options={priority_options()}
+        class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg px-2.5 py-2 focus:outline-none focus:border-accent-indigo"
       />
       <.input
         field={@form[:type]}
         type="select"
         label="Type"
         options={type_options()}
+        class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg px-2.5 py-2 focus:outline-none focus:border-accent-indigo"
       />
       <.input
         field={@form[:assignee]}
         type="text"
         label="Assignee"
         placeholder="Assignee"
-        class="w-full input max-w-40 bg-surface border-border"
+        class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo"
       />
     </div>
 
@@ -64,7 +75,7 @@
       <button
         type="submit"
         phx-disable-with="Saving..."
-        class="px-4 py-1.5 bg-accent-indigo hover:bg-accent-indigo-hover text-white text-sm font-medium rounded transition-colors"
+        class="px-4 py-1.5 bg-accent-indigo hover:bg-accent-indigo-hover text-white text-xs font-medium rounded-md transition-colors"
       >
         {@action_label}
       </button>

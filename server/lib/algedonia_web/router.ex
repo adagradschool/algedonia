@@ -21,8 +21,10 @@ defmodule AlgedoniaWeb.Router do
     get "/auth", AuthController, :create
   end
 
-  scope "/", AlgedoniaWeb do
-    pipe_through [:browser, AlgedoniaWeb.Plugs.RequireDisplayName]
+  scope "/w/:workspace", AlgedoniaWeb do
+    pipe_through [:browser, AlgedoniaWeb.Plugs.RequireUser, AlgedoniaWeb.Plugs.RequireWorkspace]
+
+    get "/", PageController, :workspace_home
 
     live_session :default, on_mount: [AlgedoniaWeb.PresenceHook] do
       live "/monitor", MonitorLive.Index, :index

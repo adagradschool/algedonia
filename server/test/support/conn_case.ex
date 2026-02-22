@@ -34,9 +34,21 @@ defmodule AlgedoniaWeb.ConnCase do
   setup tags do
     Algedonia.DataCase.setup_sandbox(tags)
 
+    workspace = Algedonia.Factory.default_workspace!()
+    user = Algedonia.Factory.insert_user!(%{name: "TestUser"})
+    _membership = Algedonia.Factory.insert_membership!(workspace, user)
+
     {:ok,
      conn:
        Phoenix.ConnTest.build_conn()
-       |> Plug.Test.init_test_session(%{display_name: "TestUser"})}
+       |> Plug.Test.init_test_session(%{
+         display_name: "TestUser",
+         user_id: user.id,
+         current_workspace_id: workspace.id,
+         current_workspace_slug: workspace.slug,
+         current_workspace_prefix: workspace.prefix
+       }),
+     workspace: workspace,
+     user: user}
   end
 end

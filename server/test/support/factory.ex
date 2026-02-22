@@ -2,16 +2,26 @@ defmodule Algedonia.Factory do
   @moduledoc """
   Test factory for building and inserting test data.
   """
+  alias Algedonia.Accounts.User
   alias Algedonia.Daemons.DaemonRegistration
   alias Algedonia.Dags.Dag
   alias Algedonia.Loops.{Loop, LoopDependency}
   alias Algedonia.Repo
   alias Algedonia.Tickets.Ticket
+  alias Algedonia.Workspaces.{Workspace, WorkspaceMembership}
 
   @doc """
   Returns a map of valid ticket attributes, merged with overrides.
   """
   def ticket_attrs(overrides \\ %{}) do
+    overrides =
+      if Map.has_key?(overrides, :workspace_id) do
+        overrides
+      else
+        workspace = default_workspace!()
+        Map.put(overrides, :workspace_id, workspace.id)
+      end
+
     Map.merge(
       %{
         title: "Test ticket #{System.unique_integer([:positive])}",
@@ -29,8 +39,84 @@ defmodule Algedonia.Factory do
   Inserts a ticket into the database with optional attribute overrides.
   """
   def insert_ticket!(overrides \\ %{}) do
+    {workspace, overrides} =
+      if Map.has_key?(overrides, :workspace_id) do
+        workspace = Repo.get!(Workspace, overrides.workspace_id)
+        {workspace, overrides}
+      else
+        workspace = default_workspace!()
+        {workspace, Map.put(overrides, :workspace_id, workspace.id)}
+      end
+
+    overrides =
+      if Map.has_key?(overrides, :number) do
+        overrides
+      else
+        Map.put(overrides, :number, Algedonia.Workspaces.next_ticket_number!(workspace))
+      end
+
     %Ticket{}
     |> Ticket.changeset(ticket_attrs(overrides))
+    |> Repo.insert!()
+  end
+
+  @doc """
+  Returns a default workspace for the current test process.
+  """
+  def default_workspace! do
+    case Process.get(:default_workspace) do
+      %Workspace{} = workspace ->
+        workspace
+
+      _ ->
+        workspace = insert_workspace!(%{slug: "testspace", name: "Algedonia"})
+        Process.put(:default_workspace, workspace)
+        workspace
+    end
+  end
+
+  def workspace_attrs(overrides \\ %{}) do
+    name = Map.get(overrides, :name, "Algedonia")
+
+    Map.merge(
+      %{
+        name: name,
+        slug: "algedonia-#{System.unique_integer([:positive])}",
+        prefix: Algedonia.Workspaces.prefix_for_name(name),
+        invite_token: "invite-#{System.unique_integer([:positive])}",
+        next_ticket_number: 1
+      },
+      overrides
+    )
+  end
+
+  def insert_workspace!(overrides \\ %{}) do
+    %Workspace{}
+    |> Workspace.changeset(workspace_attrs(overrides))
+    |> Repo.insert!()
+  end
+
+  def user_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        name: "user-#{System.unique_integer([:positive])}",
+        email: nil
+      },
+      overrides
+    )
+  end
+
+  def insert_user!(overrides \\ %{}) do
+    %User{}
+    |> User.changeset(user_attrs(overrides))
+    |> Repo.insert!()
+  end
+
+  def insert_membership!(workspace, user, overrides \\ %{}) do
+    %WorkspaceMembership{}
+    |> WorkspaceMembership.changeset(
+      Map.merge(%{workspace_id: workspace.id, user_id: user.id, role: "member"}, overrides)
+    )
     |> Repo.insert!()
   end
 

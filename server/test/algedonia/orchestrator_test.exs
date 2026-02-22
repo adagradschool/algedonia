@@ -157,7 +157,7 @@ defmodule Algedonia.OrchestratorTest do
   end
 
   describe "handle_loop_result - checker fail max attempts" do
-    test "marks ticket as decomposition_failed after max retries", %{orchestrator: pid} do
+    test "marks ticket as halted after max retries", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :backlog})
       insert_daemon!(%{status: :online})
 
@@ -178,7 +178,7 @@ defmodule Algedonia.OrchestratorTest do
       end
 
       ticket = Tickets.get_ticket!(ticket.id)
-      assert ticket.status == :decomposition_failed
+      assert ticket.status == :halted
     end
   end
 

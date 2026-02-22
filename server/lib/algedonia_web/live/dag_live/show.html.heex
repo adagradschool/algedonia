@@ -1,90 +1,92 @@
-<div class="flex flex-col h-full">
-  <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
-    <div class="flex items-center gap-3">
-      <.link
-        navigate={~p"/tickets/#{@ticket}"}
-        class="text-fg-muted hover:text-fg transition-colors"
-      >
-        <.icon name="hero-arrow-left" class="size-4" />
-      </.link>
-      <h1 class="text-sm font-medium text-fg">DAG — {@ticket.title}</h1>
-      <span
-        :if={@dag}
-        class={[
-          "text-xs px-2 py-0.5 rounded-full",
-          @dag.status == :running && "bg-blue-500/15 text-blue-400",
-          @dag.status == :completed && "bg-green-500/15 text-green-400",
-          @dag.status == :failed && "bg-red-500/15 text-red-400"
-        ]}
-      >
-        {@dag.status}
-      </span>
-    </div>
-  </header>
-
-  <div
-    :if={!@dag && @ticket.status == :decomposing}
-    class="flex-1 flex items-center justify-center"
-  >
-    <div class="text-center text-fg-muted">
-      <div class="animate-spin inline-block w-6 h-6 border-2 border-fg-muted border-t-transparent rounded-full mb-3">
+<Layouts.app flash={@flash} current_scope={@current_scope} current_workspace={@current_workspace}>
+  <div class="flex flex-col h-full">
+    <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
+      <div class="flex items-center gap-3">
+        <.link
+          navigate={~p"/w/#{@workspace_slug}/tickets/#{@ticket}"}
+          class="text-fg-muted hover:text-fg transition-colors"
+        >
+          <.icon name="hero-arrow-left" class="size-4" />
+        </.link>
+        <h1 class="text-sm font-semibold text-fg">DAG — {@ticket.title}</h1>
+        <span
+          :if={@dag}
+          class={[
+            "text-[11px] px-2 py-0.5 rounded-full border border-border",
+            @dag.status == :running && "bg-blue-500/15 text-blue-300 border-blue-500/30",
+            @dag.status == :completed && "bg-green-500/15 text-green-300 border-green-500/30",
+            @dag.status == :failed && "bg-red-500/15 text-red-300 border-red-500/30"
+          ]}
+        >
+          {@dag.status}
+        </span>
       </div>
-      <p class="text-sm">Decomposition in progress...</p>
-    </div>
-  </div>
+    </header>
 
-  <div :if={@dag} class="flex-1 flex flex-col overflow-hidden">
-    <%!-- Graph container --%>
     <div
-      id="dag-graph"
-      phx-hook="DagGraph"
-      phx-update="ignore"
-      data-graph={Jason.encode!(@graph_data)}
-      class="flex-1 min-h-[300px] bg-surface-sunken border-b border-border overflow-auto"
+      :if={!@dag && @ticket.status == :decomposing}
+      class="flex-1 flex items-center justify-center"
     >
+      <div class="text-center text-fg-muted">
+        <div class="animate-spin inline-block w-6 h-6 border-2 border-fg-muted border-t-transparent rounded-full mb-3">
+        </div>
+        <p class="text-sm">Decomposition in progress...</p>
+      </div>
     </div>
 
-    <%!-- Loop list --%>
-    <div class="overflow-auto max-h-64 p-4">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-xs text-fg-muted uppercase tracking-wide border-b border-border">
-            <th class="text-left pb-2 font-medium">Loop</th>
-            <th class="text-left pb-2 font-medium">Role</th>
-            <th class="text-left pb-2 font-medium">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={loop <- @loops} class="border-b border-border/50 hover:bg-surface-raised/50">
-            <td class="py-2">
-              <.link
-                navigate={~p"/loops/#{loop.id}"}
-                class="text-fg hover:text-accent-indigo transition-colors"
-              >
-                {loop.title}
-              </.link>
-            </td>
-            <td class="py-2 text-fg-secondary text-xs">{loop.role}</td>
-            <td class="py-2">
-              <span class="inline-flex items-center gap-1.5 text-xs">
-                <span
-                  class="w-2 h-2 rounded-full"
-                  style={"background: #{status_color(loop.status)}"}
+    <div :if={@dag} class="flex-1 flex flex-col overflow-hidden">
+      <%!-- Graph container --%>
+      <div
+        id="dag-graph"
+        phx-hook="DagGraph"
+        phx-update="ignore"
+        data-graph={Jason.encode!(@graph_data)}
+        class="flex-1 min-h-[300px] bg-surface-sunken border-b border-border overflow-auto"
+      >
+      </div>
+
+      <%!-- Loop list --%>
+      <div class="overflow-auto max-h-64 p-4">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-xs text-fg-muted uppercase tracking-wide border-b border-border">
+              <th class="text-left pb-2 font-medium">Loop</th>
+              <th class="text-left pb-2 font-medium">Role</th>
+              <th class="text-left pb-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={loop <- @loops} class="border-b border-border/50 hover:bg-surface-raised/50">
+              <td class="py-2">
+                <.link
+                  navigate={~p"/w/#{@workspace_slug}/loops/#{loop.id}"}
+                  class="text-fg hover:text-accent-indigo transition-colors"
                 >
+                  {loop.title}
+                </.link>
+              </td>
+              <td class="py-2 text-fg-secondary text-xs">{loop.role}</td>
+              <td class="py-2">
+                <span class="inline-flex items-center gap-1.5 text-xs">
+                  <span
+                    class="w-2 h-2 rounded-full"
+                    style={"background: #{status_color(loop.status)}"}
+                  >
+                  </span>
+                  {loop.status}
                 </span>
-                {loop.status}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div
+      :if={!@dag && @ticket.status != :decomposing}
+      class="flex-1 flex items-center justify-center"
+    >
+      <p class="text-sm text-fg-muted">No DAG available for this ticket.</p>
     </div>
   </div>
-
-  <div
-    :if={!@dag && @ticket.status != :decomposing}
-    class="flex-1 flex items-center justify-center"
-  >
-    <p class="text-sm text-fg-muted">No DAG available for this ticket.</p>
-  </div>
-</div>
+</Layouts.app>

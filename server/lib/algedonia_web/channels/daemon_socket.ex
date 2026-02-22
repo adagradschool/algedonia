@@ -4,6 +4,8 @@ defmodule AlgedoniaWeb.DaemonSocket do
   """
   use Phoenix.Socket
 
+  alias Algedonia.Workspaces
+
   channel "daemon:*", AlgedoniaWeb.DaemonChannel
 
   @impl true
@@ -13,12 +15,14 @@ defmodule AlgedoniaWeb.DaemonSocket do
         _connect_info
       ) do
     expected = Application.get_env(:algedonia, :project_token)
+    workspace = Workspaces.get_workspace_by_invite_token(token)
 
-    if expected && Plug.Crypto.secure_compare(token, expected) do
+    if (expected && Plug.Crypto.secure_compare(token, expected)) || workspace do
       socket =
         socket
         |> assign(:daemon_id, daemon_id)
         |> assign(:daemon_name, daemon_name)
+        |> assign(:workspace_id, workspace && workspace.id)
 
       {:ok, socket}
     else

@@ -14,6 +14,11 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
      socket
      |> assign(assigns)
      |> assign(:action_label, if(action == :new, do: "Save issue", else: "Update issue"))
+     |> assign_new(:return_to, fn ->
+       workspace_slug = Map.get(assigns, :workspace_slug)
+       if workspace_slug, do: ~p"/w/#{workspace_slug}/tickets", else: "/tickets"
+     end)
+     |> assign_new(:workspace, fn -> nil end)
      |> assign_form(changeset)}
   end
 
@@ -32,12 +37,18 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   end
 
   defp save_ticket(socket, :new, ticket_params) do
-    case Tickets.create_ticket(ticket_params) do
+    result =
+      case socket.assigns.workspace do
+        nil -> Tickets.create_ticket(ticket_params)
+        workspace -> Tickets.create_ticket_for_workspace(workspace, ticket_params)
+      end
+
+    case result do
       {:ok, _ticket} ->
         {:noreply,
          socket
          |> put_flash(:info, "Ticket created")
-         |> push_patch(to: ~p"/tickets")}
+         |> push_patch(to: socket.assigns.return_to)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
@@ -50,7 +61,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
         {:noreply,
          socket
          |> put_flash(:info, "Ticket updated")
-         |> push_patch(to: ~p"/tickets")}
+         |> push_patch(to: socket.assigns.return_to)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
@@ -65,7 +76,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
     [
       Backlog: :backlog,
       Decomposing: :decomposing,
-      "Decomposition Failed": :decomposition_failed,
+      Halted: :halted,
       "In Progress": :in_progress,
       Completed: :completed,
       Archived: :archived

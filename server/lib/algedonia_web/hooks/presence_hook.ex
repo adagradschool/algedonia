@@ -6,16 +6,33 @@ defmodule AlgedoniaWeb.PresenceHook do
   import Phoenix.LiveView, only: [connected?: 1, attach_hook: 4]
 
   alias Algedonia.Presence
+  alias Algedonia.Workspaces
 
-  def on_mount(:default, _params, session, socket) do
+  def on_mount(:default, params, session, socket) do
     display_name = session["display_name"] || "Anonymous"
-    topic = topic_for(socket.view)
+    workspace_slug = params["workspace"]
+
+    workspace =
+      if id = session["current_workspace_id"] do
+        Workspaces.get_workspace!(id)
+      else
+        nil
+      end
+
+    topic = topic_for(socket.view, workspace_slug)
 
     socket =
       socket
       |> assign(:display_name, display_name)
       |> assign(:presence_topic, topic)
       |> assign(:presences, [])
+      |> assign(:current_scope, nil)
+      |> assign(:nav_section, nav_section_for(socket.view))
+      |> assign(:workspace_slug, workspace_slug)
+      |> assign(:current_workspace, workspace)
+      |> attach_hook(:current_path, :handle_params, fn _params, uri, socket ->
+        {:cont, assign(socket, :current_path, URI.parse(uri).path)}
+      end)
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Algedonia.PubSub, topic)
@@ -53,7 +70,20 @@ defmodule AlgedoniaWeb.PresenceHook do
     end)
   end
 
-  defp topic_for(AlgedoniaWeb.TicketLive.Index), do: "presence:tickets"
-  defp topic_for(AlgedoniaWeb.MonitorLive.Index), do: "presence:monitor"
-  defp topic_for(view), do: "presence:#{inspect(view)}"
+  defp topic_for(view, workspace_slug) do
+    base =
+      case view do
+        AlgedoniaWeb.TicketLive.Index -> "presence:tickets"
+        AlgedoniaWeb.MonitorLive.Index -> "presence:monitor"
+        _ -> "presence:#{inspect(view)}"
+      end
+
+    if workspace_slug, do: "#{base}:#{workspace_slug}", else: base
+  end
+
+  defp nav_section_for(AlgedoniaWeb.TicketLive.Index), do: :issues
+  defp nav_section_for(AlgedoniaWeb.MonitorLive.Index), do: :monitor
+  defp nav_section_for(AlgedoniaWeb.LoopLive.Show), do: :loops
+  defp nav_section_for(AlgedoniaWeb.DagLive.Show), do: :issues
+  defp nav_section_for(_), do: nil
 end

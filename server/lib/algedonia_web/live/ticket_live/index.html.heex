@@ -1,277 +1,416 @@
-<div class="flex flex-col h-full">
-  <%!-- Header bar --%>
-  <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
-    <div class="flex items-center gap-4">
-      <h1 class="text-sm font-medium text-fg">Active issues</h1>
-      <span class="text-xs text-fg-muted">{@ticket_count}</span>
+<Layouts.app flash={@flash} current_scope={@current_scope} current_workspace={@current_workspace}>
+  <div id="ticket-shell" class="flex flex-col h-full" phx-hook="TicketShortcuts">
+    <%!-- Header bar --%>
+    <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-semibold text-fg">Active issues</h1>
+          <span class="text-[11px] text-fg-muted">{@ticket_count}</span>
+        </div>
 
-      <%!-- Filter dropdown --%>
-      <div class="dropdown dropdown-end">
-        <label
-          tabindex="0"
-          class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
-        >
-          <.icon name="hero-funnel" class="size-3" /> Filter
-        </label>
-        <ul
-          tabindex="0"
-          class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-48 p-1 shadow-lg mt-1"
-        >
-          <li>
-            <button
-              phx-click="clear_filters"
-              class={["text-xs rounded", !@filter_status && "text-fg bg-accent-indigo/10"]}
-            >
-              All statuses
-            </button>
-          </li>
-          <li :for={status <- @statuses}>
-            <button
-              phx-click="filter"
-              phx-value-status={status}
-              class={[
-                "text-xs rounded",
-                @filter_status == status && "text-fg bg-accent-indigo/10"
-              ]}
-            >
-              <.status_icon status={status} /> {status_label(status)}
-            </button>
-          </li>
-        </ul>
+        <%!-- Filter dropdown --%>
+        <div class="dropdown dropdown-end">
+          <label
+            tabindex="0"
+            class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded-md text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
+          >
+            <.icon name="hero-funnel" class="size-3" /> Filter
+          </label>
+          <ul
+            tabindex="0"
+            class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-52 p-1 shadow-lg mt-1"
+          >
+            <li>
+              <button
+                phx-click="clear_filters"
+                class={["text-xs rounded", !@filter_status && "text-fg bg-accent-indigo/10"]}
+              >
+                All statuses
+              </button>
+            </li>
+            <li :for={status <- @statuses}>
+              <button
+                phx-click="filter"
+                phx-value-status={status}
+                class={[
+                  "text-xs rounded",
+                  @filter_status == status && "text-fg bg-accent-indigo/10"
+                ]}
+              >
+                <.status_icon status={status} /> {status_label(status)}
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <%!-- Sort dropdown --%>
+        <div class="dropdown dropdown-end">
+          <label
+            tabindex="0"
+            class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded-md text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
+          >
+            <.icon name="hero-arrows-up-down" class="size-3" /> Sort
+          </label>
+          <ul
+            tabindex="0"
+            class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-44 p-1 shadow-lg mt-1"
+          >
+            <li>
+              <button
+                phx-click="sort"
+                phx-value-sort_by="priority"
+                class={["text-xs rounded", @sort_by == :priority && "text-fg bg-accent-indigo/10"]}
+              >
+                Priority
+              </button>
+            </li>
+            <li>
+              <button
+                phx-click="sort"
+                phx-value-sort_by="inserted_at"
+                class={[
+                  "text-xs rounded",
+                  @sort_by == :inserted_at && "text-fg bg-accent-indigo/10"
+                ]}
+              >
+                Date created
+              </button>
+            </li>
+            <li>
+              <button
+                phx-click="sort"
+                phx-value-sort_by="title"
+                class={["text-xs rounded", @sort_by == :title && "text-fg bg-accent-indigo/10"]}
+              >
+                Title
+              </button>
+            </li>
+          </ul>
+        </div>
       </div>
 
-      <%!-- Sort dropdown --%>
-      <div class="dropdown dropdown-end">
-        <label
-          tabindex="0"
-          class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
+      <div class="flex items-center gap-2">
+        <.presence_indicator presences={@presences} current_user={@display_name} />
+
+        <%!-- View toggle --%>
+        <div class="flex bg-surface-raised border border-border rounded-md overflow-hidden">
+          <button
+            phx-click="toggle_view"
+            phx-value-view="board"
+            class={[
+              "px-2 py-1 transition-colors",
+              @view_mode == :board && "bg-accent-indigo/20 text-fg",
+              @view_mode != :board && "text-fg-muted hover:text-fg"
+            ]}
+            title="Board view"
+          >
+            <.icon name="hero-view-columns" class="size-3.5" />
+          </button>
+          <button
+            phx-click="toggle_view"
+            phx-value-view="list"
+            class={[
+              "px-2 py-1 transition-colors",
+              @view_mode == :list && "bg-accent-indigo/20 text-fg",
+              @view_mode != :list && "text-fg-muted hover:text-fg"
+            ]}
+            title="List view"
+          >
+            <.icon name="hero-bars-3" class="size-3.5" />
+          </button>
+        </div>
+
+        <%!-- New ticket button --%>
+        <.link
+          id="new-issue-button"
+          patch={~p"/w/#{@workspace_slug}/tickets/new"}
+          class="flex bg-accent-indigo hover:bg-accent-indigo-hover text-white rounded-md overflow-hidden cursor-pointer"
         >
-          <.icon name="hero-arrows-up-down" class="size-3" /> Sort
-        </label>
-        <ul
-          tabindex="0"
-          class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-44 p-1 shadow-lg mt-1"
-        >
-          <li>
-            <button
-              phx-click="sort"
-              phx-value-sort_by="priority"
-              class={["text-xs rounded", @sort_by == :priority && "text-fg bg-accent-indigo/10"]}
-            >
-              Priority
-            </button>
-          </li>
-          <li>
-            <button
-              phx-click="sort"
-              phx-value-sort_by="inserted_at"
-              class={[
-                "text-xs rounded",
-                @sort_by == :inserted_at && "text-fg bg-accent-indigo/10"
-              ]}
-            >
-              Date created
-            </button>
-          </li>
-          <li>
-            <button
-              phx-click="sort"
-              phx-value-sort_by="title"
-              class={["text-xs rounded", @sort_by == :title && "text-fg bg-accent-indigo/10"]}
-            >
-              Title
-            </button>
-          </li>
-        </ul>
+          <span class="px-3 py-1 text-sm font-medium">+ Issue</span>
+        </.link>
       </div>
+    </header>
+
+    <%!-- Board view --%>
+    <div
+      :if={@live_action != :show && @view_mode == :board}
+      id="ticket-board"
+      phx-hook="KanbanBoard"
+      class="flex gap-4 overflow-x-auto p-4 flex-1"
+    >
+      <.status_column
+        :for={status <- @statuses}
+        status={status}
+        count={length(Map.get(@tickets_by_status, status, []))}
+        stream={stream_for(@streams, status)}
+        prefix={@workspace_prefix}
+        workspace_slug={@workspace_slug}
+      />
     </div>
 
-    <div class="flex items-center gap-2">
-      <.presence_indicator presences={@presences} current_user={@display_name} />
-
-      <%!-- View toggle --%>
-      <div class="flex bg-surface-raised border border-border rounded overflow-hidden">
-        <button
-          phx-click="toggle_view"
-          phx-value-view="board"
-          class={[
-            "px-2 py-1 transition-colors",
-            @view_mode == :board && "bg-accent-indigo/15 text-fg",
-            @view_mode != :board && "text-fg-muted hover:text-fg"
-          ]}
-          title="Board view"
+    <%!-- List view --%>
+    <div :if={@live_action != :show && @view_mode == :list} class="flex-1 overflow-auto px-2 py-2">
+      <div :for={status <- @statuses} :if={Map.get(@tickets_by_status, status, []) != []}>
+        <div class="flex items-center gap-2 px-3 py-1.5">
+          <.status_icon status={status} />
+          <span class="text-xs font-medium text-fg-secondary">{status_label(status)}</span>
+          <span class="text-[10px] text-fg-muted">
+            {length(Map.get(@tickets_by_status, status, []))}
+          </span>
+        </div>
+        <div
+          id={"list-#{status}"}
+          phx-update="stream"
         >
-          <.icon name="hero-view-columns" class="size-3.5" />
-        </button>
-        <button
-          phx-click="toggle_view"
-          phx-value-view="list"
-          class={[
-            "px-2 py-1 transition-colors",
-            @view_mode == :list && "bg-accent-indigo/15 text-fg",
-            @view_mode != :list && "text-fg-muted hover:text-fg"
-          ]}
-          title="List view"
-        >
-          <.icon name="hero-bars-3" class="size-3.5" />
-        </button>
-      </div>
-
-      <%!-- New ticket button --%>
-      <.link
-        patch={~p"/tickets/new"}
-        class="flex bg-accent-indigo hover:bg-accent-indigo-hover text-white rounded overflow-hidden cursor-pointer"
-      >
-        <span class="px-3 py-1 text-sm font-medium">+ Issue</span>
-      </.link>
-    </div>
-  </header>
-
-  <%!-- Board view --%>
-  <div :if={@view_mode == :board} class="flex gap-4 overflow-x-auto p-4 flex-1">
-    <.status_column
-      :for={status <- @statuses}
-      status={status}
-      count={length(Map.get(@tickets_by_status, status, []))}
-      stream={stream_for(@streams, status)}
-    />
-  </div>
-
-  <%!-- List view --%>
-  <div :if={@view_mode == :list} class="flex-1 overflow-auto px-2 py-2">
-    <div :for={status <- @statuses} :if={Map.get(@tickets_by_status, status, []) != []}>
-      <div class="flex items-center gap-2 px-3 py-1.5">
-        <.status_icon status={status} />
-        <span class="text-xs font-medium text-fg-secondary">{status_label(status)}</span>
-        <span class="text-[10px] text-fg-muted">
-          {length(Map.get(@tickets_by_status, status, []))}
-        </span>
+          <.ticket_row
+            :for={{dom_id, ticket} <- stream_for(@streams, status)}
+            ticket={ticket}
+            id={dom_id}
+            prefix={@workspace_prefix}
+            workspace_slug={@workspace_slug}
+          />
+        </div>
       </div>
       <div
-        id={"list-#{status}"}
-        phx-update="stream"
+        :if={@ticket_count == 0}
+        class="text-center text-fg-muted py-12 text-sm"
       >
-        <.ticket_row
-          :for={{dom_id, ticket} <- stream_for(@streams, status)}
-          ticket={ticket}
-          id={dom_id}
-        />
+        No issues found.
       </div>
     </div>
-    <div
-      :if={@ticket_count == 0}
-      class="text-center text-fg-muted py-12 text-sm"
-    >
-      No issues found.
+
+    <%!-- Detail view --%>
+    <div :if={@live_action == :show && @ticket} class="flex-1 overflow-auto">
+      <div class="max-w-6xl mx-auto px-6 py-6">
+        <div class="grid grid-cols-[minmax(0,1fr)_18rem] gap-8">
+          <div class="min-w-0">
+            <.form
+              for={@ticket_form}
+              id="ticket-detail-form"
+              phx-change="autosave_ticket"
+              class="min-w-0"
+            >
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <.link
+                    patch={~p"/w/#{@workspace_slug}/tickets"}
+                    class="text-fg-muted hover:text-fg transition-colors"
+                  >
+                    <.icon name="hero-arrow-left" class="size-4" />
+                  </.link>
+                  <span class="font-mono text-xs text-fg-muted">
+                    {if @ticket.number,
+                      do: "#{@workspace_prefix}-#{@ticket.number}",
+                      else: String.slice(@ticket.id, 0, 8)}
+                  </span>
+                </div>
+                <div class="flex gap-1">
+                  <button
+                    :if={@ticket.status == :backlog}
+                    phx-click="start_work"
+                    phx-value-id={@ticket.id}
+                    class="size-7 flex items-center justify-center text-fg-muted hover:text-fg transition-colors rounded-md hover:bg-surface-raised"
+                    title="Start work"
+                    type="button"
+                  >
+                    <.icon name="hero-play-mini" class="size-4 text-green-400" />
+                  </button>
+                  <.link
+                    :if={@ticket.status in [:decomposing, :in_progress, :completed]}
+                    navigate={~p"/w/#{@workspace_slug}/dags/#{@ticket}"}
+                    class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
+                  >
+                    <.icon name="hero-rectangle-group" class="size-3" /> View DAG
+                  </.link>
+                  <button
+                    phx-click="confirm_delete"
+                    class="size-7 flex items-center justify-center text-fg-muted hover:text-status-red transition-colors rounded-md hover:bg-surface-raised"
+                    title="Delete"
+                    type="button"
+                  >
+                    <.icon name="hero-trash-mini" class="size-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <.input
+                  field={@ticket_form[:title]}
+                  type="text"
+                  placeholder="Issue title"
+                  class="w-full bg-transparent border-0 text-2xl font-semibold text-fg placeholder-fg-muted p-0 focus:ring-0 focus:outline-none"
+                  phx-debounce="600"
+                />
+              </div>
+
+              <div class="mt-6 border-t border-border pt-4 space-y-4">
+                <div>
+                  <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
+                    Description
+                  </div>
+                  <.input
+                    field={@ticket_form[:description]}
+                    type="textarea"
+                    rows="4"
+                    placeholder="Add description"
+                    class="w-full bg-transparent border border-transparent text-sm text-fg-secondary placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                    phx-debounce="700"
+                  />
+                </div>
+
+                <div>
+                  <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
+                    Acceptance Criteria
+                  </div>
+                  <.input
+                    field={@ticket_form[:acceptance_criteria]}
+                    type="textarea"
+                    rows="3"
+                    placeholder="Add acceptance criteria"
+                    class="w-full bg-transparent border border-transparent text-sm text-fg-secondary placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                    phx-debounce="700"
+                  />
+                </div>
+
+                <div>
+                  <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
+                    Rubric
+                  </div>
+                  <.input
+                    field={@ticket_form[:rubric]}
+                    type="textarea"
+                    rows="3"
+                    placeholder="Add rubric"
+                    class="w-full bg-transparent border border-transparent text-sm text-fg-secondary placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                    phx-debounce="700"
+                  />
+                </div>
+              </div>
+            </.form>
+
+            <%!-- Activity / Comments --%>
+            <div class="mt-8">
+              <.activity_feed
+                comments={@comments}
+                comment_form={@comment_form}
+                comment_form_id={@comment_form_id}
+                reply_to={@reply_to}
+                reply_form={@reply_form}
+                ticket_id={@ticket.id}
+                created_at={@ticket.inserted_at}
+                editing_comment_id={@editing_comment_id}
+                edit_form={@edit_form}
+              />
+            </div>
+          </div>
+
+          <aside class="w-72">
+            <div class="space-y-3">
+              <div class="text-xs font-medium text-fg-muted uppercase tracking-wide">
+                Properties
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                  <.icon name="hero-adjustments-horizontal-mini" class="size-3.5" /> Status
+                </div>
+                <.input
+                  field={@ticket_form[:status]}
+                  type="select"
+                  options={AlgedoniaWeb.TicketLive.TicketFormComponent.status_options()}
+                  class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  phx-debounce="600"
+                />
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                  <.icon name="hero-signal-mini" class="size-3.5" /> Priority
+                </div>
+                <.input
+                  field={@ticket_form[:priority]}
+                  type="select"
+                  options={AlgedoniaWeb.TicketLive.TicketFormComponent.priority_options()}
+                  class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  phx-debounce="600"
+                />
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                  <.icon name="hero-tag-mini" class="size-3.5" /> Type
+                </div>
+                <.input
+                  field={@ticket_form[:type]}
+                  type="select"
+                  options={AlgedoniaWeb.TicketLive.TicketFormComponent.type_options()}
+                  class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  phx-debounce="600"
+                />
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                  <.icon name="hero-user-mini" class="size-3.5" /> Assignee
+                </div>
+                <.input
+                  field={@ticket_form[:assignee]}
+                  type="text"
+                  placeholder="Assignee"
+                  class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  phx-debounce="600"
+                />
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
     </div>
   </div>
-</div>
 
-<%!-- Create/Edit modal --%>
-<.modal
-  :if={@live_action in [:new, :edit]}
-  id="ticket-modal"
-  show
-  on_cancel={JS.patch(~p"/tickets")}
->
-  <.live_component
-    module={AlgedoniaWeb.TicketLive.TicketFormComponent}
-    id={(@ticket && @ticket.id) || :new}
-    ticket={@ticket}
-    action={@live_action}
-    patch={~p"/tickets"}
-  />
-</.modal>
-
-<%!-- Show/Detail modal --%>
-<.modal
-  :if={@live_action == :show && @ticket}
-  id="ticket-detail-modal"
-  show
-  on_cancel={JS.patch(~p"/tickets")}
->
-  <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <span class="font-mono text-xs text-fg-muted">{String.slice(@ticket.id, 0, 8)}</span>
-      <div class="flex gap-1">
-        <.link
-          patch={~p"/tickets/#{@ticket}/edit"}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-fg-secondary hover:text-fg transition-colors rounded hover:bg-surface-raised"
-        >
-          <.icon name="hero-pencil" class="size-3" /> Edit
-        </.link>
-        <button
-          :if={@ticket.status == :backlog}
-          phx-click="start_work"
-          phx-value-id={@ticket.id}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-green-400 hover:text-green-300 transition-colors rounded hover:bg-surface-raised"
-        >
-          <.icon name="hero-play" class="size-3" /> Start Work
-        </button>
-        <.link
-          :if={@ticket.status in [:decomposing, :in_progress, :completed]}
-          navigate={~p"/dags/#{@ticket}"}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
-        >
-          <.icon name="hero-rectangle-group" class="size-3" /> View DAG
-        </.link>
-        <button
-          phx-click="delete"
-          phx-value-id={@ticket.id}
-          data-confirm="Are you sure you want to delete this issue?"
-          class="flex items-center gap-1 px-2 py-1 text-xs text-status-red hover:text-status-red/80 transition-colors rounded hover:bg-surface-raised"
-        >
-          <.icon name="hero-trash" class="size-3" /> Delete
-        </button>
-      </div>
-    </div>
-
-    <h2 class="text-lg font-semibold text-fg">{@ticket.title}</h2>
-
-    <div class="flex flex-wrap items-center gap-3 text-xs">
-      <div class="flex items-center gap-1.5">
-        <.status_icon status={@ticket.status} />
-        <span class="text-fg-secondary">{status_label(@ticket.status)}</span>
-      </div>
-      <span class="text-border">|</span>
-      <div class="flex items-center gap-1.5">
-        <.priority_icon priority={@ticket.priority} />
-        <span class="text-fg-secondary">P{@ticket.priority}</span>
-      </div>
-      <span class="text-border">|</span>
-      <.type_badge type={@ticket.type} />
-      <span :if={@ticket.assignee} class="text-border">|</span>
-      <span :if={@ticket.assignee} class="text-fg-secondary">{@ticket.assignee}</span>
-    </div>
-
-    <div :if={@ticket.description} class="space-y-1 pt-2 border-t border-border">
-      <h3 class="text-xs font-medium text-fg-muted uppercase tracking-wide">Description</h3>
-      <p class="text-sm text-fg-secondary whitespace-pre-wrap">{@ticket.description}</p>
-    </div>
-
-    <div :if={@ticket.acceptance_criteria} class="space-y-1">
-      <h3 class="text-xs font-medium text-fg-muted uppercase tracking-wide">
-        Acceptance Criteria
-      </h3>
-      <p class="text-sm text-fg-secondary whitespace-pre-wrap">{@ticket.acceptance_criteria}</p>
-    </div>
-
-    <div :if={@ticket.rubric} class="space-y-1">
-      <h3 class="text-xs font-medium text-fg-muted uppercase tracking-wide">Rubric</h3>
-      <p class="text-sm text-fg-secondary whitespace-pre-wrap">{@ticket.rubric}</p>
-    </div>
-
-    <%!-- Activity / Comments --%>
-    <.activity_feed
-      comments={@comments}
-      comment_form={@comment_form}
-      comment_form_id={@comment_form_id}
-      reply_to={@reply_to}
-      reply_form={@reply_form}
-      ticket_id={@ticket.id}
-      created_at={@ticket.inserted_at}
-      editing_comment_id={@editing_comment_id}
-      edit_form={@edit_form}
+  <%!-- Create/Edit modal --%>
+  <.modal
+    :if={@live_action in [:new, :edit]}
+    id="ticket-modal"
+    show
+    on_cancel={JS.patch(~p"/w/#{@workspace_slug}/tickets")}
+  >
+    <.live_component
+      module={AlgedoniaWeb.TicketLive.TicketFormComponent}
+      id={(@ticket && @ticket.id) || :new}
+      ticket={@ticket}
+      action={@live_action}
+      patch={~p"/w/#{@workspace_slug}/tickets"}
+      return_to={~p"/w/#{@workspace_slug}/tickets"}
+      workspace={@current_workspace}
+      workspace_slug={@workspace_slug}
     />
-  </div>
-</.modal>
+  </.modal>
+
+  <.modal
+    :if={@confirm_delete}
+    id="ticket-delete-modal"
+    show
+    on_cancel={JS.push("cancel_delete")}
+  >
+    <div class="space-y-4">
+      <div>
+        <h3 class="text-sm font-semibold text-fg">Delete issue?</h3>
+        <p class="text-xs text-fg-muted mt-1">
+          This cannot be undone.
+        </p>
+      </div>
+      <div class="flex items-center justify-end gap-2">
+        <button
+          phx-click="cancel_delete"
+          class="px-3 py-1.5 text-xs text-fg-muted hover:text-fg rounded-md hover:bg-surface-raised"
+        >
+          Cancel
+        </button>
+        <button
+          phx-click="confirm_delete_now"
+          phx-value-id={@ticket.id}
+          class="px-3 py-1.5 text-xs text-white bg-status-red hover:bg-status-red/80 rounded-md"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  </.modal>
+</Layouts.app>

@@ -14,22 +14,31 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
 
     daemons = Daemons.list_daemons()
 
-    {:ok, stream(socket, :daemons, daemons)}
+    {:ok,
+     socket
+     |> assign(:daemon_count, length(daemons))
+     |> stream(:daemons, daemons)}
   end
 
   @impl true
   def handle_info({:daemon_status_changed, daemon}, socket) do
-    {:noreply, stream_insert(socket, :daemons, daemon)}
+    {:noreply,
+     socket
+     |> assign(:daemon_count, Daemons.list_daemons() |> length())
+     |> stream_insert(:daemons, daemon)}
   end
 
   def handle_info({:daemon_heartbeat, daemon}, socket) do
-    {:noreply, stream_insert(socket, :daemons, daemon)}
+    {:noreply,
+     socket
+     |> assign(:daemon_count, Daemons.list_daemons() |> length())
+     |> stream_insert(:daemons, daemon)}
   end
 
-  defp status_color(:online), do: "bg-green-500"
-  defp status_color(:unhealthy), do: "bg-yellow-500"
-  defp status_color(:offline), do: "bg-gray-400"
-  defp status_color(_), do: "bg-gray-400"
+  defp status_color(:online), do: "bg-status-green"
+  defp status_color(:unhealthy), do: "bg-status-yellow"
+  defp status_color(:offline), do: "bg-fg-muted"
+  defp status_color(_), do: "bg-fg-muted"
 
   defp relative_time(nil), do: "never"
 

@@ -7,4 +7,7 @@ defmodule AlgedoniaWeb.PageHTML do
   use AlgedoniaWeb, :html
 
   embed_templates "page_html/*"
+
+  defp workspace_path(nil, path), do: path
+  defp workspace_path(%{slug: slug}, path), do: "/w/#{slug}#{path}"
 end

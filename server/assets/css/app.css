@@ -105,22 +105,29 @@
 
 /* ── Fonts ─────────────────────────────────────── */
 @font-face {
-  font-family: 'Satoshi';
-  src: url('https://api.fontsource.org/v1/fonts/satoshi/latin-400-normal.woff2') format('woff2');
+  font-family: 'Inter UI';
+  src: url('https://api.fontsource.org/v1/fonts/inter/latin-400-normal.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: 'Satoshi';
-  src: url('https://api.fontsource.org/v1/fonts/satoshi/latin-500-normal.woff2') format('woff2');
+  font-family: 'Inter UI';
+  src: url('https://api.fontsource.org/v1/fonts/inter/latin-500-normal.woff2') format('woff2');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: 'Satoshi';
-  src: url('https://api.fontsource.org/v1/fonts/satoshi/latin-700-normal.woff2') format('woff2');
+  font-family: 'Inter UI';
+  src: url('https://api.fontsource.org/v1/fonts/inter/latin-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter UI';
+  src: url('https://api.fontsource.org/v1/fonts/inter/latin-700-normal.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -135,24 +142,30 @@
 
 /* ── Theme overrides ───────────────────────────── */
 @theme {
-  --font-sans: 'Satoshi', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter UI', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Azeret Mono', ui-monospace, monospace;
   /* Design palette as custom colors */
-  --color-surface: #0d0e12;
-  --color-surface-raised: #1a1b22;
-  --color-surface-sidebar: #16171d;
-  --color-border: #26272e;
-  --color-fg: #e8e8ea;
-  --color-fg-secondary: #a8aaae;
-  --color-fg-muted: #666b7a;
+  --color-surface: #0f1115;
+  --color-surface-raised: #171a21;
+  --color-surface-sidebar: #0d0f14;
+  --color-surface-panel: #11141a;
+  --color-border: #232833;
+  --color-border-soft: #1b2029;
+  --color-fg: #e7e9ee;
+  --color-fg-secondary: #b2b6c2;
+  --color-fg-muted: #727989;
+  --color-fg-subtle: #565c6b;
   --color-accent-indigo: #5e6ad2;
   --color-accent-indigo-hover: #4f59b0;
-  --color-status-green: #22c55e;
-  --color-status-orange: #f97316;
-  --color-status-red: #ef4444;
-  --color-status-yellow: #eab308;
-  --color-status-cyan: #06b6d4;
-  --color-status-blue: #3b82f6;
+  --color-accent-indigo-soft: #2a2f55;
+  --color-status-green: #2bc37c;
+  --color-status-orange: #f68c3f;
+  --color-status-red: #f55a5a;
+  --color-status-yellow: #e5b948;
+  --color-status-cyan: #44c6e0;
+  --color-status-blue: #5a8dff;
+  --color-shadow-strong: rgba(0, 0, 0, 0.45);
+  --color-shadow-soft: rgba(0, 0, 0, 0.25);
 }
 
 /* ── Global styles ─────────────────────────────── */
@@ -160,40 +173,79 @@ body {
   font-family: var(--font-sans);
   background-color: var(--color-surface);
   color: var(--color-fg);
+  font-size: 13px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Markdown in comments */
-.comment-markdown p { margin: 0.25em 0; }
-.comment-markdown p:first-child { margin-top: 0; }
-.comment-markdown p:last-child { margin-bottom: 0; }
-.comment-markdown a { color: var(--color-accent-indigo); text-decoration: underline; }
-.comment-markdown a:hover { color: var(--color-accent-indigo-hover); }
-.comment-markdown code {
-  background: var(--color-surface);
-  padding: 0.125em 0.375em;
+::selection {
+  background: rgba(94, 106, 210, 0.35);
+}
+
+.modal {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+}
+
+.modal-backdrop {
+  background: rgba(9, 10, 12, 0.7);
+  backdrop-filter: blur(8px);
+}
+
+.modal-box {
+  border-radius: 12px;
+  box-shadow: 0 18px 60px var(--color-shadow-strong);
+}
+
+.linear-glass {
+  background: rgba(15, 17, 21, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+/* Markdown */
+.markdown p { margin: 0.3em 0; }
+.markdown p:first-child { margin-top: 0; }
+.markdown p:last-child { margin-bottom: 0; }
+.markdown a { color: var(--color-accent-indigo); text-decoration: none; }
+.markdown a:hover { color: var(--color-accent-indigo-hover); text-decoration: underline; }
+.markdown code {
+  background: var(--color-surface-panel);
+  padding: 0.15em 0.4em;
   border-radius: 0.25rem;
   font-size: 0.85em;
 }
-.comment-markdown pre {
-  background: var(--color-surface);
-  padding: 0.5em 0.75em;
-  border-radius: 0.375rem;
+.markdown pre {
+  background: var(--color-surface-panel);
+  padding: 0.75em 0.9em;
+  border-radius: 0.5rem;
   overflow-x: auto;
-  margin: 0.5em 0;
+  margin: 0.6em 0;
+  border: 1px solid var(--color-border-soft);
 }
-.comment-markdown pre code { background: none; padding: 0; }
-.comment-markdown ul, .comment-markdown ol { padding-left: 1.5em; margin: 0.25em 0; }
-.comment-markdown ul { list-style-type: disc; }
-.comment-markdown ol { list-style-type: decimal; }
-.comment-markdown blockquote {
+.markdown pre code { background: none; padding: 0; }
+.markdown ul, .markdown ol { padding-left: 1.4em; margin: 0.3em 0; }
+.markdown ul { list-style-type: disc; }
+.markdown ol { list-style-type: decimal; }
+.markdown blockquote {
   border-left: 2px solid var(--color-border);
-  padding-left: 0.75em;
+  padding-left: 0.8em;
   color: var(--color-fg-muted);
-  margin: 0.25em 0;
+  margin: 0.35em 0;
 }
-.comment-markdown strong { font-weight: 600; color: var(--color-fg); }
+.markdown strong { font-weight: 600; color: var(--color-fg); }
+
+/* Kanban drag styles */
+.kanban-ghost {
+  opacity: 0.4;
+}
+.kanban-chosen {
+  box-shadow: 0 10px 30px var(--color-shadow-soft);
+  transform: rotate(0.6deg);
+}
+.kanban-drag {
+  cursor: grabbing;
+}
 
 /* Scrollbar styling for dark theme */
 ::-webkit-scrollbar {
@@ -204,9 +256,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-fg-muted);
+  background: rgba(115, 120, 135, 0.5);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-fg-secondary);
+  background: rgba(115, 120, 135, 0.7);
 }
