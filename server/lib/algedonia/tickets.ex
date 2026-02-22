@@ -24,8 +24,10 @@ defmodule Algedonia.Tickets do
   def list_tickets(opts \\ []) do
     sort_by = Keyword.get(opts, :sort_by, :inserted_at)
     sort_order = Keyword.get(opts, :sort_order, :desc)
+    workspace_id = Keyword.get(opts, :workspace_id)
 
     Ticket
+    |> filter_by_workspace(workspace_id)
     |> filter_by_status(opts[:status])
     |> filter_by_assignee(opts[:assignee])
     |> order_by([t], [{^sort_order, field(t, ^sort_by)}])
@@ -54,6 +56,19 @@ defmodule Algedonia.Tickets do
   def create_ticket(attrs) do
     %Ticket{}
     |> Ticket.changeset(attrs)
+    |> Repo.insert()
+    |> broadcast(:ticket_created)
+  end
+
+  def create_ticket_for_workspace(%Algedonia.Workspaces.Workspace{} = workspace, attrs) do
+    number = Algedonia.Workspaces.next_ticket_number!(workspace)
+
+    %Ticket{}
+    |> Ticket.changeset(
+      attrs
+      |> Map.put("workspace_id", workspace.id)
+      |> Map.put("number", number)
+    )
     |> Repo.insert()
     |> broadcast(:ticket_created)
   end
@@ -104,6 +119,11 @@ defmodule Algedonia.Tickets do
   defp filter_by_status(query, nil), do: query
   defp filter_by_status(query, ""), do: query
   defp filter_by_status(query, status), do: where(query, [t], t.status == ^status)
+
+  defp filter_by_workspace(query, nil), do: query
+
+  defp filter_by_workspace(query, workspace_id),
+    do: where(query, [t], t.workspace_id == ^workspace_id)
 
   # -- Comments --
 

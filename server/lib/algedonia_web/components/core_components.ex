@@ -482,7 +482,7 @@ defmodule AlgedoniaWeb.CoreComponents do
         <button
           phx-click={JS.exec("data-cancel", to: "##{@id}")}
           type="button"
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          class="absolute right-3 top-3 size-7 rounded-md text-fg-muted hover:text-fg hover:bg-surface-panel transition-colors"
           aria-label={gettext("close")}
         >
           <.icon name="hero-x-mark" class="size-5" />

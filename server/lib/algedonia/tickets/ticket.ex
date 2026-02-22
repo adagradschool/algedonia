@@ -9,11 +9,13 @@ defmodule Algedonia.Tickets.Ticket do
   @foreign_key_type :binary_id
 
   schema "tickets" do
+    belongs_to :workspace, Algedonia.Workspaces.Workspace, type: :id
     field :title, :string
     field :description, :string
+    field :number, :integer
 
     field :status, Ecto.Enum,
-      values: [:backlog, :decomposing, :decomposition_failed, :in_progress, :completed, :archived],
+      values: [:backlog, :decomposing, :halted, :in_progress, :completed, :archived],
       default: :backlog
 
     field :type, Ecto.Enum, values: [:feature, :bug, :chore, :spike]
@@ -36,6 +38,8 @@ defmodule Algedonia.Tickets.Ticket do
   def changeset(ticket, attrs) do
     ticket
     |> cast(attrs, [
+      :workspace_id,
+      :number,
       :title,
       :description,
       :status,
@@ -45,7 +49,7 @@ defmodule Algedonia.Tickets.Ticket do
       :acceptance_criteria,
       :rubric
     ])
-    |> validate_required([:title, :type, :priority])
+    |> validate_required([:workspace_id, :title, :type, :priority])
     |> validate_inclusion(:priority, 1..5)
   end
 end

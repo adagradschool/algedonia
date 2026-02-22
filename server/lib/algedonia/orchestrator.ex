@@ -8,7 +8,7 @@ defmodule Algedonia.Orchestrator do
   3. On decompose result: stores proposed DAG, creates checker loop
   4. On checker pass: creates the real DAG with loops from proposed data
   5. On checker fail with retries: re-runs decompose with feedback
-  6. On max attempts exceeded: marks ticket as decomposition_failed
+  6. On max attempts exceeded: marks ticket as halted
   """
   use GenServer
 
@@ -252,7 +252,7 @@ defmodule Algedonia.Orchestrator do
 
   defp mark_failed(ticket_id, state) do
     ticket = Tickets.get_ticket!(ticket_id)
-    Tickets.update_ticket(ticket, %{status: :decomposition_failed})
+    Tickets.update_ticket(ticket, %{status: :halted})
     state = update_in(state, [:decompositions], &Map.delete(&1, ticket_id))
     {:ok, state}
   end

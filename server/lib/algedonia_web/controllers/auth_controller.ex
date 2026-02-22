@@ -1,18 +1,27 @@
 defmodule AlgedoniaWeb.AuthController do
   use AlgedoniaWeb, :controller
 
-  def create(conn, %{"name" => name, "token" => token}) when is_binary(name) and name != "" do
-    expected = Application.get_env(:algedonia, :project_token)
+  alias Algedonia.Accounts
+  alias Algedonia.Workspaces
 
-    if Plug.Crypto.secure_compare(token, expected) do
-      conn
-      |> put_session(:display_name, name)
-      |> redirect(to: ~p"/tickets")
-    else
-      conn
-      |> put_status(:unauthorized)
-      |> put_view(AlgedoniaWeb.AuthHTML)
-      |> render(:error, message: "Invalid token.")
+  def create(conn, %{"name" => name, "token" => token}) when is_binary(name) and name != "" do
+    case Workspaces.get_workspace_by_invite_token(token) do
+      nil ->
+        conn
+        |> put_status(:unauthorized)
+        |> put_view(AlgedoniaWeb.AuthHTML)
+        |> render(:error, message: "Invalid invite token.")
+
+      workspace ->
+        with {:ok, user} <- Accounts.get_or_create_user(%{name: name}) do
+          _ = Workspaces.ensure_membership(workspace, user)
+
+          conn
+          |> put_session(:display_name, name)
+          |> put_session(:user_id, user.id)
+          |> put_session(:current_workspace_id, workspace.id)
+          |> redirect(to: ~p"/w/#{workspace.slug}/tickets")
+        end
     end
   end
 

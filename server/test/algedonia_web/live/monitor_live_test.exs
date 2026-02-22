@@ -6,21 +6,21 @@ defmodule AlgedoniaWeb.MonitorLiveTest do
   alias Algedonia.Factory
 
   describe "index" do
-    test "renders daemon monitor page", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/monitor")
+    test "renders daemon monitor page", %{conn: conn, workspace: workspace} do
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/monitor")
       assert html =~ "Daemon Monitor"
     end
 
-    test "displays registered daemons", %{conn: conn} do
+    test "displays registered daemons", %{conn: conn, workspace: workspace} do
       Factory.insert_daemon!(%{name: "my-daemon", display_name: "My Daemon"})
 
-      {:ok, _view, html} = live(conn, ~p"/monitor")
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/monitor")
       assert html =~ "My Daemon"
     end
 
-    test "updates on daemon status change", %{conn: conn} do
+    test "updates on daemon status change", %{conn: conn, workspace: workspace} do
       daemon = Factory.insert_daemon!(%{name: "live-daemon", display_name: "Live Daemon"})
-      {:ok, view, _html} = live(conn, ~p"/monitor")
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/monitor")
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
@@ -32,11 +32,11 @@ defmodule AlgedoniaWeb.MonitorLiveTest do
       assert html =~ "unhealthy"
     end
 
-    test "updates on daemon heartbeat", %{conn: conn} do
+    test "updates on daemon heartbeat", %{conn: conn, workspace: workspace} do
       daemon =
         Factory.insert_daemon!(%{name: "hb-daemon", display_name: "HB Daemon", capacity: 3})
 
-      {:ok, view, _html} = live(conn, ~p"/monitor")
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/monitor")
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
