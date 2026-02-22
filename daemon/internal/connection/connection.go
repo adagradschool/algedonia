@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +30,13 @@ type Client struct {
 	capacity  int
 	ref       atomic.Int64
 	joinRef   string
+
+	connMu   sync.RWMutex
+	conn     *websocket.Conn
+	connCtx  context.Context
+	handlers map[string]func(ctx context.Context, payload map[string]interface{}) error
+
+	runningLoopsFn func() int
 }
 
 // NewClient creates a new connection client.
@@ -38,7 +46,32 @@ func NewClient(serverURL, token, name string, capacity int) *Client {
 		token:     token,
 		name:      name,
 		capacity:  capacity,
+		handlers:  make(map[string]func(ctx context.Context, payload map[string]interface{}) error),
 	}
+}
+
+// RegisterHandler registers a handler for a specific event type from the server.
+func (c *Client) RegisterHandler(event string, handler func(ctx context.Context, payload map[string]interface{}) error) {
+	c.handlers[event] = handler
+}
+
+// SetRunningLoopsFn sets the function used to report running loop count in heartbeats.
+func (c *Client) SetRunningLoopsFn(fn func() int) {
+	c.runningLoopsFn = fn
+}
+
+// SendEvent sends an event to the server on the daemon topic. Thread-safe.
+func (c *Client) SendEvent(event string, payload map[string]interface{}) error {
+	c.connMu.RLock()
+	conn := c.conn
+	ctx := c.connCtx
+	c.connMu.RUnlock()
+
+	if conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	return c.send(ctx, conn, c.topic(), event, payload, c.nextRef())
 }
 
 func (c *Client) nextRef() string {
@@ -80,6 +113,18 @@ func (c *Client) run(ctx context.Context) error {
 		return fmt.Errorf("dialing server: %w", err)
 	}
 	defer conn.CloseNow()
+
+	c.connMu.Lock()
+	c.conn = conn
+	c.connCtx = ctx
+	c.connMu.Unlock()
+
+	defer func() {
+		c.connMu.Lock()
+		c.conn = nil
+		c.connCtx = nil
+		c.connMu.Unlock()
+	}()
 
 	// Join channel
 	c.joinRef = c.nextRef()
@@ -161,9 +206,13 @@ func (c *Client) appHeartbeatLoop(ctx context.Context, conn *websocket.Conn) err
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			runningLoops := 0
+			if c.runningLoopsFn != nil {
+				runningLoops = c.runningLoopsFn()
+			}
 			payload := map[string]interface{}{
 				"capacity":      c.capacity,
-				"running_loops": 0,
+				"running_loops": runningLoops,
 			}
 			if err := c.send(ctx, conn, c.topic(), "heartbeat", payload, c.nextRef()); err != nil {
 				return fmt.Errorf("app heartbeat: %w", err)
@@ -179,9 +228,22 @@ func (c *Client) listenLoop(ctx context.Context, conn *websocket.Conn) error {
 			return fmt.Errorf("listen: %w", err)
 		}
 
-		// Log non-reply messages for debugging
-		if msg.Event != "phx_reply" {
-			log.Printf("Received: topic=%s event=%s", msg.Topic, msg.Event)
+		if msg.Event == "phx_reply" || msg.Event == "phx_close" {
+			continue
+		}
+
+		log.Printf("Received: topic=%s event=%s", msg.Topic, msg.Event)
+
+		if handler, ok := c.handlers[msg.Event]; ok {
+			payload, _ := msg.Payload.(map[string]interface{})
+			if payload == nil {
+				payload = make(map[string]interface{})
+			}
+			go func(event string) {
+				if err := handler(ctx, payload); err != nil {
+					log.Printf("Handler error for %s: %v", event, err)
+				}
+			}(msg.Event)
 		}
 	}
 }

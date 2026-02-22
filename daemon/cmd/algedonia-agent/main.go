@@ -14,6 +14,7 @@ import (
 
 	"github.com/algedonia/daemon/internal/config"
 	"github.com/algedonia/daemon/internal/connection"
+	"github.com/algedonia/daemon/internal/loopmanager"
 	"github.com/spf13/cobra"
 )
 
@@ -75,6 +76,11 @@ func newConnectCmd() *cobra.Command {
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 			client := connection.NewClient(serverURL, token, name, capacity)
+
+			mgr := loopmanager.NewManager(client.SendEvent)
+			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
+			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
+			client.SetRunningLoopsFn(mgr.RunningCount)
 
 			go func() {
 				<-sigCh
