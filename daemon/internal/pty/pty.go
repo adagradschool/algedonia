@@ -17,9 +17,17 @@ type Session struct {
 	cmd    *exec.Cmd
 }
 
-// Start allocates a PTY and starts the command in it.
+// DefaultSize is the default terminal size for new PTY sessions.
+var DefaultSize = &pty.Winsize{Rows: 40, Cols: 120}
+
+// Start allocates a PTY and starts the command in it with the default terminal size.
 func Start(cmd *exec.Cmd) (*Session, error) {
-	master, err := pty.Start(cmd)
+	return StartWithSize(cmd, DefaultSize)
+}
+
+// StartWithSize allocates a PTY with an explicit terminal size.
+func StartWithSize(cmd *exec.Cmd, size *pty.Winsize) (*Session, error) {
+	master, err := pty.StartWithSize(cmd, size)
 	if err != nil {
 		return nil, fmt.Errorf("starting pty: %w", err)
 	}

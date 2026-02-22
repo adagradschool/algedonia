@@ -39,6 +39,15 @@ Running `mix test`, `mix format`, `go vet`, etc. from the repo root fails silent
 ### Base64 passthrough for stdin data (Slice 6)
 User terminal input flows browser (xterm.js `onData` -> `btoa`) -> LiveView (`pushEvent`) -> server (`push_stdin_input`) -> daemon channel -> daemon (`base64.StdEncoding.DecodeString`). The server never decodes or re-encodes the base64 — it passes the string through as-is via `DaemonChannel.push_stdin_input/3`. Only the daemon decodes. This keeps the server simple and avoids double-encoding bugs. The same pattern applies in reverse for terminal output (daemon encodes, server decodes in `handle_in("terminal_output", ...)` for the TerminalBuffer, then re-encodes in the LiveView `push_event`).
 
+### Agent adapter interface — shared PTY helpers (Slice 7)
+The 6-method `AgentAdapter` interface works well for pluggable agents. Both Claude Code and Codex adapters share PTY lifecycle logic via helper functions (`allocatePTY`, `killProcess`, `waitProcess`), keeping each adapter file focused on CLI flag construction. Adding a new adapter is: one new file implementing the interface + one registry entry. No other code changes needed.
+
+### `push_start_loop` opts pattern (Slice 7)
+The `DaemonChannel.push_start_loop(daemon_name, loop_id, opts \\ %{})` with `Map.merge` makes it easy to pass through additional fields like `role` and `agent_type` without changing the channel code. New fields flow through automatically.
+
+### LiveView query params need `handle_params/3` (Slice 7)
+Phoenix LiveView's `mount/3` only receives path params from the router (e.g., `:loop_id`). Query params like `?role=maker&agent_type=codex` must be captured in `handle_params/3`, not `mount`. This is easy to miss because both callbacks receive the params map, but only `handle_params` includes query string parameters.
+
 ### Agent pause/resume is keyboard events, not signals (Slice 6)
 Ink-based TUI agents (Claude Code, etc.) cannot be paused/resumed with SIGSTOP/SIGCONT. They are full-screen terminal applications that manage their own input loop. To pause or resume, send the appropriate keyboard sequences through the PTY (e.g., Escape `\x1b`, Shift+Tab `\x1b[Z`). Additionally, macOS has PTY + Setpgid conflicts (see existing gotcha) that make process group signals unreliable anyway.
 
@@ -58,6 +67,18 @@ Calling `init_test_session(conn, %{})` on a conn that already has session data w
 
 ### Presence tests are timing-dependent
 `Process.sleep(100)` passes locally but is flaky on CI. Use an `assert_eventually` retry helper (50ms intervals, ~50 attempts) instead of fixed sleeps for presence propagation assertions.
+
+### PTY window size must be set explicitly (Slice 7)
+`pty.Start(cmd)` from `creack/pty` does NOT set a terminal size, resulting in 0x0 dimensions. Codex rendered one character per line because it respected the PTY's reported column count of 0. Claude Code was unaffected (it has its own internal default). Fix: always use `pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})`. This was only caught during browser-based manual testing — unit tests don't exercise terminal rendering.
+
+### PTY output must be drained before `cmd.Wait()` (Slice 7)
+When using `cmd.Wait()` on a PTY-spawned process, the call hangs forever if nobody is reading from the PTY master fd. The PTY buffer fills up, the child process blocks on write, and `Wait` never returns. Fix: always `go io.Copy(io.Discard, reader)` (or use a TeeReader) before calling `Wait`. The existing `LoopManager` tests passed because `StartLoop` always sets up a reader goroutine — the bug only manifested in isolated adapter unit tests.
+
+### `cmd.Wait()` can only be called once (Slice 7)
+Go's `exec.Cmd.Wait` must only be called once. If two goroutines both call `Wait`, the second one deadlocks on the internal `wait4` syscall. The initial `killProcess` implementation called `sess.Wait()` to reap the process after signaling, but the caller's `Wait` goroutine was already waiting. Fix: `killProcess` just sends signals; the existing `Wait` goroutine handles process exit and status collection.
+
+### Setpgid causes "operation not permitted" in sandboxed environments (Slice 7)
+Setting `cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}` fails in sandboxed/restricted environments (not just macOS — also CI containers and similar). The PTY package already provides process isolation through the PTY session setup, so Setpgid is unnecessary. See also the macOS-specific gotcha below.
 
 ### macOS PTY + Setpgid conflict (Slice 5)
 Setting `SysProcAttr.Setpgid = true` on a command started with `creack/pty` causes "operation not permitted" on macOS. The `creack/pty` library handles session setup internally via `Setsid`. Remove `Setpgid` entirely. To signal the process, send signals to the PID directly rather than the process group.
@@ -85,6 +106,9 @@ Three approaches that do NOT work for delivering prompts to Claude Code:
 1. Writing `prompt + "\n"` to PTY master — TUI expects `\r`, not `\n`.
 2. Pattern matching for `>` in output to detect readiness — `>` appears constantly in ANSI escape sequences and splash screen content, triggers false positives immediately.
 3. Idle detection with incorrect duration math — see the `time.Duration` double-conversion gotcha above; the timeout comparison will never fire.
+
+### Use `just` recipes for pre-commit workflow (Slice 7)
+When formatting, linting, testing, and building before a commit, always use `just` recipes from the repo root: `just format`, `just lint`, `just test`. Do NOT run `go fmt`, `go vet`, `mix format`, `mix compile --warnings-as-errors` manually — they require `cd`-ing into the correct subdirectory and it's easy to forget or run from the wrong directory (which fails silently or with confusing errors). The justfile handles all of this. Same applies for `just build-cli` instead of `go build ./cmd/...`.
 
 ### Always read before writing to existing files (Slice 6)
 When adding content to an existing file (like the justfile), use `Edit` (targeted replacement) rather than `Write` (full file overwrite). During Slice 6, the existing `build-cli` and `server` recipes in the justfile were destroyed by a `Write` that replaced the entire file. Rule: always `Read` first, then `Edit` to append or modify specific sections.

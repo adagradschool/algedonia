@@ -8,11 +8,13 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/algedonia/daemon/internal/adapter"
 	ptyPkg "github.com/algedonia/daemon/internal/pty"
 )
 
@@ -23,21 +25,80 @@ type LoopProcess struct {
 	Chunker *Chunker
 	Cancel  context.CancelFunc
 	Done    chan struct{}
+
+	// adapter fields — set when started via StartLoopWithAdapter
+	adapter    adapter.AgentAdapter
+	process    *adapter.Process
+	role       string
+	promptsDir string
 }
 
 // Manager tracks running loop processes and streams their output.
 type Manager struct {
-	mu       sync.Mutex
-	loops    map[string]*LoopProcess
-	sendFunc func(event string, payload map[string]interface{}) error
+	mu         sync.Mutex
+	loops      map[string]*LoopProcess
+	sendFunc   func(event string, payload map[string]interface{}) error
+	adapterReg *adapter.Registry
+	repoRoot   string
 }
 
 // NewManager creates a Manager that uses sendFunc to send events to the server.
-func NewManager(sendFunc func(event string, payload map[string]interface{}) error) *Manager {
+func NewManager(sendFunc func(event string, payload map[string]interface{}) error, registry *adapter.Registry, repoRoot string) *Manager {
 	return &Manager{
-		loops:    make(map[string]*LoopProcess),
-		sendFunc: sendFunc,
+		loops:      make(map[string]*LoopProcess),
+		sendFunc:   sendFunc,
+		adapterReg: registry,
+		repoRoot:   repoRoot,
 	}
+}
+
+// typePromptToTUI waits for the TUI to become idle, then types the prompt
+// and submits with carriage return. writeFn writes bytes to the PTY.
+func typePromptToTUI(done <-chan struct{}, lastOutput *atomic.Int64, loopID, prompt string, writeFn func([]byte) error) {
+	const idleThreshold = 1500 * time.Millisecond
+	const pollInterval = 100 * time.Millisecond
+	const maxWait = 30 * time.Second
+
+	deadline := time.After(maxWait)
+	// Wait at least 2 seconds before even checking for idle
+	time.Sleep(2 * time.Second)
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-deadline:
+			log.Printf("Timed out waiting for idle on loop %s, sending prompt anyway", loopID)
+			goto send
+		case <-time.After(pollInterval):
+			elapsedMs := time.Now().UnixMilli() - lastOutput.Load()
+			if elapsedMs >= idleThreshold.Milliseconds() {
+				log.Printf("TUI idle for %dms on loop %s, sending prompt", elapsedMs, loopID)
+				goto send
+			}
+		}
+	}
+
+send:
+	log.Printf("Typing prompt into loop %s (%d bytes)", loopID, len(prompt))
+
+	for _, ch := range []byte(prompt) {
+		if err := writeFn([]byte{ch}); err != nil {
+			log.Printf("Failed to type char to loop %s: %v", loopID, err)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Let the TUI process all the typed text
+	time.Sleep(300 * time.Millisecond)
+
+	// Submit with carriage return
+	if err := writeFn([]byte("\r")); err != nil {
+		log.Printf("Failed to send Enter to loop %s: %v", loopID, err)
+	}
+
+	log.Printf("Prompt submitted for loop %s", loopID)
 }
 
 // StartLoop spawns a process in a PTY and streams output to the server.
@@ -64,8 +125,6 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 	}
 
 	done := make(chan struct{})
-	// lastOutput tracks when the last PTY output was received,
-	// used to detect when the TUI has finished rendering (idle).
 	var lastOutput atomic.Int64
 	lastOutput.Store(time.Now().UnixMilli())
 
@@ -137,63 +196,173 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 		m.mu.Unlock()
 	}()
 
-	// Write prompt to the TUI once it's idle (done rendering).
-	// Claude Code is an Ink-based TUI — we detect readiness by waiting for
-	// the output stream to go quiet (no new output for idleThreshold),
-	// meaning the splash screen has finished and the input prompt is ready.
-	// Then we type characters into the PTY and submit with \r (carriage return).
 	if prompt != "" {
-		go func() {
-			const idleThreshold = 1500 * time.Millisecond
-			const pollInterval = 100 * time.Millisecond
-			const maxWait = 30 * time.Second
-
-			deadline := time.After(maxWait)
-			// Wait at least 2 seconds before even checking for idle
-			time.Sleep(2 * time.Second)
-
-			for {
-				select {
-				case <-done:
-					return
-				case <-deadline:
-					log.Printf("Timed out waiting for idle on loop %s, sending prompt anyway", loopID)
-					goto send
-				case <-time.After(pollInterval):
-					elapsedMs := time.Now().UnixMilli() - lastOutput.Load()
-					if elapsedMs >= idleThreshold.Milliseconds() {
-						log.Printf("TUI idle for %dms on loop %s, sending prompt", elapsedMs, loopID)
-						goto send
-					}
-				}
-			}
-
-		send:
-			log.Printf("Typing prompt into loop %s (%d bytes)", loopID, len(prompt))
-
-			// Type each character individually with a small delay,
-			// simulating real keyboard input for the TUI.
-			for _, ch := range []byte(prompt) {
-				if _, err := sess.Write([]byte{ch}); err != nil {
-					log.Printf("Failed to type char to loop %s: %v", loopID, err)
-					return
-				}
-				time.Sleep(5 * time.Millisecond)
-			}
-
-			// Let the TUI process all the typed text
-			time.Sleep(300 * time.Millisecond)
-
-			// Submit with carriage return (equivalent to tmux's C-m / Ctrl+M)
-			if _, err := sess.Write([]byte("\r")); err != nil {
-				log.Printf("Failed to send Enter to loop %s: %v", loopID, err)
-			}
-
-			log.Printf("Prompt submitted for loop %s", loopID)
-		}()
+		writeFn := func(data []byte) error {
+			_, err := sess.Write(data)
+			return err
+		}
+		go typePromptToTUI(done, &lastOutput, loopID, prompt, writeFn)
 	}
 
 	log.Printf("Started loop %s: %s %v", loopID, command, args)
+	return nil
+}
+
+// StartLoopWithAdapter spawns a loop using a registered adapter.
+func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc string) error {
+	m.mu.Lock()
+	if _, exists := m.loops[loopID]; exists {
+		m.mu.Unlock()
+		return fmt.Errorf("loop %s already running", loopID)
+	}
+	m.mu.Unlock()
+
+	ag, err := m.adapterReg.Get(agentType)
+	if err != nil {
+		return fmt.Errorf("resolving adapter for loop %s: %w", loopID, err)
+	}
+
+	// Load prompt for the role
+	promptsDir := filepath.Join(workdir, ".algedonia", "prompts")
+	systemPrompt, err := adapter.LoadPrompt(promptsDir, role)
+	if err != nil {
+		log.Printf("Warning: could not load prompt for role %q: %v", role, err)
+		systemPrompt = ""
+	}
+
+	// Construct task string
+	task := taskDesc
+	if systemPrompt != "" {
+		task = systemPrompt + "\n\n---\n\n" + taskDesc
+	}
+	if role == "decompose" {
+		task += "\n\nIMPORTANT: Output your DAG as JSON between these exact delimiters:\n---ALGEDONIA_DAG_BEGIN---\n<your JSON here>\n---ALGEDONIA_DAG_END---"
+	}
+
+	proc, err := ag.Start(workdir, task, nil)
+	if err != nil {
+		return fmt.Errorf("starting adapter for loop %s: %w", loopID, err)
+	}
+
+	reader, writer, err := ag.AttachPTY(proc)
+	if err != nil {
+		ag.Kill(proc)
+		return fmt.Errorf("attaching pty for loop %s: %w", loopID, err)
+	}
+
+	_, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	var lastOutput atomic.Int64
+	lastOutput.Store(time.Now().UnixMilli())
+
+	chunker := NewChunker(50*time.Millisecond, 4096, func(data []byte) {
+		encoded := base64.StdEncoding.EncodeToString(data)
+		if err := m.sendFunc("terminal_output", map[string]interface{}{
+			"loop_id": loopID,
+			"data":    encoded,
+		}); err != nil {
+			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
+		}
+	})
+
+	lp := &LoopProcess{
+		LoopID:     loopID,
+		Chunker:    chunker,
+		Cancel:     cancel,
+		Done:       done,
+		adapter:    ag,
+		process:    proc,
+		role:       role,
+		promptsDir: promptsDir,
+	}
+
+	m.mu.Lock()
+	m.loops[loopID] = lp
+	m.mu.Unlock()
+
+	// Output reader goroutine — dual-write to chunker and output collector
+	go func() {
+		// Use TeeReader to write to both the chunker (streaming) and the collector (post-exit parsing)
+		tee := io.TeeReader(reader, proc.Collector())
+		buf := make([]byte, 4096)
+		for {
+			n, err := tee.Read(buf)
+			if n > 0 {
+				lastOutput.Store(time.Now().UnixMilli())
+				chunker.Write(buf[:n])
+			}
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("PTY read error for loop %s: %v", loopID, err)
+				}
+				break
+			}
+		}
+		chunker.Close()
+	}()
+
+	// Wait goroutine — handles result based on role
+	go func() {
+		defer close(done)
+		result, waitErr := ag.Wait(proc)
+
+		sessionID := ag.SessionID(proc)
+
+		if waitErr != nil {
+			_ = m.sendFunc("error", map[string]interface{}{
+				"loop_id":     loopID,
+				"message":     fmt.Sprintf("agent wait error: %v", waitErr),
+				"recoverable": true,
+			})
+			m.mu.Lock()
+			delete(m.loops, loopID)
+			m.mu.Unlock()
+			return
+		}
+
+		switch role {
+		case "decompose":
+			dag, parseErr := adapter.ParseDAGOutput(result.Output)
+			if parseErr != nil {
+				_ = m.sendFunc("error", map[string]interface{}{
+					"loop_id":     loopID,
+					"message":     fmt.Sprintf("decompose output parse error: %v", parseErr),
+					"recoverable": true,
+				})
+			} else {
+				_ = m.sendFunc("loop_result", map[string]interface{}{
+					"loop_id":    loopID,
+					"verdict":    "pass",
+					"dag":        dag,
+					"session_id": sessionID,
+				})
+			}
+		default:
+			if result.ExitCode != 0 {
+				_ = m.sendFunc("error", map[string]interface{}{
+					"loop_id":     loopID,
+					"message":     fmt.Sprintf("agent exited with code %d", result.ExitCode),
+					"recoverable": true,
+				})
+			} else {
+				_ = m.sendFunc("attempt_complete", map[string]interface{}{
+					"loop_id":    loopID,
+					"exit_code":  result.ExitCode,
+					"session_id": sessionID,
+				})
+			}
+		}
+
+		m.mu.Lock()
+		delete(m.loops, loopID)
+		m.mu.Unlock()
+	}()
+
+	// If the agent is a TUI (no -p flag mode), type the prompt
+	// For now, adapters use -p flag so no TUI typing needed
+	_ = writer
+
+	log.Printf("Started adapter loop %s: %s (role=%s)", loopID, agentType, role)
 	return nil
 }
 
@@ -209,6 +378,14 @@ func (m *Manager) StopLoop(loopID, reason string) error {
 
 	log.Printf("Stopping loop %s: %s", loopID, reason)
 
+	// Adapter-managed process
+	if lp.adapter != nil {
+		err := lp.adapter.Kill(lp.process)
+		<-lp.Done
+		return err
+	}
+
+	// Raw PTY process
 	pid := lp.Session.Pid()
 	if pid > 0 {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
@@ -242,6 +419,22 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 		return fmt.Errorf("missing loop_id in start_loop payload")
 	}
 
+	// If a role is specified, route through adapter path
+	role, _ := payload["role"].(string)
+	if role != "" {
+		agentType, _ := payload["agent_type"].(string)
+		if agentType == "" {
+			agentType = "claude_code"
+		}
+		workdir, _ := payload["workdir"].(string)
+		if workdir == "" {
+			workdir = m.repoRoot
+		}
+		taskDesc, _ := payload["task"].(string)
+		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc)
+	}
+
+	// Legacy raw-process path
 	command, _ := payload["command"].(string)
 	if command == "" {
 		command = "claude"
@@ -277,6 +470,13 @@ func (m *Manager) SendInput(loopID string, data []byte) error {
 	if !exists {
 		return fmt.Errorf("loop %s not found", loopID)
 	}
+
+	// Adapter-managed process
+	if lp.adapter != nil {
+		return lp.adapter.SendInput(lp.process, data)
+	}
+
+	// Raw PTY process
 	_, err := lp.Session.Write(data)
 	if err != nil {
 		return fmt.Errorf("writing stdin to loop %s: %w", loopID, err)

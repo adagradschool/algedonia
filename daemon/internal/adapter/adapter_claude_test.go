@@ -1,0 +1,147 @@
+package adapter
+
+import (
+	"io"
+	"os"
+	"os/exec"
+	"testing"
+	"time"
+)
+
+func TestClaudeCodeAdapterInterface(t *testing.T) {
+	var _ AgentAdapter = (*ClaudeCodeAdapter)(nil)
+}
+
+func TestClaudeCodeAdapterStartWithMockBinary(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'mock claude output'\n"
+	if err := os.WriteFile(dir+"/claude", []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	a := &ClaudeCodeAdapter{}
+	proc, err := a.Start(dir, "test task", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if proc.SessionID == "" {
+		t.Error("SessionID is empty")
+	}
+	if proc.Workdir != dir {
+		t.Errorf("Workdir = %q, want %q", proc.Workdir, dir)
+	}
+
+	sid := a.SessionID(proc)
+	if sid != proc.SessionID {
+		t.Errorf("SessionID() = %q, want %q", sid, proc.SessionID)
+	}
+
+	// Drain PTY output (required — process blocks if PTY master is not read)
+	reader, _, err := a.AttachPTY(proc)
+	if err != nil {
+		t.Fatalf("AttachPTY: %v", err)
+	}
+	go io.Copy(io.Discard, reader)
+
+	done := make(chan *ExitResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		r, e := a.Wait(proc)
+		done <- r
+		errCh <- e
+	}()
+
+	select {
+	case result := <-done:
+		if err := <-errCh; err != nil {
+			t.Fatalf("Wait: %v", err)
+		}
+		if result.ExitCode != 0 {
+			t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+		}
+		if result.SessionID != proc.SessionID {
+			t.Errorf("result.SessionID = %q, want %q", result.SessionID, proc.SessionID)
+		}
+	case <-time.After(5 * time.Second):
+		a.Kill(proc)
+		t.Fatal("Wait timed out")
+	}
+}
+
+func TestClaudeCodeAdapterAttachPTY(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 10\n"
+	if err := os.WriteFile(dir+"/claude", []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	a := &ClaudeCodeAdapter{}
+	proc, err := a.Start(dir, "", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Kill(proc)
+
+	reader, writer, err := a.AttachPTY(proc)
+	if err != nil {
+		t.Fatalf("AttachPTY: %v", err)
+	}
+	if reader == nil {
+		t.Error("reader is nil")
+	}
+	if writer == nil {
+		t.Error("writer is nil")
+	}
+	// Drain so Kill doesn't hang
+	go io.Copy(io.Discard, reader)
+}
+
+func TestClaudeCodeAdapterKill(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 60\n"
+	if err := os.WriteFile(dir+"/claude", []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	a := &ClaudeCodeAdapter{}
+	proc, err := a.Start(dir, "", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Drain PTY output so kill doesn't hang
+	reader, _, _ := a.AttachPTY(proc)
+	go io.Copy(io.Discard, reader)
+
+	done := make(chan struct{})
+	go func() {
+		a.Kill(proc)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Kill did not return in time")
+	}
+}
+
+func TestClaudeCodeCLIConstruction(t *testing.T) {
+	_, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skip("claude not on PATH, skipping CLI construction test")
+	}
+}

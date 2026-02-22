@@ -61,13 +61,20 @@ The checker draws from five layers. Each layer produces pass/fail, a confidence 
 
 ## Task Decomposition
 
-Algedonia uses Hierarchical Task Network (HTN) style decomposition.
+Algedonia uses Hierarchical Task Network (HTN) style decomposition. Decomposition is itself a maker-checker loop — the same primitive used for all other work.
 
-For each task, Algedonia checks two conditions:
-1. Does the task fit in context?
-2. Does it have a verification constraint?
+- **Maker** produces a DAG of loops, each with a title, description, dependency edges, and a quality rubric.
+- **Checker** verifies the decomposition against a decomposition rubric (see below). The checker has no access to the maker's reasoning.
+- **Pass** — the DAG is accepted and execution begins. **Fail** — the maker retries with the checker's feedback. **Clarify** — escalate to the human (e.g., the ticket is too vague to decompose). **Max turns reached** — escalate.
 
-If both yes, it becomes an atomic maker-checker loop. If either is no, decompose into subtasks, each with its own verification constraint. The decomposer produces a DAG of loops.
+**Decomposition rubric (checked by the checker):**
+1. **Scope reduction:** Every subtask is strictly smaller than its parent (fewer files, narrower concern, less estimated context). No subtask may restate the parent task.
+2. **Leaf node criteria:** Every leaf node in the DAG satisfies both (a) context fit — the task fits within a single agent context window, and (b) verification constraint — the task has a testable, measurable outcome with a concrete rubric.
+3. **Rubric well-formedness:** Every per-loop rubric parses correctly (hard gates, weighted checks, threshold, options per Section 7.4 of the SDD).
+4. **DAG validity:** The graph is acyclic. Dependency edges are plausible (a test loop depends on the implementation loop, not vice versa).
+5. **Coverage:** The union of all leaf tasks covers the original ticket's acceptance criteria. Nothing is dropped.
+
+Because decomposition uses the standard loop machinery, it gets retry-with-feedback, escalation, circuit breaker protection, and human intervention for free. No special case.
 
 **Execution order:** Dependency-respecting (topological sort), parallelized where no dependencies block.
 

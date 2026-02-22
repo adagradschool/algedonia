@@ -216,7 +216,7 @@ The server pushes commands to the daemon:
 
 | Command | Payload |
 |---|---|
-| `start_loop` | loop_id, repo_url, base_branch, task description, rubric, agent config, role (maker, checker, decompose, impact_analysis, reflect), knowledge_context, prior_attempts, diff (checker only), prompts_dir |
+| `start_loop` | loop_id, repo_url, base_branch, task description, rubric, agent config, role (maker, checker, decompose, decompose_checker, impact_analysis, reflect), knowledge_context, prior_attempts, diff (checker/decompose_checker only), prompts_dir |
 | `stop_loop` | loop_id, reason |
 | `pause_agent` | loop_id |
 | `resume_agent` | loop_id |
@@ -255,7 +255,7 @@ The daemon sends a heartbeat every 10 seconds with: number of running loops, max
 
 The daemon receives commands on its channel and dispatches them:
 
-- **`start_loop`**: Create a worktree (unless role is `reflect`), configure the agent adapter, spawn the agent process. The role field determines behavior: `maker`, `checker`, `decompose`, `impact_analysis`, or `reflect`. Details in 5.4 and 5.5.
+- **`start_loop`**: Create a worktree (unless role is `reflect` or `decompose_checker`), configure the agent adapter, spawn the agent process. The role field determines behavior: `maker`, `checker`, `decompose`, `decompose_checker`, `impact_analysis`, or `reflect`. The `decompose` and `decompose_checker` roles form a maker-checker loop for task decomposition (see Section 8.3). Details in 5.4 and 5.5.
 - **`stop_loop`**: Send SIGTERM to the agent process, wait for graceful exit (5s timeout), then SIGKILL. Clean up worktree.
 - **`pause_agent`**: Send SIGSTOP to the agent process group. Report paused state.
 - **`resume_agent`**: Send SIGCONT to the agent process group. Report running state.
@@ -311,17 +311,18 @@ This walks through the complete lifecycle from button press to merged commit.
 
 **Preconditions:** A ticket exists with title, description, and acceptance criteria. A daemon is connected with available capacity.
 
-### Step 1: Start Work (Decomposition + Rubric Generation)
+### Step 1: Start Work (Decomposition as a Maker-Checker Loop)
 
 User clicks "Start Work" on a ticket in the Issue Tracker view.
 
-- **Server (Orchestrator):** Transitions ticket status to `decomposing`. Sends the ticket to the decomposition agent. This is the one orchestration step that requires an agent call -- it runs on the ticket creator's daemon.
-- **Daemon:** Spawns the decomposition agent with role `decompose`. The agent analyzes the ticket and applies two criteria to each potential subtask:
-  1. **Context fit:** Does the task fit within an agent's context window?
-  2. **Verification constraint:** Can we write a rubric for it -- does it have a testable, verifiable outcome?
-  If both conditions are met, the subtask becomes an atomic maker-checker loop. If either condition fails, the agent decomposes further. The agent also scans the repo to detect existing tooling (test frameworks, linters, type checkers) and uses the ticket's acceptance criteria to generate an initial rubric for each loop. The output is a DAG of loops, each with a title, description, file impact estimate, and rubric.
-- **Server:** Receives the DAG with rubrics. Creates `loops` (with per-loop rubrics) and `loop_dependencies` rows. Creates the `dags` row. Transitions ticket to `in_progress`. Broadcasts to `ticket:{id}` and `dag:{ticket_id}`.
-- **Failure handling:** If the decomposition agent fails, retry up to 3 times with exponential backoff. On final failure, transition the ticket to `decomposition_failed` and escalate to the human -- work cannot begin without a DAG. The user can edit the ticket and click "Start Work" again to reattempt decomposition.
+Decomposition is a maker-checker loop, not a special one-shot agent call. It uses the same orchestration machinery as every other loop.
+
+- **Server (Orchestrator):** Transitions ticket status to `decomposing`. Creates a synthetic decomposition loop (not yet part of a DAG -- it *produces* the DAG). Assigns it to the ticket creator's daemon. The loop's rubric is the decomposition rubric (see Section 8.3).
+- **Maker phase:** The daemon spawns the decomposition agent with role `decompose`. The agent analyzes the ticket and produces a DAG of loops, each with a title, description, file impact estimate, and rubric. The agent scans the repo to detect existing tooling (test frameworks, linters, type checkers) and uses the ticket's acceptance criteria to generate per-loop rubrics.
+- **Checker phase:** The daemon spawns the checker agent with role `decompose_checker`. The checker verifies the proposed DAG against the decomposition rubric: scope reduction (every subtask strictly smaller than parent), leaf node criteria (context fit + verification constraint), rubric well-formedness (parses per Section 7.4), DAG validity (acyclic, plausible edges), and coverage (leaf tasks cover all acceptance criteria). The checker has no access to the maker's reasoning.
+- **Verdict routing:** Same as any other loop. On `pass`, the server creates `loops`, `loop_dependencies`, and `dags` rows and transitions the ticket to `in_progress`. On `fail` with attempts remaining, the maker retries with checker feedback. On `clarify`, the checker explains what's ambiguous in the ticket and it escalates to the human. On max attempts exhausted, escalate.
+- **Server:** On pass, broadcasts to `ticket:{id}` and `dag:{ticket_id}`.
+- **Failure handling:** Standard loop escalation. The decomposition loop appears in the escalation queue like any other failed loop. The user can edit the ticket and retry. The circuit breaker counts decomposition escalations the same as any other.
 
 ### Step 2: Impact Analysis and Scheduling
 
@@ -413,7 +414,7 @@ All messages are JSON over Phoenix Channels. The channel topic is `daemon:{daemo
 ```
 start_loop:
   loop_id: string
-  role: "maker" | "checker" | "decompose" | "impact_analysis" | "reflect"
+  role: "maker" | "checker" | "decompose" | "decompose_checker" | "impact_analysis" | "reflect"
   repo_url: string
   base_branch: string
   task: {description: string, acceptance_criteria: string}
@@ -421,7 +422,8 @@ start_loop:
   knowledge_context: string
   prior_attempts: [{attempt_number, summary, checker_feedback, session_id}]
   agent: {type: "claude_code" | "codex" | "aider", config: map}
-  diff: string (only for checker role)
+  diff: string (only for checker/decompose_checker role)
+  proposed_dag: object (only for decompose_checker role -- the DAG produced by the decompose maker)
   prompts_dir: string (path to .algedonia/prompts/ in the repo)
 
 stop_loop:
@@ -571,20 +573,25 @@ The agent returns a list of path prefixes (e.g., `["src/auth/", "test/auth/", "c
 
 ### 8.3 Task Decomposition
 
-Decomposition is the first step after "Start Work" is clicked. The decomposition agent receives the ticket (title, description, acceptance criteria) and the current repository state. It produces both a DAG of loops and an initial rubric for each loop in a single pass.
+Decomposition is a maker-checker loop. It uses the same loop machinery as all other work -- retry with feedback, escalation, circuit breaker, human intervention. There is no special-case orchestration for decomposition.
 
-**Two decomposition criteria:**
+The decomposition maker receives the ticket (title, description, acceptance criteria) and the current repository state. It produces a DAG of loops and an initial rubric for each loop.
 
-For each potential subtask, the agent evaluates:
+**Decomposition rubric (verified by the checker):**
 
-1. **Context fit:** Can the task be completed within a single agent context window? If the task requires understanding or modifying too many files, too much code, or too many interrelated concerns to fit in context, it must be broken down.
-2. **Verification constraint:** Can we write a concrete rubric for this task? Does it have a testable, measurable outcome? If the task is too vague or its success criteria are ambiguous, it must be refined or decomposed into subtasks with clearer verification boundaries.
+The decomposition checker evaluates the proposed DAG against five criteria:
 
-If both conditions are satisfied, the subtask is an atomic maker-checker loop. If either condition is not satisfied, the agent decomposes the subtask further, recursively applying the same two criteria.
+1. **Scope reduction:** Every subtask is strictly smaller than its parent -- fewer files, narrower concern, less estimated context. No subtask may restate or be equivalent to the parent task. This is a structural termination guarantee: because each level of decomposition must strictly reduce scope, the recursion is well-founded and must bottom out regardless of depth. (Inspired by scope-reduction invariants in recursive agent architectures.)
+2. **Leaf node criteria:** Every leaf node satisfies both:
+   - **Context fit:** The task fits within a single agent context window.
+   - **Verification constraint:** The task has a testable, measurable outcome with a concrete rubric.
+3. **Rubric well-formedness:** Every per-loop rubric parses correctly against the format in Section 7.4 (hard gates, weighted checks, threshold, options).
+4. **DAG validity:** The graph is acyclic. Dependency edges are plausible (e.g., a test loop depends on the implementation loop, not vice versa).
+5. **Coverage:** The union of all leaf tasks covers the original ticket's acceptance criteria. Nothing is dropped or invented.
 
 **Rubric generation during decomposition:**
 
-The decomposition agent scans the repository to detect:
+The decomposition maker scans the repository to detect:
 - Test frameworks in use (e.g., ExUnit, pytest, Jest).
 - Linters and formatters (e.g., Credo, ESLint, mix format).
 - Type checkers (e.g., Dialyzer, mypy, TypeScript).
@@ -593,6 +600,8 @@ The decomposition agent scans the repository to detect:
 It combines this repo context with the ticket's acceptance criteria to generate a tailored rubric for each loop. The rubric follows the format in Section 7.4. Humans can review and edit these rubrics at any time, including before execution begins.
 
 **Output:** A list of loops (title, description, rubric) and a list of dependency edges, forming a DAG.
+
+**Why a loop, not a one-shot call:** Decomposition is the highest-leverage step -- a bad DAG wastes all downstream work. Making it a loop means (a) the checker catches structural problems (missing coverage, scope violations, malformed rubrics) before any code-writing begins, (b) the maker gets feedback and retries, and (c) on persistent failure, the human sees a clear escalation with the checker's explanation of what's wrong, rather than a generic "decomposition failed" error.
 
 ### 8.4 DAG Execution
 
@@ -833,12 +842,13 @@ Prompts live in `.algedonia/prompts/` in the repository, versioned with the code
 ```
 .algedonia/
   prompts/
-    maker.md          -- system prompt for maker agents
-    checker.md        -- system prompt for checker agents
-    decompose.md      -- system prompt for the decomposition agent
-    impact_analysis.md -- system prompt for impact analysis
-    reflect.md        -- system prompt for reflection
-    task_template.md  -- template for task descriptions sent to agents
+    maker.md               -- system prompt for maker agents
+    checker.md             -- system prompt for checker agents
+    decompose.md           -- system prompt for the decomposition maker
+    decompose_checker.md   -- system prompt for the decomposition checker (verifies DAG against decomposition rubric)
+    impact_analysis.md     -- system prompt for impact analysis
+    reflect.md             -- system prompt for reflection
+    task_template.md       -- template for task descriptions sent to agents
   knowledge.md        -- accumulated codebase knowledge (from reflections)
 ```
 
@@ -927,8 +937,8 @@ Agent session IDs are lightweight references (~50 bytes each) instead of full te
 **Terminal scrollback is in-memory only.**
 Keeps the database lean. Downside: scrollback is lost on server restart. Mitigation: the event log, attempt diffs, and agent session IDs are the durable record. Terminal history is a debugging convenience, not a source of truth.
 
-**Rubric generation coupled with decomposition.**
-Generating rubrics during decomposition (single pass) means the agent has full context of the task breakdown and repo tooling. Downside: if the decomposition agent produces poor rubrics, they must be manually fixed. Mitigation: rubrics are always editable, and the decomposition output is shown for human review before execution begins.
+**Decomposition as a maker-checker loop.**
+Decomposition uses the same loop machinery as all other work. The decomposition checker verifies scope reduction, rubric well-formedness, DAG validity, and coverage. Downside: decomposition takes longer (multiple attempts possible) compared to a single-pass agent call. Mitigation: decomposition is the highest-leverage step -- a bad DAG wastes all downstream work. The extra cost of verification is small relative to the cost of executing a flawed DAG. The checker catches structural problems (missing coverage, scope violations, malformed rubrics) before any code-writing begins.
 
 **Multi-user stdin with no coordination.**
 Multiple users can type into the same agent session. Inputs arrive in order with no locking or turn-taking. Downside: conflicting inputs can confuse the agent. Mitigation: this mirrors SSH shared sessions -- users coordinate verbally. The feature is for collaborative debugging, not adversarial input.
