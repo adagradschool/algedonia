@@ -247,6 +247,20 @@ If any criterion fails, split further.
 8. If decomposition fails 3 times, ticket status becomes `decomposition_failed` and the user can retry.
 9. The DAG view updates in real time via PubSub.
 
+**Done (backend only):**
+- Orchestrator `push_fn` payloads now include full ticket context (`title`, `description`, `acceptance_criteria`, `rubric`, `type`, `priority`) via `ticket_context/1` helper. All three push sites covered: initial decompose, checker, retry decompose.
+- `Terminals.unsubscribe/1` added for future terminal switching support.
+- Orchestrator tests assert `payload["ticket"]` is present with expected fields.
+
+**Remaining (front-end, not yet implemented):**
+- **Split-pane DAG view:** Rewrite `DagLive.Show` as a split-pane layout — terminal (XTerm) on the left, loop list on the right, DAG graph collapsed at the bottom. Merge terminal logic from `LoopLive.Show` (subscribe/unsubscribe, scrollback, stdin forwarding). Key challenge: XTerm needs explicit absolute positioning with pixel offsets (not Tailwind `absolute inset-0`) and the root div needs `h-screen` (not `h-full`) because the app layout's `overflow-auto` wrapper breaks CSS height propagation. Match the working pattern from `LoopLive.Show`: parent `bg-[#1a1b26] p-1 min-h-0 relative`, XTerm div with inline `style="position:absolute;top:4px;left:4px;right:4px;bottom:4px;"`.
+- **Loop selection:** Add `selected_loop_id` assign, `select_loop` event handler, `terminal_reset` push on switch. Selection logic must prefer the most recent running loop (reverse list, find `running_maker`/`running_checker`), not the first match — critical when retries create multiple decompose loops.
+- **DagGraph node clicks:** Change `window.location = /loops/${id}` to `hook.pushEvent("select_loop", ...)` (capture `const hook = this` before the `querySelectorAll` loop).
+- **XTerm hook:** Add `terminal_reset` event handler (`this.term.reset()`).
+- **Start Work redirect:** Change `TicketLive.Index` `handle_event("start_work")` from `push_patch(to: ~p"/tickets/#{id}")` to `push_navigate(to: ~p"/dags/#{id}")`.
+- **DAG event handling:** Reload ticket assign on `:dag_created` (status changes from `decomposing` to `in_progress`). Auto-select first loop when `selected_loop_id` is nil and loops become available.
+- **Tests:** Update `dag_live_test.exs` for terminal container, loop selection, auto-select behavior. Update `ticket_live_test.exs` for redirect change.
+
 ---
 
 ## Slice 9: Maker Agent Execution

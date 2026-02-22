@@ -23,6 +23,10 @@ defmodule Algedonia.Application do
           do: [Algedonia.DaemonMonitor],
           else: []
         ) ++
+        if(Application.get_env(:algedonia, :start_orchestrator, true),
+          do: [Algedonia.Orchestrator],
+          else: []
+        ) ++
         [AlgedoniaWeb.Endpoint]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

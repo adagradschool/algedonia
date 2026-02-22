@@ -102,6 +102,46 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
+  describe "loop_result" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "routes loop_result to Orchestrator", %{socket: socket} do
+      # The Orchestrator will return :not_found since there's no active decomposition,
+      # but the message is still routed correctly (no crash)
+      ref =
+        push(socket, "loop_result", %{
+          "loop_id" => "nonexistent-loop",
+          "verdict" => "pass"
+        })
+
+      refute_reply ref, _
+    end
+  end
+
+  describe "error" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "routes error to Orchestrator", %{socket: socket} do
+      ref =
+        push(socket, "error", %{
+          "loop_id" => "nonexistent-loop",
+          "message" => "something went wrong"
+        })
+
+      refute_reply ref, _
+    end
+  end
+
   describe "stdin_input push" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =

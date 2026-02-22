@@ -43,6 +43,11 @@ defmodule Algedonia.Terminals do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, "terminal:#{loop_id}")
   end
 
+  @doc "Unsubscribes the caller from terminal events for loop_id."
+  def unsubscribe(loop_id) do
+    Phoenix.PubSub.unsubscribe(Algedonia.PubSub, "terminal:#{loop_id}")
+  end
+
   @doc "Returns true if a buffer is active for loop_id."
   def active?(loop_id) do
     case lookup(loop_id) do
