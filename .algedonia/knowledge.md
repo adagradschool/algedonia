@@ -107,6 +107,9 @@ Three approaches that do NOT work for delivering prompts to Claude Code:
 2. Pattern matching for `>` in output to detect readiness — `>` appears constantly in ANSI escape sequences and splash screen content, triggers false positives immediately.
 3. Idle detection with incorrect duration math — see the `time.Duration` double-conversion gotcha above; the timeout comparison will never fire.
 
+### Use `just` recipes for pre-commit workflow (Slice 7)
+When formatting, linting, testing, and building before a commit, always use `just` recipes from the repo root: `just format`, `just lint`, `just test`. Do NOT run `go fmt`, `go vet`, `mix format`, `mix compile --warnings-as-errors` manually — they require `cd`-ing into the correct subdirectory and it's easy to forget or run from the wrong directory (which fails silently or with confusing errors). The justfile handles all of this. Same applies for `just build-cli` instead of `go build ./cmd/...`.
+
 ### Always read before writing to existing files (Slice 6)
 When adding content to an existing file (like the justfile), use `Edit` (targeted replacement) rather than `Write` (full file overwrite). During Slice 6, the existing `build-cli` and `server` recipes in the justfile were destroyed by a `Write` that replaced the entire file. Rule: always `Read` first, then `Edit` to append or modify specific sections.
 
