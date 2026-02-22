@@ -6,6 +6,8 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
 
   alias Algedonia.Daemons
 
+  import AlgedoniaWeb.PresenceComponents
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Daemons.subscribe()

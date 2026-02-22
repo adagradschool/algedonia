@@ -87,6 +87,8 @@
     </div>
 
     <div class="flex items-center gap-2">
+      <.presence_indicator presences={@presences} current_user={@display_name} />
+
       <%!-- View toggle --%>
       <div class="flex bg-surface-raised border border-border rounded overflow-hidden">
         <button

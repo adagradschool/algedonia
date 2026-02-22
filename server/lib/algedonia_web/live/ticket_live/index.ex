@@ -9,6 +9,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   import AlgedoniaWeb.TicketComponents
   import AlgedoniaWeb.CommentComponents
+  import AlgedoniaWeb.PresenceComponents
 
   @statuses [:backlog, :decomposing, :decomposition_failed, :in_progress, :completed, :archived]
 
@@ -134,7 +135,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     attrs =
       params
       |> Map.put("ticket_id", ticket.id)
-      |> Map.put("author", "You")
+      |> Map.put("author", socket.assigns.display_name)
 
     case Tickets.create_comment(attrs) do
       {:ok, _comment} ->
@@ -195,7 +196,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     attrs =
       params
       |> Map.put("ticket_id", ticket.id)
-      |> Map.put("author", "You")
+      |> Map.put("author", socket.assigns.display_name)
 
     case Tickets.create_comment(attrs) do
       {:ok, _comment} ->
