@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/algedonia/daemon/internal/adapter"
 	"github.com/algedonia/daemon/internal/config"
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
@@ -77,7 +78,9 @@ func newConnectCmd() *cobra.Command {
 
 			client := connection.NewClient(serverURL, token, name, capacity)
 
-			mgr := loopmanager.NewManager(client.SendEvent)
+			registry := adapter.DefaultRegistry()
+			repoRoot, _ := os.Getwd()
+			mgr := loopmanager.NewManager(client.SendEvent, registry, repoRoot)
 			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
 			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)

@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/algedonia/daemon/internal/adapter"
 )
 
 type sentEvent struct {
@@ -28,7 +32,7 @@ func TestManagerStartAndWait(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
 
-	mgr := NewManager(collectingSendFunc(&mu, &events))
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
 	err := mgr.StartLoop(ctx, "loop-1", "echo", []string{"hello from loop"}, "", "")
@@ -111,7 +115,7 @@ func TestManagerStartAndWait(t *testing.T) {
 }
 
 func TestManagerDuplicateStart(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	ctx := context.Background()
 	err := mgr.StartLoop(ctx, "loop-dup", "sleep", []string{"10"}, "", "")
@@ -130,7 +134,7 @@ func TestManagerStopLoop(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
 
-	mgr := NewManager(collectingSendFunc(&mu, &events))
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
 	err := mgr.StartLoop(ctx, "loop-stop", "sleep", []string{"60"}, "", "")
@@ -167,7 +171,7 @@ func TestManagerStopLoop(t *testing.T) {
 }
 
 func TestManagerStopNotFound(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	err := mgr.StopLoop("nonexistent", "test")
 	if err == nil {
@@ -176,7 +180,7 @@ func TestManagerStopNotFound(t *testing.T) {
 }
 
 func TestHandleStartLoop(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	ctx := context.Background()
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
@@ -193,7 +197,7 @@ func TestHandleStartLoop(t *testing.T) {
 }
 
 func TestHandleStartLoopMissingID(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{})
 	if err == nil {
@@ -202,7 +206,7 @@ func TestHandleStartLoopMissingID(t *testing.T) {
 }
 
 func TestHandleStopLoop(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	ctx := context.Background()
 	_ = mgr.StartLoop(ctx, "handle-stop-test", "sleep", []string{"60"}, "", "")
@@ -220,7 +224,7 @@ func TestSendInput(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
 
-	mgr := NewManager(collectingSendFunc(&mu, &events))
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
 	// Start cat — it echoes stdin back to stdout via PTY
@@ -267,7 +271,7 @@ func TestSendInput(t *testing.T) {
 }
 
 func TestSendInputNotFound(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	err := mgr.SendInput("nonexistent", []byte("data"))
 	if err == nil {
@@ -279,7 +283,7 @@ func TestHandleStdinInput(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
 
-	mgr := NewManager(collectingSendFunc(&mu, &events))
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
 	err := mgr.StartLoop(ctx, "loop-handler-stdin", "cat", nil, "", "")
@@ -328,7 +332,7 @@ func TestHandleStdinInput(t *testing.T) {
 }
 
 func TestHandleStdinInputMissingID(t *testing.T) {
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil })
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	err := mgr.HandleStdinInput(context.Background(), map[string]interface{}{})
 	if err == nil {
@@ -340,7 +344,7 @@ func TestSendFuncError(t *testing.T) {
 	// SendFunc that always fails — manager should still function
 	mgr := NewManager(func(string, map[string]interface{}) error {
 		return fmt.Errorf("send failed")
-	})
+	}, nil, "")
 
 	ctx := context.Background()
 	err := mgr.StartLoop(ctx, "send-fail", "echo", []string{"hello"}, "", "")
@@ -360,5 +364,223 @@ func TestSendFuncError(t *testing.T) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// setupMockAgent creates a mock agent binary and returns a registry + workdir.
+func setupMockAgent(t *testing.T, agentName, script string) (*adapter.Registry, string) {
+	t.Helper()
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, agentName)
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	return adapter.DefaultRegistry(), dir
+}
+
+func TestStartLoopWithAdapter(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	script := "#!/bin/sh\necho 'adapter output'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+
+	ctx := context.Background()
+	err := mgr.StartLoopWithAdapter(ctx, "adapter-loop", "claude_code", "maker", dir, "do a thing")
+	if err != nil {
+		t.Fatalf("StartLoopWithAdapter: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for adapter loop to finish")
+		default:
+		}
+		if mgr.RunningCount() == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Should have gotten attempt_complete (exit code 0, non-decompose role)
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, e := range events {
+		if e.Event == "attempt_complete" && e.Payload["loop_id"] == "adapter-loop" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected attempt_complete event")
+		for _, e := range events {
+			t.Logf("  event: %s %v", e.Event, e.Payload)
+		}
+	}
+}
+
+func TestHandleStartLoopWithRole(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	script := "#!/bin/sh\necho 'hello from adapter'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+
+	ctx := context.Background()
+	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
+		"loop_id":    "role-test",
+		"role":       "maker",
+		"agent_type": "claude_code",
+		"workdir":    dir,
+		"task":       "implement feature X",
+	})
+	if err != nil {
+		t.Fatalf("HandleStartLoop with role: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out")
+		default:
+		}
+		if mgr.RunningCount() == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestHandleStartLoopWithoutRole(t *testing.T) {
+	// Backward compatible — no role = legacy raw process path
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+
+	ctx := context.Background()
+	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
+		"loop_id": "legacy-test",
+		"command": "echo",
+		"args":    []interface{}{"legacy"},
+	})
+	if err != nil {
+		t.Fatalf("HandleStartLoop without role: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+}
+
+func TestDecomposeOutputParsing(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	dagJSON := `---ALGEDONIA_DAG_BEGIN---
+{"loops":[{"id":"l1","title":"Step 1","description":"Do step 1","rubric":"Works","path_hints":["a.go"]}],"dependencies":[]}
+---ALGEDONIA_DAG_END---`
+
+	script := "#!/bin/sh\necho '" + dagJSON + "'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+
+	ctx := context.Background()
+	err := mgr.StartLoopWithAdapter(ctx, "decompose-loop", "claude_code", "decompose", dir, "decompose this ticket")
+	if err != nil {
+		t.Fatalf("StartLoopWithAdapter: %v", err)
+	}
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out")
+		default:
+		}
+		if mgr.RunningCount() == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var foundResult bool
+	for _, e := range events {
+		if e.Event == "loop_result" && e.Payload["loop_id"] == "decompose-loop" {
+			foundResult = true
+			if e.Payload["verdict"] != "pass" {
+				t.Errorf("verdict = %v, want pass", e.Payload["verdict"])
+			}
+			if e.Payload["dag"] == nil {
+				t.Error("dag is nil in loop_result")
+			}
+		}
+	}
+	if !foundResult {
+		t.Error("expected loop_result event for decompose")
+		for _, e := range events {
+			t.Logf("  event: %s %v", e.Event, e.Payload)
+		}
+	}
+}
+
+func TestAgentCrashReportsError(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	script := "#!/bin/sh\nexit 1\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+
+	ctx := context.Background()
+	err := mgr.StartLoopWithAdapter(ctx, "crash-loop", "claude_code", "maker", dir, "do a thing")
+	if err != nil {
+		t.Fatalf("StartLoopWithAdapter: %v", err)
+	}
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out")
+		default:
+		}
+		if mgr.RunningCount() == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	found := false
+	for _, e := range events {
+		if e.Event == "error" && e.Payload["loop_id"] == "crash-loop" {
+			found = true
+			if e.Payload["recoverable"] != true {
+				t.Errorf("recoverable = %v, want true", e.Payload["recoverable"])
+			}
+		}
+	}
+	if !found {
+		t.Error("expected error event for crashed agent")
+		for _, e := range events {
+			t.Logf("  event: %s %v", e.Event, e.Payload)
+		}
 	}
 }
