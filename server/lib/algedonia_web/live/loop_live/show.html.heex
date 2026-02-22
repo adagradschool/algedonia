@@ -1,0 +1,49 @@
+<div class="h-screen flex flex-col">
+  <div class="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <.link navigate={~p"/monitor"} class="text-gray-400 hover:text-gray-200">
+        &larr; Monitor
+      </.link>
+      <h1 class="text-lg font-semibold text-gray-100">
+        Loop: <span class="text-blue-400">{@loop_id}</span>
+      </h1>
+      <span
+        :if={@active}
+        class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-900 text-green-300"
+      >
+        Active
+      </span>
+      <span
+        :if={!@active}
+        class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-400"
+      >
+        Inactive
+      </span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button
+        :if={!@active}
+        phx-click="start_loop"
+        class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded transition-colors"
+      >
+        Start Loop
+      </button>
+      <button
+        :if={@active}
+        phx-click="stop_loop"
+        class="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded transition-colors"
+      >
+        Stop Loop
+      </button>
+    </div>
+  </div>
+  <div class="flex-1 bg-[#1a1b26] p-1 min-h-0 relative">
+    <div
+      id="terminal"
+      phx-hook="XTerm"
+      phx-update="ignore"
+      style="position:absolute;top:4px;left:4px;right:4px;bottom:4px;"
+    >
+    </div>
+  </div>
+</div>

@@ -5,6 +5,9 @@ defmodule AlgedoniaWeb.DaemonChannel do
   use Phoenix.Channel
 
   alias Algedonia.Daemons
+  alias Algedonia.Terminals
+
+  intercept ["start_loop", "stop_loop"]
 
   @impl true
   def join("daemon:" <> daemon_id, payload, socket) do
@@ -41,6 +44,53 @@ defmodule AlgedoniaWeb.DaemonChannel do
       {:error, _changeset} ->
         {:reply, {:error, %{reason: "update_failed"}}, socket}
     end
+  end
+
+  def handle_in("terminal_output", %{"loop_id" => loop_id, "data" => data}, socket) do
+    case Base.decode64(data) do
+      {:ok, decoded} ->
+        Terminals.append(loop_id, decoded)
+        {:noreply, socket}
+
+      :error ->
+        {:reply, {:error, %{reason: "invalid_base64"}}, socket}
+    end
+  end
+
+  def handle_in("loop_exited", %{"loop_id" => loop_id, "exit_code" => exit_code}, socket) do
+    Terminals.terminal_ended(loop_id)
+
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      "terminal:#{loop_id}",
+      {:terminal_ended, loop_id, exit_code}
+    )
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_out(event, payload, socket) do
+    push(socket, event, payload)
+    {:noreply, socket}
+  end
+
+  @doc """
+  Pushes a start_loop command to the daemon connected on the given topic.
+  """
+  def push_start_loop(daemon_name, loop_id, opts \\ %{}) do
+    payload = Map.merge(%{"loop_id" => loop_id}, opts)
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "start_loop", payload)
+  end
+
+  @doc """
+  Pushes a stop_loop command to the daemon connected on the given topic.
+  """
+  def push_stop_loop(daemon_name, loop_id, reason \\ "user requested stop") do
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "stop_loop", %{
+      "loop_id" => loop_id,
+      "reason" => reason
+    })
   end
 
   @impl true

@@ -15,6 +15,10 @@ defmodule Algedonia.Application do
         {Phoenix.PubSub, name: Algedonia.PubSub},
         Algedonia.Presence
       ] ++
+        [
+          {Registry, keys: :unique, name: Algedonia.Terminals.Registry},
+          {Algedonia.Terminals.TerminalSupervisor, name: Algedonia.Terminals.TerminalSupervisor}
+        ] ++
         if(Application.get_env(:algedonia, :start_daemon_monitor, true),
           do: [Algedonia.DaemonMonitor],
           else: []

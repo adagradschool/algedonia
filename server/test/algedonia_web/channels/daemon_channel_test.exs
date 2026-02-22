@@ -57,4 +57,67 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       assert_reply ref, :ok
     end
   end
+
+  describe "terminal_output" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "decodes base64 data and appends to terminal buffer", %{socket: socket} do
+      loop_id = "test-loop-#{System.unique_integer([:positive])}"
+      data = Base.encode64("hello terminal")
+
+      ref = push(socket, "terminal_output", %{"loop_id" => loop_id, "data" => data})
+      refute_reply ref, _
+
+      scrollback = Algedonia.Terminals.get_scrollback(loop_id)
+      assert scrollback =~ "hello terminal"
+    end
+
+    test "rejects invalid base64", %{socket: socket} do
+      ref = push(socket, "terminal_output", %{"loop_id" => "x", "data" => "not!valid!base64!!"})
+      assert_reply ref, :error, %{reason: "invalid_base64"}
+    end
+  end
+
+  describe "loop_exited" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "broadcasts terminal_ended on PubSub", %{socket: socket} do
+      loop_id = "test-exit-#{System.unique_integer([:positive])}"
+      Phoenix.PubSub.subscribe(Algedonia.PubSub, "terminal:#{loop_id}")
+
+      ref = push(socket, "loop_exited", %{"loop_id" => loop_id, "exit_code" => 0})
+      refute_reply ref, _
+
+      assert_receive {:terminal_ended, ^loop_id, 0}, 1000
+    end
+  end
+
+  describe "start_loop push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards start_loop broadcast to daemon", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_start_loop(
+        @daemon_id,
+        "loop-push-test",
+        %{"command" => "echo"}
+      )
+
+      assert_push "start_loop", %{"loop_id" => "loop-push-test", "command" => "echo"}
+    end
+  end
 end

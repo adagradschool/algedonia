@@ -26,6 +26,7 @@ defmodule AlgedoniaWeb.Router do
 
     live_session :default, on_mount: [AlgedoniaWeb.PresenceHook] do
       live "/monitor", MonitorLive.Index, :index
+      live "/loops/:loop_id", LoopLive.Show, :show
 
       live "/tickets", TicketLive.Index, :index
       live "/tickets/new", TicketLive.Index, :new
