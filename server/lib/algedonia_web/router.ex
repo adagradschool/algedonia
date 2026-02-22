@@ -19,6 +19,8 @@ defmodule AlgedoniaWeb.Router do
 
     get "/", PageController, :home
 
+    live "/monitor", MonitorLive.Index, :index
+
     live "/tickets", TicketLive.Index, :index
     live "/tickets/new", TicketLive.Index, :new
     live "/tickets/:id", TicketLive.Index, :show

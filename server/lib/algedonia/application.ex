@@ -7,16 +7,18 @@ defmodule Algedonia.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      AlgedoniaWeb.Telemetry,
-      Algedonia.Repo,
-      {DNSCluster, query: Application.get_env(:algedonia, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: Algedonia.PubSub},
-      # Start a worker by calling: Algedonia.Worker.start_link(arg)
-      # {Algedonia.Worker, arg},
-      # Start to serve requests, typically the last entry
-      AlgedoniaWeb.Endpoint
-    ]
+    children =
+      [
+        AlgedoniaWeb.Telemetry,
+        Algedonia.Repo,
+        {DNSCluster, query: Application.get_env(:algedonia, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: Algedonia.PubSub}
+      ] ++
+        if(Application.get_env(:algedonia, :start_daemon_monitor, true),
+          do: [Algedonia.DaemonMonitor],
+          else: []
+        ) ++
+        [AlgedoniaWeb.Endpoint]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options

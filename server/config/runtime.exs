@@ -23,6 +23,10 @@ end
 config :algedonia, AlgedoniaWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if project_token = System.get_env("PROJECT_TOKEN") do
+  config :algedonia, :project_token, project_token
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
