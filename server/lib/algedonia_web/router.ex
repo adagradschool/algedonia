@@ -32,6 +32,8 @@ defmodule AlgedoniaWeb.Router do
       live "/tickets/new", TicketLive.Index, :new
       live "/tickets/:id", TicketLive.Index, :show
       live "/tickets/:id/edit", TicketLive.Index, :edit
+
+      live "/dags/:ticket_id", DagLive.Show, :show
     end
   end
 

@@ -25,10 +25,12 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/algedonia"
 import topbar from "../vendor/topbar"
 import XTerm from "./hooks/xterm"
+import DagGraph from "./hooks/dag_graph"
 
 const Hooks = {
   ...colocatedHooks,
   XTerm,
+  DagGraph,
   AutoResize: {
     mounted() {
       this.el.style.overflow = "hidden"

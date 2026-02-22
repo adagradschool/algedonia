@@ -201,6 +201,21 @@
           <.icon name="hero-pencil" class="size-3" /> Edit
         </.link>
         <button
+          :if={@ticket.status == :backlog}
+          phx-click="start_work"
+          phx-value-id={@ticket.id}
+          class="flex items-center gap-1 px-2 py-1 text-xs text-green-400 hover:text-green-300 transition-colors rounded hover:bg-surface-raised"
+        >
+          <.icon name="hero-play" class="size-3" /> Start Work
+        </button>
+        <.link
+          :if={@ticket.status in [:decomposing, :in_progress, :completed]}
+          navigate={~p"/dags/#{@ticket}"}
+          class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
+        >
+          <.icon name="hero-rectangle-group" class="size-3" /> View DAG
+        </.link>
+        <button
           phx-click="delete"
           phx-value-id={@ticket.id}
           data-confirm="Are you sure you want to delete this issue?"

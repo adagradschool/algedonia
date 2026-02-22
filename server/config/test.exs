@@ -26,8 +26,9 @@ config :algedonia, Algedonia.Mailer, adapter: Swoosh.Adapters.Test
 # Project token for daemon authentication in tests
 config :algedonia, :project_token, "test-token"
 
-# Don't start DaemonMonitor in tests (it's tested explicitly)
+# Don't start DaemonMonitor or Orchestrator in tests (they're tested explicitly)
 config :algedonia, :start_daemon_monitor, false
+config :algedonia, :start_orchestrator, false
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false

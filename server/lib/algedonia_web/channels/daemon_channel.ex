@@ -5,6 +5,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   use Phoenix.Channel
 
   alias Algedonia.Daemons
+  alias Algedonia.Orchestrator
   alias Algedonia.Terminals
 
   intercept ["start_loop", "stop_loop", "stdin_input"]
@@ -55,6 +56,16 @@ defmodule AlgedoniaWeb.DaemonChannel do
       :error ->
         {:reply, {:error, %{reason: "invalid_base64"}}, socket}
     end
+  end
+
+  def handle_in("loop_result", %{"loop_id" => loop_id} = payload, socket) do
+    Orchestrator.handle_loop_result(loop_id, payload)
+    {:noreply, socket}
+  end
+
+  def handle_in("error", %{"loop_id" => loop_id} = payload, socket) do
+    Orchestrator.handle_loop_error(loop_id, payload)
+    {:noreply, socket}
   end
 
   def handle_in("loop_exited", %{"loop_id" => loop_id, "exit_code" => exit_code}, socket) do
