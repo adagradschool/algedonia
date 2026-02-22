@@ -33,6 +33,10 @@ defmodule AlgedoniaWeb.ConnCase do
 
   setup tags do
     Algedonia.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+
+    {:ok,
+     conn:
+       Phoenix.ConnTest.build_conn()
+       |> Plug.Test.init_test_session(%{display_name: "TestUser"})}
   end
 end

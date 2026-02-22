@@ -12,7 +12,8 @@ defmodule Algedonia.Application do
         AlgedoniaWeb.Telemetry,
         Algedonia.Repo,
         {DNSCluster, query: Application.get_env(:algedonia, :dns_cluster_query) || :ignore},
-        {Phoenix.PubSub, name: Algedonia.PubSub}
+        {Phoenix.PubSub, name: Algedonia.PubSub},
+        Algedonia.Presence
       ] ++
         if(Application.get_env(:algedonia, :start_daemon_monitor, true),
           do: [Algedonia.DaemonMonitor],

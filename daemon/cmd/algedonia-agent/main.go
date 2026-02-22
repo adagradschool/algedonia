@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -79,6 +82,11 @@ func newConnectCmd() *cobra.Command {
 				cancel()
 			}()
 
+			// Open browser for auth after connection setup
+			if authURL, err := buildAuthURL(serverURL, name, token); err == nil {
+				openBrowser(authURL)
+			}
+
 			return client.RunForever(ctx)
 		},
 	}
@@ -138,6 +146,43 @@ func newLogoutCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// buildAuthURL derives an HTTP auth URL from the WebSocket server URL.
+func buildAuthURL(wsURL, name, token string) (string, error) {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing server URL: %w", err)
+	}
+
+	switch u.Scheme {
+	case "ws":
+		u.Scheme = "http"
+	case "wss":
+		u.Scheme = "https"
+	}
+
+	u.Path = "/auth"
+	q := u.Query()
+	q.Set("name", name)
+	q.Set("token", token)
+	u.RawQuery = q.Encode()
+
+	return u.String(), nil
+}
+
+// openBrowser opens the given URL in the user's default browser.
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return
+	}
+	_ = cmd.Start()
 }
 
 // prompt asks the user for input with an optional default value.
