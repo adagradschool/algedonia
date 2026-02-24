@@ -8,8 +8,8 @@ defmodule Algedonia.Repo.Migrations.AddWorkspaceToTickets do
     end
 
     execute """
-    INSERT INTO workspaces (name, slug, prefix, invite_token, next_ticket_number, inserted_at, updated_at)
-    VALUES ('Algedonia', 'algedonia', 'ALG', md5(random()::text), 1, now(), now())
+    INSERT INTO workspaces (name, slug, prefix, next_ticket_number, inserted_at, updated_at)
+    VALUES ('Algedonia', 'algedonia', 'ALG', 1, now(), now())
     ON CONFLICT (slug) DO NOTHING
     """
 

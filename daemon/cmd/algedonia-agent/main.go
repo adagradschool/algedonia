@@ -21,13 +21,25 @@ import (
 )
 
 func main() {
+	var showVersion bool
+
 	rootCmd := &cobra.Command{
 		Use:   "ag",
 		Short: "Algedonia daemon agent",
 	}
 
+	rootCmd.PersistentFlags().BoolVar(&showVersion, "version", false, "Print version and exit")
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if showVersion {
+			fmt.Fprintln(cmd.OutOrStdout(), version)
+			os.Exit(0)
+		}
+		return nil
+	}
+
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newLogoutCmd())
+	rootCmd.AddCommand(newUninstallCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
