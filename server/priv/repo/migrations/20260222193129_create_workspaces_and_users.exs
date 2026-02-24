@@ -6,14 +6,12 @@ defmodule Algedonia.Repo.Migrations.CreateWorkspacesAndUsers do
       add :name, :text, null: false
       add :slug, :text, null: false
       add :prefix, :text, null: false
-      add :invite_token, :text, null: false
       add :next_ticket_number, :bigint, null: false, default: 1
 
       timestamps(type: :utc_datetime)
     end
 
     create unique_index(:workspaces, [:slug])
-    create unique_index(:workspaces, [:invite_token])
 
     create table(:users) do
       add :name, :text, null: false
