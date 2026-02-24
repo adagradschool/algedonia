@@ -27,14 +27,18 @@ if project_token = System.get_env("PROJECT_TOKEN") do
   config :algedonia, :project_token, project_token
 end
 
-config :algedonia, :supabase,
-  project_url: System.get_env("SUPABASE_PROJECT_URL"),
-  publishable_key: System.get_env("SUPABASE_PUBLISHABLE_KEY"),
-  gh_auth_callback: System.get_env("SUPABASE_GH_AUTH_CALLBACK")
+if System.get_env("SUPABASE_PROJECT_URL") do
+  config :algedonia, :supabase,
+    project_url: System.get_env("SUPABASE_PROJECT_URL"),
+    publishable_key: System.get_env("SUPABASE_PUBLISHABLE_KEY"),
+    gh_auth_callback: System.get_env("SUPABASE_GH_AUTH_CALLBACK")
+end
 
-config :algedonia, :github,
-  client_id: System.get_env("GITHUB_CLIENT_ID"),
-  client_secret: System.get_env("GITHUB_CLIENT_SECRET")
+if System.get_env("GITHUB_CLIENT_ID") do
+  config :algedonia, :github,
+    client_id: System.get_env("GITHUB_CLIENT_ID"),
+    client_secret: System.get_env("GITHUB_CLIENT_SECRET")
+end
 
 if config_env() == :prod do
   database_url =
