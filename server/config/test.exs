@@ -26,6 +26,16 @@ config :algedonia, Algedonia.Mailer, adapter: Swoosh.Adapters.Test
 # Project token for daemon authentication in tests
 config :algedonia, :project_token, "test-token"
 
+# Supabase + GitHub config for tests
+config :algedonia, :supabase,
+  project_url: "https://test.supabase.co",
+  publishable_key: "test-key",
+  gh_auth_callback: "http://localhost:4002/auth/callback"
+
+config :algedonia, :github,
+  client_id: "test-client-id",
+  client_secret: "test-client-secret"
+
 # Don't start DaemonMonitor or Orchestrator in tests (they're tested explicitly)
 config :algedonia, :start_daemon_monitor, false
 config :algedonia, :start_orchestrator, false
