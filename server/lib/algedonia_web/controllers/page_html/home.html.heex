@@ -1,4 +1,9 @@
-<Layouts.app flash={@flash} current_scope={@current_scope} current_workspace={@current_workspace}>
+<Layouts.app
+  flash={@flash}
+  current_scope={@current_scope}
+  current_workspace={@current_workspace}
+  current_user={@current_user}
+>
   <div class="flex flex-col h-full">
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
       <div class="flex items-center gap-2">
@@ -58,24 +63,11 @@
         :if={@current_workspace}
         class="mt-6 bg-surface-panel border border-border rounded-xl p-5"
       >
-        <h2 class="text-sm font-semibold text-fg">Connect to this workspace</h2>
+        <h2 class="text-sm font-semibold text-fg">Connect a daemon</h2>
         <p class="text-sm text-fg-secondary mt-2">
-          Use the invite token below to connect the daemon for this workspace.
+          Use the GitHub device flow to connect the daemon to this workspace.
         </p>
-        <div class="mt-3 flex items-center gap-2">
-          <span class="text-xs text-fg-muted">Invite token</span>
-          <span class="text-xs font-mono text-fg bg-surface-raised px-2 py-1 rounded-md border border-border">
-            {@current_workspace.invite_token}
-          </span>
-        </div>
-        <pre class="mt-3 text-xs text-fg bg-surface-sunken border border-border rounded-lg p-3 overflow-auto">
-ag login
-Server URL [ws://localhost:4000/daemon/websocket]:
-Token [dev-token]: {@current_workspace.invite_token}
-Name [ada]:
-
-ag connect
-        </pre>
+        <pre class="mt-3 text-xs text-fg bg-surface-sunken border border-border rounded-lg p-3 overflow-auto">ag login</pre>
       </div>
     </div>
   </div>

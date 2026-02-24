@@ -9,7 +9,6 @@ defmodule Algedonia.Workspaces.Workspace do
     field :name, :string
     field :slug, :string
     field :prefix, :string
-    field :invite_token, :string
     field :next_ticket_number, :integer, default: 1
 
     has_many :tickets, Algedonia.Tickets.Ticket
@@ -20,7 +19,8 @@ defmodule Algedonia.Workspaces.Workspace do
 
   def changeset(workspace, attrs) do
     workspace
-    |> cast(attrs, [:name, :slug, :prefix, :invite_token, :next_ticket_number])
-    |> validate_required([:name, :slug, :prefix, :invite_token])
+    |> cast(attrs, [:name, :slug, :prefix, :next_ticket_number])
+    |> validate_required([:name, :slug, :prefix])
+    |> unique_constraint(:slug)
   end
 end

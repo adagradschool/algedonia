@@ -18,7 +18,17 @@ defmodule AlgedoniaWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
-    get "/auth", AuthController, :create
+    get "/auth/github", AuthController, :github
+    get "/auth/callback", AuthController, :callback
+    delete "/auth/logout", AuthController, :delete
+  end
+
+  scope "/", AlgedoniaWeb do
+    pipe_through [:browser, AlgedoniaWeb.Plugs.RequireUser]
+
+    live_session :onboarding, on_mount: [AlgedoniaWeb.OnboardingHook] do
+      live "/onboarding", OnboardingLive, :index
+    end
   end
 
   scope "/w/:workspace", AlgedoniaWeb do
@@ -39,10 +49,12 @@ defmodule AlgedoniaWeb.Router do
     end
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", AlgedoniaWeb do
-  #   pipe_through :api
-  # end
+  scope "/api", AlgedoniaWeb do
+    pipe_through :api
+
+    post "/auth/device/code", AuthController, :device_code
+    post "/auth/device/poll", AuthController, :device_poll
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:algedonia, :dev_routes) do

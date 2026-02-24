@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/algedonia/daemon/internal/adapter"
+	"github.com/algedonia/daemon/internal/auth"
 	"github.com/algedonia/daemon/internal/config"
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
@@ -25,7 +26,6 @@ func main() {
 		Short: "Algedonia daemon agent",
 	}
 
-	rootCmd.AddCommand(newConnectCmd())
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newLogoutCmd())
 
@@ -34,13 +34,13 @@ func main() {
 	}
 }
 
-func newConnectCmd() *cobra.Command {
-	var serverURL, token, name string
+func newLoginCmd() *cobra.Command {
+	var serverURL, name string
 	var capacity int
 
 	cmd := &cobra.Command{
-		Use:   "connect",
-		Short: "Connect to the Phoenix server and maintain heartbeat",
+		Use:   "login",
+		Short: "Authenticate with GitHub and connect to the server",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -51,15 +51,8 @@ func newConnectCmd() *cobra.Command {
 			if !cmd.Flags().Changed("server-url") && cfg.ServerURL != "" {
 				serverURL = cfg.ServerURL
 			}
-			if !cmd.Flags().Changed("token") && cfg.Token != "" {
-				token = cfg.Token
-			}
 			if !cmd.Flags().Changed("name") && cfg.Name != "" {
 				name = cfg.Name
-			}
-
-			if token == "" {
-				return fmt.Errorf("--token is required (or run 'ag login' first)")
 			}
 
 			if name == "" {
@@ -68,6 +61,23 @@ func newConnectCmd() *cobra.Command {
 					return fmt.Errorf("getting hostname: %w", err)
 				}
 				name = h
+			}
+
+			// Re-use saved token or run device flow
+			token := cfg.Token
+			if token == "" {
+				t, err := runDeviceFlow(serverURL)
+				if err != nil {
+					return err
+				}
+				token = t
+
+				cfg.Token = token
+				cfg.ServerURL = serverURL
+				cfg.Name = name
+				_ = config.Save(cfg)
+			} else {
+				fmt.Println("Using saved credentials.")
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -92,77 +102,58 @@ func newConnectCmd() *cobra.Command {
 				cancel()
 			}()
 
-			// Open browser for auth after connection setup
-			if authURL, err := buildAuthURL(serverURL, name, token); err == nil {
-				openBrowser(authURL)
-			}
-
 			return client.RunForever(ctx)
 		},
 	}
 
 	cmd.Flags().StringVar(&serverURL, "server-url", "ws://localhost:4000/daemon/websocket", "Phoenix server WebSocket URL")
-	cmd.Flags().StringVar(&token, "token", "", "Project token for authentication")
 	cmd.Flags().StringVar(&name, "name", "", "Daemon name (default: hostname)")
 	cmd.Flags().IntVar(&capacity, "capacity", 3, "Max concurrent loops")
 
 	return cmd
 }
 
-func newLoginCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "login",
-		Short: "Save connection config to ~/.config/ag/config.json",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			reader := bufio.NewReader(os.Stdin)
-
-			// Load existing config for defaults.
-			existing, _ := config.Load()
-
-			serverURL := prompt(reader, "Server URL", existing.ServerURL, "ws://localhost:4000/daemon/websocket")
-			token := prompt(reader, "Token", existing.Token, "")
-			name := prompt(reader, "Name", existing.Name, "")
-
-			if token == "" {
-				return fmt.Errorf("token is required")
-			}
-
-			cfg := &config.Config{
-				ServerURL: serverURL,
-				Token:     token,
-				Name:      name,
-			}
-
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-
-			p, _ := config.Path()
-			fmt.Printf("Config saved to %s\n", p)
-			return nil
-		},
-	}
-}
-
 func newLogoutCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "Remove saved connection config",
+		Short: "Remove saved credentials and disconnect",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := config.Remove(); err != nil {
 				return err
 			}
-			fmt.Println("Config removed.")
+			fmt.Println("Logged out. Credentials removed.")
 			return nil
 		},
 	}
 }
 
-// buildAuthURL derives an HTTP auth URL from the WebSocket server URL.
-func buildAuthURL(wsURL, name, token string) (string, error) {
+func runDeviceFlow(serverURL string) (string, error) {
+	baseURL := httpBaseURL(serverURL)
+	fmt.Println("Authenticating with GitHub...")
+
+	deviceResp, err := auth.RequestDeviceCode(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("requesting device code: %w", err)
+	}
+
+	fmt.Printf("\nVisit: %s\nEnter code: %s\n\n", deviceResp.VerificationURI, deviceResp.UserCode)
+	openBrowser(deviceResp.VerificationURI)
+	fmt.Println("Waiting for authorization...")
+
+	token, err := auth.PollForToken(baseURL, deviceResp.DeviceCode, deviceResp.Interval, deviceResp.ExpiresIn)
+	if err != nil {
+		return "", fmt.Errorf("device flow: %w", err)
+	}
+
+	fmt.Println("Authenticated successfully!")
+	return token, nil
+}
+
+// httpBaseURL derives an HTTP base URL from the WebSocket server URL.
+func httpBaseURL(wsURL string) string {
 	u, err := url.Parse(wsURL)
 	if err != nil {
-		return "", fmt.Errorf("parsing server URL: %w", err)
+		return "http://localhost:4000"
 	}
 
 	switch u.Scheme {
@@ -172,23 +163,19 @@ func buildAuthURL(wsURL, name, token string) (string, error) {
 		u.Scheme = "https"
 	}
 
-	u.Path = "/auth"
-	q := u.Query()
-	q.Set("name", name)
-	q.Set("token", token)
-	u.RawQuery = q.Encode()
-
-	return u.String(), nil
+	u.Path = ""
+	u.RawQuery = ""
+	return u.String()
 }
 
 // openBrowser opens the given URL in the user's default browser.
-func openBrowser(url string) {
+func openBrowser(rawURL string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", rawURL)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", rawURL)
 	default:
 		return
 	}
