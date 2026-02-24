@@ -127,3 +127,7 @@ just server                  # Start Phoenix dev server
 ```
 
 ## Rubric Notes
+### Session learnings (2026-02-24)
+- Invite-token auth is fully removed. Migrations must not add `invite_token` to `workspaces`, and data seeds should not reference it. The GitHub device-flow auth migration now drops the column/index defensively.
+- GoReleaser packaging expects a LICENSE file if included in `.goreleaser.yaml`; add a proprietary `LICENSE` for commercial use to avoid release failures.
+- Use `just format`, `just lint`, `just test` for full-stack checks; Elixir Mix tasks may require extra permissions for local sockets in this environment.
