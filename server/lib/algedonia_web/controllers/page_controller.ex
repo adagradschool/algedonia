@@ -1,24 +1,25 @@
 defmodule AlgedoniaWeb.PageController do
   use AlgedoniaWeb, :controller
 
+  alias Algedonia.Accounts
   alias Algedonia.Workspaces
 
   def home(conn, _params) do
-    current_workspace_slug = get_session(conn, :current_workspace_slug)
+    case get_session(conn, :user_id) do
+      nil ->
+        render(conn, :landing, layout: false)
 
-    current_workspace =
-      if current_workspace_slug do
-        Workspaces.get_workspace_by_slug!(current_workspace_slug)
-      else
-        nil
-      end
+      user_id ->
+        workspaces = Accounts.list_workspaces_for_user(user_id)
 
-    conn
-    |> assign(:current_scope, nil)
-    |> assign(:current_path, conn.request_path)
-    |> assign(:nav_section, :inbox)
-    |> assign(:current_workspace, current_workspace)
-    |> render(:home)
+        case workspaces do
+          [workspace | _] ->
+            redirect(conn, to: ~p"/w/#{workspace.slug}/tickets")
+
+          [] ->
+            redirect(conn, to: ~p"/onboarding")
+        end
+    end
   end
 
   def workspace_home(conn, %{"workspace" => workspace}) do
@@ -29,6 +30,14 @@ defmodule AlgedoniaWeb.PageController do
     |> assign(:current_path, conn.request_path)
     |> assign(:nav_section, :inbox)
     |> assign(:current_workspace, current_workspace)
+    |> assign(:current_user, load_current_user(conn))
     |> render(:home)
+  end
+
+  defp load_current_user(conn) do
+    case get_session(conn, :user_id) do
+      nil -> nil
+      id -> Accounts.get_user(id)
+    end
   end
 end

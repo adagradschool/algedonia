@@ -1,20 +1,26 @@
 defmodule AlgedoniaWeb.AuthControllerTest do
   use AlgedoniaWeb.ConnCase, async: true
 
-  alias Algedonia.Accounts
-  alias Algedonia.Workspaces
+  test "GET /auth/github redirects to Supabase OAuth", %{conn: conn} do
+    conn = get(conn, ~p"/auth/github")
+    location = redirected_to(conn)
+    assert location =~ "/auth/v1/authorize"
+    assert location =~ "flow_type=pkce"
+    assert location =~ "code_challenge="
+  end
 
-  import Algedonia.Factory
+  test "GET /auth/callback without code redirects to / with flash", %{conn: conn} do
+    conn = get(conn, ~p"/auth/callback")
+    assert redirected_to(conn) == "/"
+    assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "Missing"
+  end
 
-  test "connect with invite token creates membership and redirects", %{conn: conn} do
-    workspace = insert_workspace!(%{slug: "acme", invite_token: "token-123"})
+  test "DELETE /auth/logout clears session and redirects to /", %{conn: conn} do
+    conn =
+      conn
+      |> init_test_session(%{user_id: 1})
+      |> delete(~p"/auth/logout")
 
-    conn = get(conn, ~p"/auth", %{name: "Ada", token: "token-123"})
-
-    assert redirected_to(conn) == "/w/acme/tickets"
-
-    user = Accounts.get_user_by_name("Ada")
-    assert user
-    assert Workspaces.get_membership(workspace.id, user.id)
+    assert redirected_to(conn) == "/"
   end
 end

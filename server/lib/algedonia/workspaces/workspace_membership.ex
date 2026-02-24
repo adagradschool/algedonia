@@ -18,5 +18,6 @@ defmodule Algedonia.Workspaces.WorkspaceMembership do
     membership
     |> cast(attrs, [:workspace_id, :user_id, :role])
     |> validate_required([:workspace_id, :user_id, :role])
+    |> unique_constraint([:workspace_id, :user_id])
   end
 end

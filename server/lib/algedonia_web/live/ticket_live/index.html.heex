@@ -1,4 +1,9 @@
-<Layouts.app flash={@flash} current_scope={@current_scope} current_workspace={@current_workspace}>
+<Layouts.app
+  flash={@flash}
+  current_scope={@current_scope}
+  current_workspace={@current_workspace}
+  current_user={@current_user}
+>
   <div id="ticket-shell" class="flex flex-col h-full" phx-hook="TicketShortcuts">
     <%!-- Header bar --%>
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">

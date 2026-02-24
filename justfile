@@ -1,3 +1,5 @@
+set dotenv-load
+
 # Algedonia monorepo recipes
 # Run `just --list` to see all available recipes
 
@@ -43,3 +45,7 @@ test-server:
 # Test Go daemon
 test-daemon:
     cd daemon && go test ./...
+
+# Open the GitHub repo in the browser
+github:
+    open https://github.com/adagradschool/algedonia

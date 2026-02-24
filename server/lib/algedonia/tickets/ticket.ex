@@ -51,5 +51,6 @@ defmodule Algedonia.Tickets.Ticket do
     ])
     |> validate_required([:workspace_id, :title, :type, :priority])
     |> validate_inclusion(:priority, 1..5)
+    |> unique_constraint([:workspace_id, :number])
   end
 end

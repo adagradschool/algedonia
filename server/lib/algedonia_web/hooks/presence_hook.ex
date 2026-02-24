@@ -5,6 +5,7 @@ defmodule AlgedoniaWeb.PresenceHook do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1, attach_hook: 4]
 
+  alias Algedonia.Accounts
   alias Algedonia.Presence
   alias Algedonia.Workspaces
 
@@ -19,10 +20,17 @@ defmodule AlgedoniaWeb.PresenceHook do
         nil
       end
 
+    current_user =
+      case session["user_id"] do
+        nil -> nil
+        id -> Accounts.get_user(id)
+      end
+
     topic = topic_for(socket.view, workspace_slug)
 
     socket =
       socket
+      |> assign(:current_user, current_user)
       |> assign(:display_name, display_name)
       |> assign(:presence_topic, topic)
       |> assign(:presences, [])

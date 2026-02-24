@@ -16,6 +16,7 @@ defmodule AlgedoniaWeb.Layouts do
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
   attr :current_workspace, :map, default: nil
+  attr :current_user, :map, default: nil
 
   slot :inner_block, required: true
 
@@ -90,10 +91,35 @@ defmodule AlgedoniaWeb.Layouts do
           />
         </nav>
 
-        <div class="p-4 border-t border-border">
-          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-fg-muted">
-            <span>v0.1.0</span>
-            <button class="text-fg-muted hover:text-fg transition-colors">Help</button>
+        <div class="p-3 border-t border-border">
+          <div :if={@current_user} class="group relative">
+            <button class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-panel transition-colors">
+              <img
+                :if={@current_user.avatar_url}
+                src={@current_user.avatar_url}
+                class="size-6 rounded-full"
+                alt=""
+              />
+              <div
+                :if={!@current_user.avatar_url}
+                class="size-6 rounded-full bg-accent-indigo flex items-center justify-center text-white text-xs font-medium"
+              >
+                {String.first(@current_user.name || "?")}
+              </div>
+              <span class="text-sm text-fg truncate flex-1 text-left">
+                {@current_user.name || @current_user.github_username}
+              </span>
+              <.icon name="hero-chevron-up-down-mini" class="size-4 text-fg-muted" />
+            </button>
+            <div class="absolute bottom-full left-0 right-0 mb-1 bg-surface-panel border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <.link
+                href={~p"/auth/logout"}
+                method="delete"
+                class="flex items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:text-fg hover:bg-surface-raised rounded-lg transition-colors"
+              >
+                <.icon name="hero-arrow-right-start-on-rectangle-mini" class="size-4" /> Sign out
+              </.link>
+            </div>
           </div>
         </div>
       </aside>

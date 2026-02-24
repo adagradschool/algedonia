@@ -83,7 +83,6 @@ defmodule Algedonia.Factory do
         name: name,
         slug: "algedonia-#{System.unique_integer([:positive])}",
         prefix: Algedonia.Workspaces.prefix_for_name(name),
-        invite_token: "invite-#{System.unique_integer([:positive])}",
         next_ticket_number: 1
       },
       overrides

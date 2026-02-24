@@ -10,7 +10,6 @@ defmodule Algedonia.Workspaces do
 
   def get_workspace_by_slug!(slug), do: Repo.get_by!(Workspace, slug: slug)
   def get_workspace!(id), do: Repo.get!(Workspace, id)
-  def get_workspace_by_invite_token(token), do: Repo.get_by(Workspace, invite_token: token)
 
   def create_workspace(attrs) do
     %Workspace{}
