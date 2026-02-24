@@ -1,0 +1,42 @@
+version: 2
+
+project_name: ag
+
+builds:
+  - id: ag
+    dir: daemon
+    main: ./cmd/algedonia-agent
+    binary: ag
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: ag
+    name_template: "ag_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - name: ag
+    repository:
+      owner: algedonia
+      name: homebrew-tap
+    homepage: "https://github.com/algedonia/algedonia"
+    description: "Algedonia daemon agent"
+    install: |
+      bin.install "ag"
+    caveats: |
+      Run `ag login` to configure the daemon.
