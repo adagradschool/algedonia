@@ -1,9 +1,11 @@
 package adapter
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -143,5 +145,66 @@ func TestClaudeCodeCLIConstruction(t *testing.T) {
 	_, err := exec.LookPath("claude")
 	if err != nil {
 		t.Skip("claude not on PATH, skipping CLI construction test")
+	}
+}
+
+func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 60\n"
+	if err := os.WriteFile(dir+"/claude", []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	a := &ClaudeCodeAdapter{}
+	proc, err := a.Start(dir, "", map[string]string{
+		"loop_id": "loop-hook-1",
+		"role":    "checker",
+		"workdir": dir,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	reader, _, err := a.AttachPTY(proc)
+	if err != nil {
+		t.Fatalf("AttachPTY: %v", err)
+	}
+	go io.Copy(io.Discard, reader)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		markerPath := filepath.Join(dir, ".algedonia", "runtime", "loop-hook-1", "attempt_complete.json")
+		_ = os.MkdirAll(filepath.Dir(markerPath), 0o755)
+		data, _ := json.Marshal(map[string]string{
+			"loop_id":   "loop-hook-1",
+			"role":      "checker",
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		_ = os.WriteFile(markerPath, data, 0o644)
+	}()
+
+	done := make(chan *ExitResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		r, e := a.Wait(proc)
+		done <- r
+		errCh <- e
+	}()
+
+	select {
+	case result := <-done:
+		if err := <-errCh; err != nil {
+			t.Fatalf("Wait: %v", err)
+		}
+		if result.ExitCode != 0 {
+			t.Fatalf("ExitCode = %d, want 0", result.ExitCode)
+		}
+	case <-time.After(10 * time.Second):
+		_ = a.Kill(proc)
+		t.Fatal("Wait timed out; hook marker did not complete process")
 	}
 }

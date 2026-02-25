@@ -3,17 +3,21 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/algedonia/daemon/internal/adapter"
 	"github.com/algedonia/daemon/internal/auth"
+	"github.com/algedonia/daemon/internal/claudehooks"
 	"github.com/algedonia/daemon/internal/config"
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
@@ -40,6 +44,7 @@ func main() {
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newLogoutCmd())
 	rootCmd.AddCommand(newUninstallCmd())
+	rootCmd.AddCommand(newClaudeHookCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -49,6 +54,7 @@ func main() {
 func newLoginCmd() *cobra.Command {
 	var serverURL, name string
 	var capacity int
+	var installClaudeHooks bool
 
 	cmd := &cobra.Command{
 		Use:   "login",
@@ -92,6 +98,17 @@ func newLoginCmd() *cobra.Command {
 				fmt.Println("Using saved credentials.")
 			}
 
+			if installClaudeHooks {
+				exePath, err := os.Executable()
+				if err != nil {
+					return fmt.Errorf("resolve executable for claude hooks: %w", err)
+				}
+				if err := claudehooks.Install(exePath); err != nil {
+					return fmt.Errorf("install claude hooks: %w", err)
+				}
+				fmt.Println("Claude Stop hook registered.")
+			}
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -121,6 +138,7 @@ func newLoginCmd() *cobra.Command {
 	cmd.Flags().StringVar(&serverURL, "server-url", "ws://localhost:4000/daemon/websocket", "Phoenix server WebSocket URL")
 	cmd.Flags().StringVar(&name, "name", "", "Daemon name (default: hostname)")
 	cmd.Flags().IntVar(&capacity, "capacity", 3, "Max concurrent loops")
+	cmd.Flags().BoolVar(&installClaudeHooks, "install-claude-hooks", true, "Install/refresh Claude Stop hook for attempt completion markers")
 
 	return cmd
 }
@@ -137,6 +155,56 @@ func newLogoutCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newClaudeHookCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "claude-hook",
+		Short:  "Internal Claude hook handlers",
+		Hidden: true,
+	}
+
+	stopCmd := &cobra.Command{
+		Use:    "stop",
+		Short:  "Claude Stop hook callback",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			loopID := strings.TrimSpace(os.Getenv("ALGEDONIA_LOOP_ID"))
+			if loopID == "" {
+				return nil
+			}
+
+			workdir := strings.TrimSpace(os.Getenv("ALGEDONIA_WORKDIR"))
+			if workdir == "" {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return nil
+				}
+				workdir = cwd
+			}
+			role := strings.TrimSpace(os.Getenv("ALGEDONIA_ROLE"))
+
+			markerPath := filepath.Join(workdir, ".algedonia", "runtime", loopID, "attempt_complete.json")
+			if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+				return nil
+			}
+
+			payload := map[string]string{
+				"loop_id":   loopID,
+				"role":      role,
+				"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			data, err := json.Marshal(payload)
+			if err != nil {
+				return nil
+			}
+			_ = os.WriteFile(markerPath, data, 0o644)
+			return nil
+		},
+	}
+
+	cmd.AddCommand(stopCmd)
+	return cmd
 }
 
 func runDeviceFlow(serverURL string) (string, error) {

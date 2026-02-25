@@ -12,10 +12,14 @@ type Process struct {
 	ID        string
 	SessionID string
 	Workdir   string
+	LoopID    string
+	Role      string
 
 	// unexported fields for adapter internal state
-	session   *ptyPkg.Session
-	collector *outputCollector
+	session          *ptyPkg.Session
+	collector        *outputCollector
+	app              *codexAppSession
+	completionMarker string
 }
 
 // Collector returns the output collector for dual-writing PTY output.
