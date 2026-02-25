@@ -292,8 +292,7 @@ defmodule Algedonia.OrchestratorTest do
 
       final_history = get_history(pid, loop_id)
 
-      checker_entries =
-        Enum.filter(final_history, &(&1.role == "checker" && &1.attempt == 1))
+      checker_entries = Enum.filter(final_history, &(&1.role == "checker" && &1.attempt == 1))
 
       assert length(checker_entries) == 1
 
