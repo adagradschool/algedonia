@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,7 @@ type LoopProcess struct {
 	role       string
 	promptsDir string
 	workdir    string
+	attempt    int
 }
 
 // Manager tracks running loop processes and streams their output.
@@ -213,13 +215,17 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 }
 
 // StartLoopWithAdapter spawns a loop using a registered adapter.
-func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc string) error {
+func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc string, attempt int) error {
 	m.mu.Lock()
 	if _, exists := m.loops[loopID]; exists {
 		m.mu.Unlock()
 		return fmt.Errorf("loop %s already running", loopID)
 	}
 	m.mu.Unlock()
+
+	if attempt < 1 {
+		attempt = 1
+	}
 
 	ag, err := m.adapterReg.Get(agentType)
 	if err != nil {
@@ -283,6 +289,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		role:       role,
 		promptsDir: promptsDir,
 		workdir:    workdir,
+		attempt:    attempt,
 	}
 
 	m.mu.Lock()
@@ -362,12 +369,13 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 
 				if role == "checker" {
 					expectedJSONPath, expectedFeedbackPath :=
-						expectedCheckerHandoffPaths(loopID)
+						expectedCheckerHandoffPaths(loopID, lp.attempt)
 					attemptPayload["expected_handoff_json_path"] = expectedJSONPath
 					attemptPayload["expected_handoff_feedback_path"] = expectedFeedbackPath
+					attemptPayload["attempt"] = lp.attempt
 
 					verdict, feedbackPath, feedback, parseErr :=
-						loadCheckerHandoff(loopID)
+						loadCheckerHandoff(loopID, lp.attempt)
 					if parseErr != nil {
 						_ = m.sendFunc("error", map[string]interface{}{
 							"loop_id":     loopID,
@@ -426,17 +434,17 @@ func globalAlgedoniaDir() string {
 	return filepath.Clean(".algedonia")
 }
 
-func checkerHandoffSuffix(loopID string) string {
-	return filepath.ToSlash(filepath.Join(".algedonia", "handoffs", loopID, "checker_feedback.md"))
+func checkerHandoffSuffix(loopID string, attempt int) string {
+	return filepath.ToSlash(filepath.Join(".algedonia", "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt), "checker_feedback.md"))
 }
 
-func expectedCheckerHandoffPaths(loopID string) (string, string) {
-	base := filepath.Join(globalAlgedoniaDir(), "handoffs", loopID)
+func expectedCheckerHandoffPaths(loopID string, attempt int) (string, string) {
+	base := filepath.Join(globalAlgedoniaDir(), "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt))
 	return filepath.Join(base, "checker_result.json"), filepath.Join(base, "checker_feedback.md")
 }
 
-func loadCheckerHandoff(loopID string) (string, string, string, error) {
-	handoffPath, expectedFeedbackPath := expectedCheckerHandoffPaths(loopID)
+func loadCheckerHandoff(loopID string, attempt int) (string, string, string, error) {
+	handoffPath, expectedFeedbackPath := expectedCheckerHandoffPaths(loopID, attempt)
 	raw, err := os.ReadFile(handoffPath)
 	if err != nil {
 		return "", "", "", fmt.Errorf("read %s: %w", handoffPath, err)
@@ -470,7 +478,7 @@ func loadCheckerHandoff(loopID string) (string, string, string, error) {
 	absFeedbackPath = filepath.Clean(absFeedbackPath)
 	expectedFeedbackPath = filepath.Clean(expectedFeedbackPath)
 	if absFeedbackPath != expectedFeedbackPath &&
-		!strings.HasSuffix(filepath.ToSlash(absFeedbackPath), checkerHandoffSuffix(loopID)) {
+		!strings.HasSuffix(filepath.ToSlash(absFeedbackPath), checkerHandoffSuffix(loopID, attempt)) {
 		return "", "", "", fmt.Errorf("FEEDBACK path must be %s", filepath.Clean(expectedFeedbackPath))
 	}
 
@@ -547,12 +555,13 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 		if agentType == "" {
 			agentType = "codex"
 		}
+		attempt := parseAttempt(payload["attempt"])
 		workdir, _ := payload["workdir"].(string)
 		if workdir == "" {
 			workdir = m.repoRoot
 		}
 		taskDesc, _ := payload["task"].(string)
-		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc)
+		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc, attempt)
 	}
 
 	// Legacy raw-process path
@@ -581,6 +590,25 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	}
 
 	return m.StartLoop(ctx, loopID, command, args, workdir, prompt)
+}
+
+func parseAttempt(raw interface{}) int {
+	switch v := raw.(type) {
+	case int:
+		return v
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return parsed
+		}
+	}
+	return 1
 }
 
 // SendInput writes raw bytes to the PTY stdin of a running loop.

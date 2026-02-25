@@ -271,7 +271,11 @@ defmodule Algedonia.Orchestrator do
               status: "completed"
             )
             |> append_history(loop.id, history_entry("checker", loop.current_attempt, "running"))
-            |> push_to_daemon(daemon.name, loop.id, %{"role" => "checker", "task" => checker_task})
+            |> push_to_daemon(daemon.name, loop.id, %{
+              "role" => "checker",
+              "task" => checker_task,
+              "attempt" => loop.current_attempt
+            })
 
           {:ok, state}
         else
@@ -279,7 +283,7 @@ defmodule Algedonia.Orchestrator do
         end
 
       :running_checker ->
-        case CheckerHandoff.validate(loop.id, payload) do
+        case CheckerHandoff.validate(loop.id, loop.current_attempt, payload) do
           {:ok, verified} ->
             verdict = parse_checker_verdict(verified)
             feedback = parse_checker_feedback(verified)
@@ -405,7 +409,7 @@ defmodule Algedonia.Orchestrator do
   end
 
   defp checker_task(loop, ticket) do
-    expected = CheckerHandoff.expected_paths(loop.id)
+    expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt)
     feedback_path = expected.feedback
     json_path = expected.json
 
@@ -447,7 +451,7 @@ defmodule Algedonia.Orchestrator do
 
   defp parse_checker_feedback(%{feedback: feedback}), do: feedback
 
-  defp repair_checker_handoff(loop, ticket, daemon_name, handoff_error, state) do
+  defp repair_checker_handoff(loop, _ticket, daemon_name, handoff_error, state) do
     repairs = Map.get(state.checker_handoff_repairs, loop.id, 0) + 1
 
     state =
@@ -463,7 +467,7 @@ defmodule Algedonia.Orchestrator do
     else
       case ensure_daemon(loop, daemon_name) do
         {:ok, daemon} ->
-          repair_task = checker_handoff_repair_task(loop, ticket, handoff_error, repairs)
+          repair_task = checker_handoff_repair_task(loop, handoff_error, repairs)
 
           state =
             state
@@ -473,7 +477,11 @@ defmodule Algedonia.Orchestrator do
               history_entry("checker", loop.current_attempt, "running")
               |> Map.put(:repair_round, repairs)
             )
-            |> push_to_daemon(daemon.name, loop.id, %{"role" => "checker", "task" => repair_task})
+            |> push_to_daemon(daemon.name, loop.id, %{
+              "role" => "checker",
+              "task" => repair_task,
+              "attempt" => loop.current_attempt
+            })
 
           {:ok, state}
 
@@ -483,24 +491,18 @@ defmodule Algedonia.Orchestrator do
     end
   end
 
-  defp checker_handoff_repair_task(loop, ticket, handoff_error, repairs) do
-    expected = CheckerHandoff.expected_paths(loop.id)
+  defp checker_handoff_repair_task(loop, handoff_error, repairs) do
+    expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt)
 
     """
     Handoff verifier failed for checker loop #{loop.id} (repair round #{repairs}):
     #{handoff_error}
 
-    Re-run checker validation for this loop and regenerate handoff files exactly as required.
-
-    Ticket title: #{ticket.title}
-    Acceptance criteria:
-    #{ticket.acceptance_criteria || "(none)"}
-
-    Loop task:
-    #{loop.description || loop.title}
-
-    Rubric:
-    #{loop.rubric || ticket.rubric || "(none)"}
+    REPAIR-ONLY MODE:
+    - Do NOT rerun checks.
+    - Do NOT re-evaluate the codebase.
+    - Use your previous checker conclusion and feedback from this attempt.
+    - Only fix the handoff file contract.
 
     REQUIRED HANDOFF FORMAT (file IPC):
     1) Write markdown feedback to: #{expected.feedback}
