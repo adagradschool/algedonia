@@ -15,7 +15,7 @@ defmodule Algedonia.Tickets.Ticket do
     field :number, :integer
 
     field :status, Ecto.Enum,
-      values: [:backlog, :decomposing, :halted, :in_progress, :completed, :archived],
+      values: [:backlog, :planning, :halted, :in_progress, :completed, :archived],
       default: :backlog
 
     field :type, Ecto.Enum, values: [:feature, :bug, :chore, :spike]

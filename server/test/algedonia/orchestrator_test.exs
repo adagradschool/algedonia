@@ -44,7 +44,7 @@ defmodule Algedonia.OrchestratorTest do
         assert :ok = start_work(pid, ticket.id)
 
         ticket = Tickets.get_ticket!(ticket.id)
-        assert ticket.status == :decomposing
+        assert ticket.status == :planning
 
         dag = Dags.get_dag_by_ticket(ticket.id)
         assert dag

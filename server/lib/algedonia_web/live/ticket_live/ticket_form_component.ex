@@ -75,7 +75,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   def status_options do
     [
       Backlog: :backlog,
-      Decomposing: :decomposing,
+      Planning: :planning,
       Halted: :halted,
       "In Progress": :in_progress,
       Completed: :completed,

@@ -221,7 +221,7 @@
                     <.icon name="hero-play-mini" class="size-3.5" /> Start Work
                   </button>
                   <.link
-                    :if={@ticket.status in [:decomposing, :in_progress, :completed]}
+                    :if={@ticket.status in [:planning, :in_progress, :completed]}
                     navigate={~p"/w/#{@workspace_slug}/dags/#{@ticket}"}
                     class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
                   >

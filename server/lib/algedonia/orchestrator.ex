@@ -116,7 +116,7 @@ defmodule Algedonia.Orchestrator do
   def handle_call({:start_work, ticket_id}, _from, state) do
     with {:ok, ticket} <- validate_backlog(ticket_id),
          {:ok, daemon} <- find_online_daemon(),
-         {:ok, ticket} <- Tickets.update_ticket(ticket, %{status: :decomposing}),
+         {:ok, ticket} <- Tickets.update_ticket(ticket, %{status: :planning}),
          {:ok, dag} <- create_decompose_dag(ticket),
          {:ok, loop} <- create_decompose_loop(dag, daemon) do
       decomposition = %{
@@ -126,7 +126,7 @@ defmodule Algedonia.Orchestrator do
         daemon_name: daemon.name,
         attempt: 1,
         proposed_dag: nil,
-        status: :decomposing
+        status: :planning
       }
 
       state = put_in(state, [:decompositions, ticket_id], decomposition)
@@ -653,7 +653,7 @@ defmodule Algedonia.Orchestrator do
         | loop_id: loop.id,
           attempt: new_attempt,
           proposed_dag: nil,
-          status: :decomposing
+          status: :planning
       }
 
       state = put_in(state, [:decompositions, ticket_id], decomp)

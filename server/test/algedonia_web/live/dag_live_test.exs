@@ -18,15 +18,15 @@ defmodule AlgedoniaWeb.DagLiveTest do
       assert html =~ "Write code"
     end
 
-    test "shows decomposition in progress when ticket is decomposing", %{
+    test "shows planning in progress when ticket is planning", %{
       conn: conn,
       workspace: workspace
     } do
-      ticket = insert_ticket!(%{status: :decomposing, workspace_id: workspace.id})
+      ticket = insert_ticket!(%{status: :planning, workspace_id: workspace.id})
 
       {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/dags/#{ticket.id}")
 
-      assert html =~ "Decomposition in progress"
+      assert html =~ "Planning in progress"
     end
 
     test "shows no DAG message for backlog ticket", %{conn: conn, workspace: workspace} do
@@ -50,10 +50,10 @@ defmodule AlgedoniaWeb.DagLiveTest do
     end
 
     test "updates on PubSub dag_created", %{conn: conn, workspace: workspace} do
-      ticket = insert_ticket!(%{status: :decomposing, workspace_id: workspace.id})
+      ticket = insert_ticket!(%{status: :planning, workspace_id: workspace.id})
 
       {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/dags/#{ticket.id}")
-      assert html =~ "Decomposition in progress"
+      assert html =~ "Planning in progress"
 
       # Create a DAG externally
       dag = insert_dag!(%{ticket_id: ticket.id})

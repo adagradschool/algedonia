@@ -227,7 +227,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   Returns a human-readable label for a status atom.
   """
   def status_label(:backlog), do: "Backlog"
-  def status_label(:decomposing), do: "Decomposing"
+  def status_label(:planning), do: "Planning"
   def status_label(:halted), do: "Halted"
   def status_label(:in_progress), do: "In Progress"
   def status_label(:completed), do: "Completed"
@@ -235,7 +235,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   def status_label(status), do: status |> to_string() |> String.capitalize()
 
   defp status_color(:backlog), do: "bg-fg-muted"
-  defp status_color(:decomposing), do: "bg-status-yellow"
+  defp status_color(:planning), do: "bg-status-yellow"
   defp status_color(:halted), do: "bg-status-red"
   defp status_color(:in_progress), do: "bg-status-blue"
   defp status_color(:completed), do: "bg-status-green"

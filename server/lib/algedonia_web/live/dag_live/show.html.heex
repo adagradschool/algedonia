@@ -29,13 +29,13 @@
     </header>
 
     <div
-      :if={!@dag && @ticket.status == :decomposing}
+      :if={!@dag && @ticket.status == :planning}
       class="flex-1 flex items-center justify-center"
     >
       <div class="text-center text-fg-muted">
         <div class="animate-spin inline-block w-6 h-6 border-2 border-fg-muted border-t-transparent rounded-full mb-3">
         </div>
-        <p class="text-sm">Decomposition in progress...</p>
+        <p class="text-sm">Planning in progress...</p>
       </div>
     </div>
 
@@ -88,7 +88,7 @@
     </div>
 
     <div
-      :if={!@dag && @ticket.status != :decomposing}
+      :if={!@dag && @ticket.status != :planning}
       class="flex-1 flex items-center justify-center"
     >
       <p class="text-sm text-fg-muted">No DAG available for this ticket.</p>

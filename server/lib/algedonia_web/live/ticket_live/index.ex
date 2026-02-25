@@ -13,7 +13,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   import AlgedoniaWeb.CommentComponents
   import AlgedoniaWeb.PresenceComponents
 
-  @statuses [:backlog, :decomposing, :halted, :in_progress, :completed, :archived]
+  @statuses [:backlog, :planning, :halted, :in_progress, :completed, :archived]
 
   @impl true
   def mount(params, session, socket) do
