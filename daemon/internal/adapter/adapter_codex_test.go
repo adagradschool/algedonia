@@ -3,6 +3,7 @@ package adapter
 import (
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,7 +14,28 @@ func TestCodexAdapterInterface(t *testing.T) {
 
 func TestCodexAdapterStartWithMockBinary(t *testing.T) {
 	dir := t.TempDir()
-	script := "#!/bin/sh\necho 'mock codex output'\n"
+	script := `#!/bin/sh
+if [ "$1" != "app-server" ]; then
+  exit 1
+fi
+n=0
+while IFS= read -r line; do
+  if echo "$line" | grep -q 'initialize'; then
+    printf '{"jsonrpc":"2.0","id":"1","result":{}}\n'
+  elif echo "$line" | grep -q 'thread/start'; then
+    printf '{"jsonrpc":"2.0","id":"2","result":{"thread":{"id":"thread-1"}}}\n'
+  elif echo "$line" | grep -q 'turn/start'; then
+    printf '{"jsonrpc":"2.0","id":"3","result":{"turn":{"id":"turn-1"}}}\n'
+    printf '{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"delta":"mock codex output"}}\n'
+    printf '{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}\n'
+    exit 0
+  elif echo "$line" | grep -q 'turn/interrupt'; then
+    printf '{"jsonrpc":"2.0","id":"4","result":{}}\n'
+  elif echo "$line" | grep -q 'turn/steer'; then
+    printf '{"jsonrpc":"2.0","id":"5","result":{}}\n'
+  fi
+done
+`
 	if err := os.WriteFile(dir+"/codex", []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -49,18 +71,41 @@ func TestCodexAdapterStartWithMockBinary(t *testing.T) {
 		if err := <-errCh; err != nil {
 			t.Fatalf("Wait: %v", err)
 		}
-		if result.ExitCode != 0 {
-			t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+			if result.ExitCode != 0 {
+				t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+			}
+			if !strings.Contains(string(result.Output), "mock codex output") {
+				t.Errorf("Output = %q, want to contain mock codex output", string(result.Output))
+			}
+		case <-time.After(5 * time.Second):
+			a.Kill(proc)
+			t.Fatal("Wait timed out")
 		}
-	case <-time.After(5 * time.Second):
-		a.Kill(proc)
-		t.Fatal("Wait timed out")
 	}
-}
 
 func TestCodexAdapterKill(t *testing.T) {
 	dir := t.TempDir()
-	script := "#!/bin/sh\nsleep 60\n"
+	script := `#!/bin/sh
+if [ "$1" != "app-server" ]; then
+  exit 1
+fi
+n=0
+while IFS= read -r line; do
+  if echo "$line" | grep -q 'initialize'; then
+    printf '{"jsonrpc":"2.0","id":"1","result":{}}\n'
+  elif echo "$line" | grep -q 'thread/start'; then
+    printf '{"jsonrpc":"2.0","id":"2","result":{"thread":{"id":"thread-1"}}}\n'
+  elif echo "$line" | grep -q 'turn/start'; then
+    printf '{"jsonrpc":"2.0","id":"3","result":{"turn":{"id":"turn-1"}}}\n'
+    # keep process alive until killed
+    sleep 60
+  elif echo "$line" | grep -q 'turn/interrupt'; then
+    printf '{"jsonrpc":"2.0","id":"4","result":{}}\n'
+  elif echo "$line" | grep -q 'turn/steer'; then
+    printf '{"jsonrpc":"2.0","id":"5","result":{}}\n'
+  fi
+done
+`
 	if err := os.WriteFile(dir+"/codex", []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -3,8 +3,6 @@ package adapter
 import (
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,70 +11,58 @@ import (
 // Compile-time interface check.
 var _ AgentAdapter = (*CodexAdapter)(nil)
 
-// CodexAdapter implements AgentAdapter for the Codex CLI.
+// CodexAdapter implements AgentAdapter for the Codex CLI in app-server mode.
 type CodexAdapter struct{}
 
-// Start spawns codex with --full-auto.
+// Start spawns codex and starts a task turn.
 func (a *CodexAdapter) Start(workdir string, task string, config map[string]string) (*Process, error) {
-	args := []string{"--full-auto"}
-	if task != "" {
-		args = append(args, task)
-	}
-
-	cmd := exec.Command("codex", args...)
-	cmd.Dir = workdir
-	cmd.Env = os.Environ()
-
-	sess, err := allocatePTY(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("starting codex: %w", err)
-	}
-
-	collector := newOutputCollector()
 	sessionID := uuid.New().String()
+	collector := newOutputCollector()
+
+	app, err := startCodexAppServer(workdir, task, sessionID, collector)
+	if err != nil {
+		return nil, fmt.Errorf("starting codex app-server session: %w", err)
+	}
 
 	return &Process{
 		ID:        sessionID,
 		SessionID: sessionID,
 		Workdir:   workdir,
-		session:   sess,
 		collector: collector,
+		app:       app,
 	}, nil
 }
 
-// AttachPTY returns the PTY reader and writer for streaming.
+// AttachPTY returns a reader and writer stream for terminal UX.
 func (a *CodexAdapter) AttachPTY(process *Process) (io.Reader, io.WriteCloser, error) {
-	if process.session == nil {
-		return nil, nil, fmt.Errorf("process has no PTY session")
+	if process.app == nil {
+		return nil, nil, fmt.Errorf("process has no app-server session")
 	}
-	return process.session.Reader(), &sessionWriter{session: process.session}, nil
+	return process.app.Attach()
 }
 
-// SendInput writes data to the process PTY.
+// SendInput writes user steering input.
 func (a *CodexAdapter) SendInput(process *Process, data []byte) error {
-	if process.session == nil {
-		return fmt.Errorf("process has no PTY session")
+	if process.app == nil {
+		return fmt.Errorf("process has no app-server session")
 	}
-	_, err := process.session.Write(data)
-	return err
+	return process.app.Steer(data)
 }
 
-// Wait blocks until the process exits and returns the result.
+// Wait blocks until completion.
 func (a *CodexAdapter) Wait(process *Process) (*ExitResult, error) {
-	exitCode, err := waitProcess(process.session)
-	if err != nil {
-		return nil, err
+	if process.app == nil {
+		return nil, fmt.Errorf("process has no app-server session")
 	}
-	return &ExitResult{
-		ExitCode:  exitCode,
-		SessionID: process.SessionID,
-		Output:    process.collector.Bytes(),
-	}, nil
+	return process.app.Wait()
 }
 
-// Kill terminates the process with SIGTERM then SIGKILL.
+// Kill terminates the process.
 func (a *CodexAdapter) Kill(process *Process) error {
-	return killProcess(process.session, 5*time.Second)
+	if process.app == nil {
+		return fmt.Errorf("process has no app-server session")
+	}
+	return process.app.Kill(5 * time.Second)
 }
 
 // SessionID returns the session identifier.
