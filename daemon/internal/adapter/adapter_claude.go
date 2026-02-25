@@ -20,12 +20,9 @@ var _ AgentAdapter = (*ClaudeCodeAdapter)(nil)
 // ClaudeCodeAdapter implements AgentAdapter for Claude Code CLI.
 type ClaudeCodeAdapter struct{}
 
-// Start spawns claude with --dangerously-skip-permissions --verbose.
+// Start spawns claude in interactive TUI mode.
 func (a *ClaudeCodeAdapter) Start(workdir string, task string, config map[string]string) (*Process, error) {
 	args := []string{"--dangerously-skip-permissions", "--verbose"}
-	if task != "" {
-		args = append(args, "-p", task)
-	}
 
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = workdir
@@ -62,6 +59,7 @@ func (a *ClaudeCodeAdapter) Start(workdir string, task string, config map[string
 		Workdir:          workdir,
 		LoopID:           loopID,
 		Role:             role,
+		InitialPrompt:    task,
 		session:          sess,
 		collector:        collector,
 		completionMarker: completionMarker,

@@ -14,6 +14,8 @@ type Process struct {
 	Workdir   string
 	LoopID    string
 	Role      string
+	// InitialPrompt is sent via PTY input for interactive TUI adapters.
+	InitialPrompt string
 
 	// unexported fields for adapter internal state
 	session          *ptyPkg.Session
@@ -34,9 +36,9 @@ type ExitResult struct {
 	Output    []byte
 }
 
-// AgentAdapter is the interface that each agent type (Claude Code, Codex, Aider)
-// must implement. The adapter knows how to construct the CLI invocation, pass the
-// task, load prompts, and collect results. It does not interpret agent output.
+// AgentAdapter is the interface that each agent type must implement. The adapter
+// knows how to construct the CLI invocation, pass the task, load prompts, and
+// collect results. It does not interpret agent output.
 type AgentAdapter interface {
 	// Start spawns the agent process in the given workdir with the given task.
 	Start(workdir string, task string, config map[string]string) (*Process, error)

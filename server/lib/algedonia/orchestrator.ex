@@ -12,10 +12,11 @@ defmodule Algedonia.Orchestrator do
   """
   use GenServer
 
-  alias Algedonia.{Daemons, Dags, Loops, Repo, Tickets}
+  alias Algedonia.{CheckerHandoff, Daemons, Dags, Loops, Repo, Tickets}
   alias Algedonia.Dags.Dag
 
   @max_decompose_attempts 3
+  @max_checker_handoff_repairs 2
 
   # -- Client API --
 
@@ -64,11 +65,51 @@ defmodule Algedonia.Orchestrator do
     end
   end
 
+  @doc """
+  Handles an attempt completion from the daemon.
+  """
+  @spec handle_attempt_complete(binary(), map(), keyword()) :: :ok | {:error, term()}
+  def handle_attempt_complete(loop_id, payload, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    daemon_name = Keyword.get(opts, :daemon_name)
+
+    case GenServer.whereis(name) do
+      nil -> {:error, :orchestrator_not_running}
+      pid -> GenServer.call(pid, {:attempt_complete, loop_id, payload, daemon_name})
+    end
+  end
+
+  @doc """
+  Starts a task loop maker run.
+  """
+  @spec start_task_loop(binary(), binary(), keyword()) :: :ok | {:error, term()}
+  def start_task_loop(loop_id, daemon_name, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.call(name, {:start_task_loop, loop_id, daemon_name, opts})
+  end
+
+  @doc """
+  Returns in-memory history for a loop's maker/checker spin-ups.
+  """
+  @spec get_loop_history(binary(), keyword()) :: [map()]
+  def get_loop_history(loop_id, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
+    case GenServer.whereis(name) do
+      nil -> []
+      pid -> GenServer.call(pid, {:get_loop_history, loop_id})
+    end
+  end
+
   # -- Server Callbacks --
 
   @impl true
   def init(state) do
-    {:ok, Map.put(state, :decompositions, %{})}
+    {:ok,
+     state
+     |> Map.put(:decompositions, %{})
+     |> Map.put(:task_history, %{})
+     |> Map.put(:checker_handoff_repairs, %{})}
   end
 
   @impl true
@@ -126,6 +167,25 @@ defmodule Algedonia.Orchestrator do
     end
   end
 
+  def handle_call({:attempt_complete, loop_id, payload, daemon_name}, _from, state) do
+    case handle_attempt_completion(loop_id, payload, daemon_name, state) do
+      {:ok, next_state} -> {:reply, :ok, next_state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:start_task_loop, loop_id, daemon_name, _opts}, _from, state) do
+    case start_task_loop_internal(loop_id, daemon_name, state) do
+      {:ok, next_state} -> {:reply, :ok, next_state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:get_loop_history, loop_id}, _from, state) do
+    history = Map.get(state.task_history, loop_id, [])
+    {:reply, history, state}
+  end
+
   # -- Internal Logic --
 
   defp process_loop_result(decomp, ticket_id, payload, state) do
@@ -141,6 +201,376 @@ defmodule Algedonia.Orchestrator do
       _ ->
         {:ok, state}
     end
+  end
+
+  defp start_task_loop_internal(loop_id, daemon_name, state) do
+    with %{} = loop <- Loops.get_loop(loop_id),
+         true <- loop.role == :task,
+         {:ok, daemon} <- fetch_daemon(daemon_name),
+         {:ok, loop} <-
+           Loops.update_loop(loop, %{
+             status: :running_maker,
+             assigned_daemon_id: daemon.id,
+             current_attempt: max(loop.current_attempt, 0) + 1
+           }) do
+      loop = Repo.preload(loop, dag: :ticket)
+      task = maker_task(loop, loop.dag.ticket, "")
+
+      state
+      |> append_history(loop.id, history_entry("maker", loop.current_attempt, "running"))
+      |> push_to_daemon(daemon.name, loop.id, %{"role" => "maker", "task" => task})
+      |> then(&{:ok, &1})
+    else
+      nil -> {:error, :not_found}
+      false -> {:error, :not_task_loop}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp handle_attempt_completion(loop_id, payload, daemon_name, state) do
+    case Ecto.UUID.cast(loop_id) do
+      :error ->
+        {:ok, state}
+
+      {:ok, _} ->
+        case Loops.get_loop(loop_id) do
+          nil ->
+            {:ok, state}
+
+          %{role: :task} = loop ->
+            process_task_attempt(loop, payload, daemon_name, state)
+
+          %{role: :decompose_checker} = loop ->
+            _ = loop
+            _ = payload
+            {:ok, state}
+
+          _ ->
+            {:ok, state}
+        end
+    end
+  end
+
+  defp process_task_attempt(loop, payload, daemon_name, state) do
+    loop = Repo.preload(loop, dag: :ticket)
+    ticket = loop.dag.ticket
+    session_id = Map.get(payload, "session_id")
+    exit_code = Map.get(payload, "exit_code", 0)
+
+    case loop.status do
+      :running_maker ->
+        with {:ok, daemon} <- ensure_daemon(loop, daemon_name),
+             {:ok, loop} <- Loops.update_loop_status(loop, :running_checker) do
+          checker_task = checker_task(loop, ticket)
+
+          state =
+            state
+            |> complete_last_history(loop.id, "maker", loop.current_attempt,
+              session_id: session_id,
+              exit_code: exit_code,
+              status: "completed"
+            )
+            |> append_history(loop.id, history_entry("checker", loop.current_attempt, "running"))
+            |> push_to_daemon(daemon.name, loop.id, %{"role" => "checker", "task" => checker_task})
+
+          {:ok, state}
+        else
+          _ -> {:error, :transition_failed}
+        end
+
+      :running_checker ->
+        case CheckerHandoff.validate(loop.id, payload) do
+          {:ok, verified} ->
+            verdict = parse_checker_verdict(verified)
+            feedback = parse_checker_feedback(verified)
+            feedback_path = Map.get(verified, :feedback_path)
+
+            state =
+              state
+              |> clear_checker_handoff_repair(loop.id)
+              |> complete_last_history(loop.id, "checker", loop.current_attempt,
+                session_id: session_id,
+                exit_code: exit_code,
+                verdict: verdict,
+                feedback: feedback,
+                feedback_path: feedback_path,
+                status: "completed"
+              )
+
+            finalize_checker_attempt(verdict, loop, feedback, daemon_name, state)
+
+          {:error, handoff_error} ->
+            repair_checker_handoff(loop, ticket, daemon_name, handoff_error, state)
+        end
+
+      _ ->
+        {:ok, state}
+    end
+  end
+
+  defp retry_task_loop(loop, feedback, daemon_name, state) do
+    if loop.current_attempt >= loop.max_attempts do
+      case Loops.update_loop_status(loop, :failed) do
+        {:ok, _} -> {:ok, state}
+        _ -> {:error, :update_failed}
+      end
+    else
+      with {:ok, daemon} <- ensure_daemon(loop, daemon_name),
+           {:ok, loop} <-
+             Loops.update_loop(loop, %{
+               status: :running_maker,
+               current_attempt: loop.current_attempt + 1
+             }) do
+        loop = Repo.preload(loop, dag: :ticket)
+        maker_prompt = maker_task(loop, loop.dag.ticket, feedback)
+
+        state =
+          state
+          |> append_history(loop.id, history_entry("maker", loop.current_attempt, "running"))
+          |> push_to_daemon(daemon.name, loop.id, %{"role" => "maker", "task" => maker_prompt})
+
+        {:ok, state}
+      else
+        _ -> {:error, :retry_failed}
+      end
+    end
+  end
+
+  defp finalize_checker_attempt("pass", loop, _feedback, _daemon_name, state) do
+    case Loops.update_loop_status(loop, :passed) do
+      {:ok, updated_loop} ->
+        maybe_complete_ticket(updated_loop)
+        {:ok, state}
+
+      _ ->
+        {:error, :update_failed}
+    end
+  end
+
+  defp finalize_checker_attempt(_verdict, loop, feedback, daemon_name, state) do
+    retry_task_loop(loop, feedback, daemon_name, state)
+  end
+
+  defp ensure_daemon(loop, daemon_name) do
+    cond do
+      daemon_name ->
+        fetch_daemon(daemon_name)
+
+      loop.assigned_daemon_id ->
+        {:ok, Daemons.get_daemon!(loop.assigned_daemon_id)}
+
+      true ->
+        find_online_daemon()
+    end
+  end
+
+  defp fetch_daemon(daemon_name) do
+    case Daemons.get_daemon_by_name(daemon_name) do
+      nil -> {:error, :daemon_not_found}
+      daemon -> {:ok, daemon}
+    end
+  end
+
+  defp maybe_complete_ticket(loop) do
+    all_loops =
+      loop.dag_id
+      |> Dags.list_loops_for_dag()
+      |> Enum.map(& &1.status)
+
+    if Enum.all?(all_loops, &(&1 == :passed)) do
+      ticket = Tickets.get_ticket!(loop.dag.ticket_id)
+      _ = Tickets.update_ticket(ticket, %{status: :completed})
+    end
+  end
+
+  defp maker_task(loop, ticket, feedback) do
+    """
+    You are the maker for loop #{loop.id}.
+
+    Ticket title: #{ticket.title}
+    Ticket description:
+    #{ticket.description || "(none)"}
+
+    Loop task:
+    #{loop.description || loop.title}
+
+    Rubric:
+    #{loop.rubric || ticket.rubric || "(none)"}
+
+    Previous checker feedback:
+    #{if(feedback == "", do: "(none)", else: feedback)}
+
+    Implement the task and run relevant checks before finishing.
+    """
+  end
+
+  defp checker_task(loop, ticket) do
+    expected = CheckerHandoff.expected_paths(loop.id)
+    feedback_path = expected.feedback
+    json_path = expected.json
+
+    """
+    You are the checker for loop #{loop.id}. Verify the current workspace changes against the rubric.
+
+    Ticket title: #{ticket.title}
+    Acceptance criteria:
+    #{ticket.acceptance_criteria || "(none)"}
+
+    Loop task:
+    #{loop.description || loop.title}
+
+    Rubric:
+    #{loop.rubric || ticket.rubric || "(none)"}
+
+    REQUIRED HANDOFF FORMAT (file IPC):
+    1) Write markdown feedback to: #{feedback_path}
+    2) Write JSON to: #{json_path}
+
+    JSON must be exactly:
+    {"VERDICT":"pass|fail","FEEDBACK":"#{feedback_path}"}
+
+    Rules:
+    - Create parent directories if they do not exist.
+    - VERDICT must be either "pass" or "fail" (lowercase).
+    - FEEDBACK must be the markdown file path above.
+    - Do not output any alternative verdict format.
+    """
+  end
+
+  defp parse_checker_verdict(%{verdict: verdict}) do
+    case verdict do
+      "pass" -> "pass"
+      "fail" -> "fail"
+      _ -> "fail"
+    end
+  end
+
+  defp parse_checker_feedback(%{feedback: feedback}), do: feedback
+
+  defp repair_checker_handoff(loop, ticket, daemon_name, handoff_error, state) do
+    repairs = Map.get(state.checker_handoff_repairs, loop.id, 0) + 1
+
+    state =
+      complete_last_history(state, loop.id, "checker", loop.current_attempt,
+        verdict: "fail",
+        feedback: "Invalid checker handoff: #{handoff_error}",
+        status: "handoff_invalid"
+      )
+
+    if repairs > @max_checker_handoff_repairs do
+      state = clear_checker_handoff_repair(state, loop.id)
+      retry_task_loop(loop, "Checker handoff invalid: #{handoff_error}", daemon_name, state)
+    else
+      case ensure_daemon(loop, daemon_name) do
+        {:ok, daemon} ->
+          repair_task = checker_handoff_repair_task(loop, ticket, handoff_error, repairs)
+
+          state =
+            state
+            |> put_checker_handoff_repair(loop.id, repairs)
+            |> append_history(
+              loop.id,
+              history_entry("checker", loop.current_attempt, "running")
+              |> Map.put(:repair_round, repairs)
+            )
+            |> push_to_daemon(daemon.name, loop.id, %{"role" => "checker", "task" => repair_task})
+
+          {:ok, state}
+
+        _ ->
+          {:error, :checker_repair_failed}
+      end
+    end
+  end
+
+  defp checker_handoff_repair_task(loop, ticket, handoff_error, repairs) do
+    expected = CheckerHandoff.expected_paths(loop.id)
+
+    """
+    Handoff verifier failed for checker loop #{loop.id} (repair round #{repairs}):
+    #{handoff_error}
+
+    Re-run checker validation for this loop and regenerate handoff files exactly as required.
+
+    Ticket title: #{ticket.title}
+    Acceptance criteria:
+    #{ticket.acceptance_criteria || "(none)"}
+
+    Loop task:
+    #{loop.description || loop.title}
+
+    Rubric:
+    #{loop.rubric || ticket.rubric || "(none)"}
+
+    REQUIRED HANDOFF FORMAT (file IPC):
+    1) Write markdown feedback to: #{expected.feedback}
+    2) Write JSON to: #{expected.json}
+    JSON exactly: {"VERDICT":"pass|fail","FEEDBACK":"#{expected.feedback}"}
+
+    Rules:
+    - Create parent directories if missing.
+    - VERDICT must be lowercase pass/fail.
+    - FEEDBACK must match the exact markdown path above.
+    """
+  end
+
+  defp put_checker_handoff_repair(state, loop_id, count) do
+    %{state | checker_handoff_repairs: Map.put(state.checker_handoff_repairs, loop_id, count)}
+  end
+
+  defp clear_checker_handoff_repair(state, loop_id) do
+    %{state | checker_handoff_repairs: Map.delete(state.checker_handoff_repairs, loop_id)}
+  end
+
+  defp history_entry(role, attempt, status) do
+    %{
+      id: Ecto.UUID.generate(),
+      role: role,
+      attempt: attempt,
+      status: status,
+      started_at: DateTime.utc_now()
+    }
+  end
+
+  defp append_history(state, loop_id, entry) do
+    updated = Map.update(state.task_history, loop_id, [entry], fn h -> h ++ [entry] end)
+    state = %{state | task_history: updated}
+    broadcast_history(loop_id, updated[loop_id])
+    state
+  end
+
+  defp complete_last_history(state, loop_id, role, attempt, attrs) do
+    history = Map.get(state.task_history, loop_id, [])
+
+    updated =
+      history
+      |> Enum.reverse()
+      |> Enum.map(fn entry ->
+        if entry.role == role && entry.attempt == attempt && entry.status == "running" do
+          Map.merge(entry, attrs |> Map.new() |> Map.put(:finished_at, DateTime.utc_now()))
+        else
+          entry
+        end
+      end)
+      |> Enum.reverse()
+
+    task_history = Map.put(state.task_history, loop_id, updated)
+    state = %{state | task_history: task_history}
+    broadcast_history(loop_id, updated)
+    state
+  end
+
+  defp broadcast_history(loop_id, history) do
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      "loop:#{loop_id}",
+      {:loop_history_updated, history}
+    )
+  end
+
+  defp push_to_daemon(state, daemon_name, loop_id, opts) do
+    state.push_fn.(daemon_name, loop_id, opts)
+    state
   end
 
   defp handle_decompose_result(decomp, ticket_id, payload, state) do

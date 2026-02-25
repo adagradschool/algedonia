@@ -27,11 +27,13 @@ import topbar from "../vendor/topbar"
 import Sortable from "sortablejs"
 import XTerm from "./hooks/xterm"
 import DagGraph from "./hooks/dag_graph"
+import MarkdownEditor from "./hooks/markdown_editor"
 
 const Hooks = {
   ...colocatedHooks,
   XTerm,
   DagGraph,
+  MarkdownEditor,
   TicketShortcuts: {
     mounted() {
       this.onKeyDown = (event) => {

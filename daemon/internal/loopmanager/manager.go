@@ -4,11 +4,14 @@ package loopmanager
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -31,6 +34,7 @@ type LoopProcess struct {
 	process    *adapter.Process
 	role       string
 	promptsDir string
+	workdir    string
 }
 
 // Manager tracks running loop processes and streams their output.
@@ -239,7 +243,11 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		task += "\n\nIMPORTANT: Output your DAG as JSON between these exact delimiters:\n---ALGEDONIA_DAG_BEGIN---\n<your JSON here>\n---ALGEDONIA_DAG_END---"
 	}
 
-	proc, err := ag.Start(workdir, task, nil)
+	proc, err := ag.Start(workdir, task, map[string]string{
+		"loop_id": loopID,
+		"role":    role,
+		"workdir": workdir,
+	})
 	if err != nil {
 		return fmt.Errorf("starting adapter for loop %s: %w", loopID, err)
 	}
@@ -274,6 +282,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		process:    proc,
 		role:       role,
 		promptsDir: promptsDir,
+		workdir:    workdir,
 	}
 
 	m.mu.Lock()
@@ -345,11 +354,40 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 					"recoverable": true,
 				})
 			} else {
-				_ = m.sendFunc("attempt_complete", map[string]interface{}{
+				attemptPayload := map[string]interface{}{
 					"loop_id":    loopID,
 					"exit_code":  result.ExitCode,
 					"session_id": sessionID,
-				})
+				}
+
+				if role == "checker" {
+					expectedJSONPath, expectedFeedbackPath :=
+						expectedCheckerHandoffPaths(loopID)
+					attemptPayload["expected_handoff_json_path"] = expectedJSONPath
+					attemptPayload["expected_handoff_feedback_path"] = expectedFeedbackPath
+
+					verdict, feedbackPath, feedback, parseErr :=
+						loadCheckerHandoff(loopID)
+					if parseErr != nil {
+						_ = m.sendFunc("error", map[string]interface{}{
+							"loop_id":     loopID,
+							"message":     fmt.Sprintf("checker handoff parse error: %v", parseErr),
+							"recoverable": true,
+						})
+						attemptPayload["handoff_valid"] = false
+						attemptPayload["handoff_error"] = parseErr.Error()
+						attemptPayload["verdict"] = "fail"
+						attemptPayload["feedback"] =
+							"Checker did not produce required handoff JSON/markdown files."
+					} else {
+						attemptPayload["handoff_valid"] = true
+						attemptPayload["verdict"] = verdict
+						attemptPayload["feedback_path"] = feedbackPath
+						attemptPayload["feedback"] = feedback
+					}
+				}
+
+				_ = m.sendFunc("attempt_complete", attemptPayload)
 			}
 		}
 
@@ -359,11 +397,94 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	}()
 
 	// If the agent is a TUI (no -p flag mode), type the prompt
-	// For now, adapters use -p flag so no TUI typing needed
+	if strings.TrimSpace(proc.InitialPrompt) != "" {
+		writeFn := func(data []byte) error {
+			return ag.SendInput(proc, data)
+		}
+		go typePromptToTUI(done, &lastOutput, loopID, proc.InitialPrompt, writeFn)
+	}
+
 	_ = writer
 
 	log.Printf("Started adapter loop %s: %s (role=%s)", loopID, agentType, role)
 	return nil
+}
+
+type checkerHandoff struct {
+	VERDICT  string `json:"VERDICT"`
+	FEEDBACK string `json:"FEEDBACK"`
+}
+
+func globalAlgedoniaDir() string {
+	if custom := strings.TrimSpace(os.Getenv("ALGEDONIA_HOME")); custom != "" {
+		return filepath.Clean(custom)
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".algedonia")
+	}
+	return filepath.Clean(".algedonia")
+}
+
+func checkerHandoffSuffix(loopID string) string {
+	return filepath.ToSlash(filepath.Join(".algedonia", "handoffs", loopID, "checker_feedback.md"))
+}
+
+func expectedCheckerHandoffPaths(loopID string) (string, string) {
+	base := filepath.Join(globalAlgedoniaDir(), "handoffs", loopID)
+	return filepath.Join(base, "checker_result.json"), filepath.Join(base, "checker_feedback.md")
+}
+
+func loadCheckerHandoff(loopID string) (string, string, string, error) {
+	handoffPath, expectedFeedbackPath := expectedCheckerHandoffPaths(loopID)
+	raw, err := os.ReadFile(handoffPath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read %s: %w", handoffPath, err)
+	}
+
+	var handoff checkerHandoff
+	if err := json.Unmarshal(raw, &handoff); err != nil {
+		return "", "", "", fmt.Errorf("decode checker handoff json: %w", err)
+	}
+
+	verdict := strings.ToLower(strings.TrimSpace(handoff.VERDICT))
+	if verdict != "pass" && verdict != "fail" {
+		return "", "", "", fmt.Errorf("invalid VERDICT %q", handoff.VERDICT)
+	}
+
+	feedbackPath := strings.TrimSpace(handoff.FEEDBACK)
+	if feedbackPath == "" {
+		return "", "", "", fmt.Errorf("missing FEEDBACK path")
+	}
+
+	absFeedbackPath := strings.TrimSpace(feedbackPath)
+	if strings.HasPrefix(absFeedbackPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil && strings.TrimSpace(home) != "" {
+			absFeedbackPath = filepath.Join(home, absFeedbackPath[2:])
+		}
+	}
+	if !filepath.IsAbs(absFeedbackPath) {
+		absFeedbackPath = filepath.Join(globalAlgedoniaDir(), absFeedbackPath)
+	}
+	absFeedbackPath = filepath.Clean(absFeedbackPath)
+	expectedFeedbackPath = filepath.Clean(expectedFeedbackPath)
+	if absFeedbackPath != expectedFeedbackPath &&
+		!strings.HasSuffix(filepath.ToSlash(absFeedbackPath), checkerHandoffSuffix(loopID)) {
+		return "", "", "", fmt.Errorf("FEEDBACK path must be %s", filepath.Clean(expectedFeedbackPath))
+	}
+
+	markdown, err := os.ReadFile(absFeedbackPath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read FEEDBACK markdown %s: %w", absFeedbackPath, err)
+	}
+
+	feedback := strings.TrimSpace(string(markdown))
+	if feedback == "" {
+		return "", "", "", fmt.Errorf("FEEDBACK markdown is empty at %s", absFeedbackPath)
+	}
+
+	return verdict, filepath.Clean(absFeedbackPath), feedback, nil
 }
 
 // StopLoop sends SIGTERM to the process, then SIGKILL after 5 seconds.
