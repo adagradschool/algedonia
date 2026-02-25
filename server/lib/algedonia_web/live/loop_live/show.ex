@@ -243,7 +243,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
           DaemonChannel.push_start_loop(online.name, job_id, %{
             "role" => "overview",
-            "agent_type" => "claude_code",
+            "agent_type" => "codex",
             "task" => overview_task(socket)
           })
 

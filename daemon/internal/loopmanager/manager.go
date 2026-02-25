@@ -545,7 +545,7 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	if role != "" {
 		agentType, _ := payload["agent_type"].(string)
 		if agentType == "" {
-			agentType = "claude_code"
+			agentType = "codex"
 		}
 		workdir, _ := payload["workdir"].(string)
 		if workdir == "" {
