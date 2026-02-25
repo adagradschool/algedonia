@@ -39,6 +39,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:page_title, "Loop #{loop_id}")
       |> assign(:history, Orchestrator.get_loop_history(loop_id))
 
+    socket =
+      socket
+      |> assign_terminal_run()
+
     {:ok, socket}
   end
 
@@ -160,11 +164,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
      |> assign(:loop_title, loop.title)
      |> assign(:stage, Map.get(@status_to_stage, loop.status, "maker"))
      |> assign(:attempt, max(loop.current_attempt, 1))
-     |> assign(:rubric, loop.rubric || loop.dag.ticket.rubric || "")}
+     |> assign(:rubric, loop.rubric || loop.dag.ticket.rubric || "")
+     |> assign_terminal_run()}
   end
 
   def handle_info({:loop_history_updated, history}, socket) do
-    {:noreply, assign(socket, :history, history)}
+    {:noreply,
+     socket
+     |> assign(:history, history)
+     |> assign_terminal_run()}
   end
 
   def handle_info({event, ticket}, socket) when event in [:ticket_updated] do
@@ -339,4 +347,33 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   defp uuid?(_), do: false
+
+  defp assign_terminal_run(socket) do
+    history = socket.assigns[:history] || []
+    attempt = socket.assigns[:attempt] || 1
+    stage = socket.assigns[:stage] || "maker"
+    running_entry = current_running_history(history)
+
+    key =
+      case running_entry do
+        nil -> "attempt-#{attempt}-#{stage}"
+        entry -> "attempt-#{entry.attempt}-#{entry.role}-#{entry.id}"
+      end
+
+    label =
+      case running_entry do
+        nil -> "Attempt #{attempt} \u00b7 #{String.upcase(stage)}"
+        entry -> "Attempt #{entry.attempt} \u00b7 #{String.upcase(entry.role)}"
+      end
+
+    socket
+    |> assign(:terminal_run_key, key)
+    |> assign(:terminal_run_label, label)
+  end
+
+  defp current_running_history(history) do
+    history
+    |> Enum.reverse()
+    |> Enum.find(fn entry -> entry.status == "running" end)
+  end
 end

@@ -295,3 +295,18 @@ body {
 .toastui-editor-md-tab-container .tab-item.active {
   color: var(--color-fg) !important;
 }
+
+@keyframes run-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.run-panel-enter {
+  animation: run-panel-enter 220ms ease-out;
+}

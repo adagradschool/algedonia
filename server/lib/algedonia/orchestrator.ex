@@ -304,7 +304,7 @@ defmodule Algedonia.Orchestrator do
             finalize_checker_attempt(verdict, loop, feedback, daemon_name, state)
 
           {:error, handoff_error} ->
-            repair_checker_handoff(loop, ticket, daemon_name, handoff_error, state)
+            repair_checker_handoff(loop, ticket, daemon_name, handoff_error, session_id, state)
         end
 
       _ ->
@@ -451,11 +451,12 @@ defmodule Algedonia.Orchestrator do
 
   defp parse_checker_feedback(%{feedback: feedback}), do: feedback
 
-  defp repair_checker_handoff(loop, _ticket, daemon_name, handoff_error, state) do
+  defp repair_checker_handoff(loop, _ticket, daemon_name, handoff_error, session_id, state) do
     repairs = Map.get(state.checker_handoff_repairs, loop.id, 0) + 1
 
     state =
       complete_last_history(state, loop.id, "checker", loop.current_attempt,
+        session_id: session_id,
         verdict: "fail",
         feedback: "Invalid checker handoff: #{handoff_error}",
         status: "handoff_invalid"

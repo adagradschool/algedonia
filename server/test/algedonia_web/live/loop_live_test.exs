@@ -9,7 +9,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     test "mounts and renders loop_id", %{conn: conn, workspace: workspace} do
       {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/loops/test-loop-1")
       assert html =~ "test-loop-1"
-      assert has_element?(view, "#terminal")
+      assert has_element?(view, "[id^=terminal-attempt-]")
     end
 
     test "shows start button when inactive", %{conn: conn, workspace: workspace} do

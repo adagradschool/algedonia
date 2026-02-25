@@ -320,6 +320,15 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	// Wait goroutine — handles result based on role
 	go func() {
 		defer close(done)
+		defer func() {
+			if err := m.closeAdapterProcess(lp); err != nil {
+				log.Printf("Failed to close adapter process for loop %s: %v", loopID, err)
+			}
+			m.mu.Lock()
+			delete(m.loops, loopID)
+			m.mu.Unlock()
+		}()
+
 		result, waitErr := ag.Wait(proc)
 
 		sessionID := ag.SessionID(proc)
@@ -330,9 +339,6 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 				"message":     fmt.Sprintf("agent wait error: %v", waitErr),
 				"recoverable": true,
 			})
-			m.mu.Lock()
-			delete(m.loops, loopID)
-			m.mu.Unlock()
 			return
 		}
 
@@ -399,9 +405,6 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 			}
 		}
 
-		m.mu.Lock()
-		delete(m.loops, loopID)
-		m.mu.Unlock()
 	}()
 
 	// If the agent is a TUI (no -p flag mode), type the prompt
@@ -609,6 +612,19 @@ func parseAttempt(raw interface{}) int {
 		}
 	}
 	return 1
+}
+
+func (m *Manager) closeAdapterProcess(lp *LoopProcess) error {
+	if lp == nil || lp.adapter == nil || lp.process == nil {
+		return nil
+	}
+
+	// Codex app-server stays alive after turn completion; close it to avoid leaked processes.
+	if _, ok := lp.adapter.(*adapter.CodexAdapter); ok {
+		return lp.adapter.Kill(lp.process)
+	}
+
+	return nil
 }
 
 // SendInput writes raw bytes to the PTY stdin of a running loop.

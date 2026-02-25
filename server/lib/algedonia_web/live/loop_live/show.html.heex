@@ -85,12 +85,17 @@
         </div>
 
         <div class="relative flex-1 min-h-0">
-          <div
-            id="terminal"
-            phx-hook="XTerm"
-            phx-update="ignore"
-            style="position:absolute;inset:8px;"
-          >
+          <div id={@terminal_run_key} class="run-panel-enter absolute inset-0">
+            <div class="h-7 px-3 text-[10px] uppercase tracking-wide text-fg-muted flex items-center border-b border-border-soft/70 bg-black/40">
+              {@terminal_run_label}
+            </div>
+            <div
+              id={"terminal-#{@terminal_run_key}"}
+              phx-hook="XTerm"
+              phx-update="ignore"
+              style="position:absolute;left:8px;right:8px;top:36px;bottom:8px;"
+            >
+            </div>
           </div>
         </div>
       </section>
