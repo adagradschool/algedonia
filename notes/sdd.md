@@ -16,7 +16,11 @@ Work is organized as tickets that decompose into DAGs of maker-checker loops. De
 
 ## 2. User Interface
 
-Four views, each a separate Phoenix LiveView route. All views update in real time via PubSub. Presence (who is viewing what) is visible in every view. Users provide a display name when connecting (stored in daemon config or browser session). This name is sent on channel join alongside the project token and used for Phoenix Presence tracking. No user accounts -- just a name string.
+Three views, sharing a consistent left sidebar layout. All views update in real time via PubSub. Presence (who is viewing what) is visible in every view. Users provide a display name when connecting (stored in daemon config or browser session). This name is sent on channel join alongside the project token and used for Phoenix Presence tracking. No user accounts -- just a name string.
+
+**Global sidebar (all views):**
+- **Top section:** Navigation links to Tickets and Monitor. The Loop Inspector is the default/primary view, accessed by selecting a ticket from Tickets or navigating directly.
+- **Bottom section:** User settings and collaboration panel. Shows presence (who is online, who is viewing what). Future: voice calls for real-time team communication (Discord/Slack-style).
 
 ### 2.1 Issue Tracker (`/tickets`)
 
@@ -25,42 +29,45 @@ A table of tickets. Each row shows: title, status, priority, type, assignee, and
 **Interactions:**
 - Create a ticket (title, description, acceptance criteria, priority, type).
 - Edit any ticket field. Editing acceptance criteria updates the rubric for future attempts.
-- "Start Work" button on a ticket: triggers task decomposition (which also generates rubrics), builds the DAG, and begins scheduling loops.
+- "Start Work" button on a ticket: triggers task decomposition (which also generates rubrics), builds the DAG, and begins scheduling loops. Navigates to the Loop Inspector.
 - Assign/reassign tickets to team members (determines default daemon for loop execution).
 - Filter and sort by status, priority, assignee.
 - Post and reply to comments on a ticket. Comments are threaded.
 
-### 2.2 DAG Viewer (`/dags/:ticket_id`)
+### 2.2 Loop Inspector (`/loops/:loop_id`)
 
-A directed acyclic graph visualization for a single ticket's loops. Each node is a loop, color-coded by status: pending (gray), running (blue), verifying (yellow), passed (green), failed (red), escalated (orange), needs_clarification (purple), pending_approval (teal). Edges show dependencies.
+The primary workspace. Three-column layout with information flowing left to right: DAG → Loop → Artifacts. Designed for tickets with 5--10 loops (if a ticket needs more, it should be split).
+
+**Left panel -- DAG Tree:**
+A tree view of the current ticket's loops, replacing the standalone DAG Viewer. Loops are displayed as a flat tree grouped by dependency depth. Parallel loops appear as siblings at the same indent level. Each node shows a status icon and loop title.
+
+Status icons by state: pending (gray), running (blue), verifying (yellow), passed (green), failed (red), escalated (orange), needs_clarification (purple), pending_approval (teal).
+
+Manual gates are visible as a property on the loop node. When a loop passes and hits a manual gate, it enters `pending_approval` and the node updates to show the gated state. The main panel shows the approval UI (diff, verdict, approve/reject).
 
 **Interactions:**
-- Click a node to navigate to the Loop Inspector for that loop.
+- Click a node to load that loop's agent run in the center and right panels.
 - Hover a node to see a summary: loop title, current attempt number, file locks held.
-- See which loops are blocked and what they're waiting on.
-- Manual retry of a failed loop.
+- See which loops are blocked and what they're waiting on (blocked nodes show their dependencies).
+- Manual retry of a failed loop (right-click or context action).
 - Skip a failed loop (marks downstream as unblocked with a warning).
 
-### 2.3 Loop Inspector (`/loops/:loop_id`)
+**Center panel -- Terminal:**
+A live terminal showing the active agent run (maker or checker). This is a full interactive terminal, not a log viewer. Output streams in near-real-time (sub-second latency target). Multiple users see the same terminal simultaneously.
 
-The primary workspace for understanding and steering a single loop. Split layout:
+Steering is native terminal interaction -- no GUI buttons for pause/resume. Users type directly into the terminal to send input to the agent's stdin. Esc to pause, ctrl+c to stop. When multiple users type simultaneously, inputs are delivered to the agent in arrival order with no coordination. This is a deliberate design choice, analogous to SSH shared sessions -- if conflicts arise, users coordinate verbally.
 
-**Left panel -- Terminal:**
-A live terminal showing the agent session. This is a full interactive terminal, not a log viewer. Output streams in near-real-time (sub-second latency target). Multiple users see the same terminal simultaneously.
+Both maker and checker runs are viewed identically here. The checker is just another agent run with different context (diff + rubric + acceptance criteria instead of a task description). There is no separate "checker UI" -- it is an agent session like any other.
 
-- **Pause:** Suspends the agent process (SIGSTOP). Terminal freezes. Agent resumes exactly where it left off when unpaused.
-- **Steer:** User types into the terminal while the agent is running. Input goes to the agent's stdin. This allows mid-flight course correction. When multiple users type simultaneously, inputs are delivered to the agent in arrival order with no coordination. This is a deliberate design choice, analogous to SSH shared sessions -- if conflicts arise, users coordinate verbally.
-- **Resume:** Unpauses a paused agent (SIGCONT).
-- **Approve / Reject:** Visible when a loop is in `pending_approval` status (manual gate). "Approve" triggers the merge. "Reject" sends the user's feedback to the maker for a retry.
-- Any connected user can pause, steer, resume, approve, or reject -- including controlling an agent running on someone else's daemon.
+**Approve / Reject:** Visible when a loop is in `pending_approval` status (manual gate). "Approve" triggers the merge. "Reject" sends the user's feedback to the maker for a retry. Any connected user can approve or reject, including controlling an agent running on someone else's daemon.
 
-**Right panel -- Context:**
-- **Diff viewer:** Current working diff vs. the base branch.
-- **Checker scores:** Verification pyramid heatmap. Five rows (static, deterministic, generative, runtime, semantic), each showing pass/fail and confidence. Hard gates (typecheck, security) are visually distinct.
-- **Rubric editor:** Inline editing of the quality rubric. Edits apply to the next attempt, not the current one. Includes a `manual_gate` toggle.
-- **Attempt history:** Expandable list of all attempts in this loop. Each attempt shows: maker summary, checker verdict, scores, duration, token usage, and agent session ID (clickable to resume/replay the session).
+**Right panel -- Context (tabbed):**
+- **Diff:** Current working diff vs. the base branch.
+- **Rubric:** Inline editing of the quality rubric. Edits apply to the next attempt, not the current one. Includes a `manual_gate` toggle.
+- **Verdict:** Structured checker results. Hard gates shown as pass/fail badges. Weighted checks with individual scores. Overall threshold indicator. This is not a pyramid visualization -- it is a structured summary of the verification layers, displayed in whatever format best communicates the result.
+- **History:** Expandable list of all attempts in this loop. Each attempt shows: maker summary, checker verdict, scores, duration, token usage, and agent session ID (clickable to resume/replay the session).
 
-### 2.4 Monitor (`/monitor`)
+### 2.3 Monitor (`/monitor`)
 
 Operational overview for the whole project.
 
@@ -148,8 +155,7 @@ Two components. Clear boundary.
 |---|---|---|
 | `/tickets` | `TicketLive.Index` | Ticket list with inline detail panel |
 | `/tickets/:id` | `TicketLive.Show` | Single ticket detail (redirects to index with panel open) |
-| `/dags/:ticket_id` | `DagLive.Show` | DAG visualization for one ticket |
-| `/loops/:loop_id` | `LoopLive.Show` | Loop inspector with terminal |
+| `/loops/:loop_id` | `LoopLive.Show` | Loop inspector with DAG tree, terminal, and context panels |
 | `/monitor` | `MonitorLive.Index` | Escalation queue, circuit breaker, overview |
 
 Each LiveView module subscribes to relevant PubSub topics on mount and handles incoming broadcasts to update its assigns.
@@ -174,8 +180,8 @@ Phoenix PubSub (backed by `Phoenix.PubSub.PG2` for single-node, upgradeable to R
 
 | Topic | Payload | Subscribers |
 |---|---|---|
-| `ticket:{id}` | Ticket field changes, status transitions, new comments | `TicketLive`, `DagLive` |
-| `dag:{ticket_id}` | Loop status changes within a DAG | `DagLive` |
+| `ticket:{id}` | Ticket field changes, status transitions, new comments | `TicketLive`, `LoopLive` |
+| `dag:{ticket_id}` | Loop status changes within a DAG | `LoopLive` (DAG tree panel) |
 | `loop:{id}` | Attempt updates, checker scores, status changes | `LoopLive` |
 | `terminal:{loop_id}` | PTY output chunks (binary) | `LoopLive` (terminal component) |
 | `monitor` | Escalation events, circuit breaker transitions, daemon health | `MonitorLive` |
@@ -218,9 +224,7 @@ The server pushes commands to the daemon:
 |---|---|
 | `start_loop` | loop_id, repo_url, base_branch, task description, rubric, agent config, role (maker, checker, decompose, decompose_checker, impact_analysis, reflect), knowledge_context, prior_attempts, diff (checker/decompose_checker only), prompts_dir |
 | `stop_loop` | loop_id, reason |
-| `pause_agent` | loop_id |
-| `resume_agent` | loop_id |
-| `stdin_input` | loop_id, data (user steering input) |
+| `stdin_input` | loop_id, data (user terminal input -- steering, pause via esc, stop via ctrl+c) |
 | `squash_and_push` | loop_id, base_branch |
 
 The daemon pushes events to the server:
@@ -257,9 +261,7 @@ The daemon receives commands on its channel and dispatches them:
 
 - **`start_loop`**: Create a worktree (unless role is `reflect` or `decompose_checker`), configure the agent adapter, spawn the agent process. The role field determines behavior: `maker`, `checker`, `decompose`, `decompose_checker`, `impact_analysis`, or `reflect`. The `decompose` and `decompose_checker` roles form a maker-checker loop for task decomposition (see Section 8.3). Details in 5.4 and 5.5.
 - **`stop_loop`**: Send SIGTERM to the agent process, wait for graceful exit (5s timeout), then SIGKILL. Clean up worktree.
-- **`pause_agent`**: Send SIGSTOP to the agent process group. Report paused state.
-- **`resume_agent`**: Send SIGCONT to the agent process group. Report running state.
-- **`stdin_input`**: Write data to the agent's PTY master fd. This is how user steering reaches the agent.
+- **`stdin_input`**: Write data to the agent's PTY master fd. This is how user steering reaches the agent. All interaction (typing, esc to pause, ctrl+c to stop) flows through this single channel -- there are no separate pause/resume commands.
 - **`squash_and_push`**: Squash-rebase the loop's worktree commits onto the specified base branch, push to remote, and clean up the worktree. Reports success or failure back to the server.
 
 ### 5.4 Agent Lifecycle
@@ -290,8 +292,7 @@ The daemon allocates a PTY (pseudo-terminal) for each agent process. This gives 
 
 - The daemon reads from the PTY master fd in a goroutine.
 - Output is chunked (by time: flush every 50ms, or by size: flush at 4KB, whichever comes first) and sent to the server as `terminal_output` events.
-- User input (from `stdin_input` commands) is written to the PTY master fd, which the agent's process reads as stdin. When multiple users send input simultaneously, inputs are delivered in arrival order with no coordination or locking. This mirrors the behavior of SSH shared sessions -- users coordinate verbally if conflicts arise.
-- Pause/resume uses SIGSTOP/SIGCONT on the agent's process group, which freezes/unfreezes the PTY naturally.
+- User input (from `stdin_input` commands) is written to the PTY master fd, which the agent's process reads as stdin. All steering flows through this channel: typing to direct the agent, esc to pause, ctrl+c to stop. When multiple users send input simultaneously, inputs are delivered in arrival order with no coordination or locking. This mirrors the behavior of SSH shared sessions -- users coordinate verbally if conflicts arise.
 
 ### 5.7 Health Reporting
 
@@ -430,15 +431,9 @@ stop_loop:
   loop_id: string
   reason: string
 
-pause_agent:
-  loop_id: string
-
-resume_agent:
-  loop_id: string
-
 stdin_input:
   loop_id: string
-  data: binary
+  data: binary  # all user interaction: typing, esc (pause), ctrl+c (stop)
 
 squash_and_push:
   loop_id: string

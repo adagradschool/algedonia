@@ -46,6 +46,12 @@ defmodule Algedonia.Loops do
           {:loop_status_changed, loop}
         )
 
+        Phoenix.PubSub.broadcast(
+          Algedonia.PubSub,
+          "loop:#{loop.id}",
+          {:loop_updated, loop}
+        )
+
       _ ->
         :ok
     end)
@@ -59,5 +65,24 @@ defmodule Algedonia.Loops do
     loop
     |> Loop.changeset(attrs)
     |> Repo.update()
+    |> tap(fn
+      {:ok, loop} ->
+        Phoenix.PubSub.broadcast(
+          Algedonia.PubSub,
+          "loop:#{loop.id}",
+          {:loop_updated, loop}
+        )
+
+      _ ->
+        :ok
+    end)
+  end
+
+  @doc """
+  Subscribes to updates for a specific loop.
+  """
+  @spec subscribe(binary()) :: :ok | {:error, term()}
+  def subscribe(loop_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, "loop:#{loop_id}")
   end
 end

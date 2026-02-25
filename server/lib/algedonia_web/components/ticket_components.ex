@@ -100,6 +100,17 @@ defmodule AlgedoniaWeb.TicketComponents do
           </span>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            :if={@ticket.status in [:backlog, :halted]}
+            phx-click="start_work"
+            phx-value-id={@ticket.id}
+            phx-stop-propagation
+            class="px-2 py-0.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[10px] font-medium hover:bg-status-green/20 transition-colors"
+            title="Start work"
+            type="button"
+          >
+            Start Work
+          </button>
           <.type_badge type={@ticket.type} />
           <span
             :if={@ticket.assignee}
@@ -125,7 +136,7 @@ defmodule AlgedoniaWeb.TicketComponents do
     ~H"""
     <div
       id={@id}
-      class="flex items-center gap-4 py-2.5 px-3.5 rounded-lg border border-transparent hover:border-border hover:bg-surface-raised transition-all cursor-pointer"
+      class="flex items-center gap-3 py-2.5 px-3.5 rounded-lg border border-transparent hover:border-border hover:bg-surface-raised transition-all cursor-pointer"
       phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket.id}"))}
     >
       <.priority_icon priority={@ticket.priority} />
@@ -137,6 +148,17 @@ defmodule AlgedoniaWeb.TicketComponents do
         {@ticket.title}
       </span>
       <.type_badge type={@ticket.type} />
+      <button
+        :if={@ticket.status in [:backlog, :halted]}
+        phx-click="start_work"
+        phx-value-id={@ticket.id}
+        phx-stop-propagation
+        class="px-2 py-1 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors shrink-0"
+        title="Start work"
+        type="button"
+      >
+        Start Work
+      </button>
       <span :if={@ticket.assignee} class="text-[10px] text-fg-muted w-16 text-right truncate">
         {@ticket.assignee}
       </span>

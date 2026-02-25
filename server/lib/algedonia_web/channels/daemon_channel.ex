@@ -63,6 +63,14 @@ defmodule AlgedoniaWeb.DaemonChannel do
     {:noreply, socket}
   end
 
+  def handle_in("attempt_complete", %{"loop_id" => loop_id} = payload, socket) do
+    Orchestrator.handle_attempt_complete(loop_id, payload,
+      daemon_name: socket.assigns.daemon_name
+    )
+
+    {:noreply, socket}
+  end
+
   def handle_in("error", %{"loop_id" => loop_id} = payload, socket) do
     Orchestrator.handle_loop_error(loop_id, payload)
     {:noreply, socket}

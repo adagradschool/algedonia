@@ -1,5 +1,9 @@
 # Codebase Knowledge
 
+## Repository Path
+
+The current repository root is `/Users/ada/fun/algedonia`. All relative paths in documentation and configuration are relative to this root.
+
 ## Architecture Patterns
 
 ### Browser auth via daemon (`ag connect` opens browser)
@@ -112,6 +116,10 @@ When formatting, linting, testing, and building before a commit, always use `jus
 
 ### Always read before writing to existing files (Slice 6)
 When adding content to an existing file (like the justfile), use `Edit` (targeted replacement) rather than `Write` (full file overwrite). During Slice 6, the existing `build-cli` and `server` recipes in the justfile were destroyed by a `Write` that replaced the entire file. Rule: always `Read` first, then `Edit` to append or modify specific sections.
+
+## Project Path
+
+The project root is located at `/Users/ada/fun/algedonia`. All `just` recipes and relative paths in the codebase are anchored to this directory.
 
 ## Useful Commands
 

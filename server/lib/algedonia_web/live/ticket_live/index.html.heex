@@ -211,14 +211,14 @@
                 </div>
                 <div class="flex gap-1">
                   <button
-                    :if={@ticket.status == :backlog}
+                    :if={@ticket.status in [:backlog, :halted]}
                     phx-click="start_work"
                     phx-value-id={@ticket.id}
-                    class="size-7 flex items-center justify-center text-fg-muted hover:text-fg transition-colors rounded-md hover:bg-surface-raised"
+                    class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-green border border-status-green/40 bg-status-green/10 rounded-md hover:bg-status-green/20 transition-colors"
                     title="Start work"
                     type="button"
                   >
-                    <.icon name="hero-play-mini" class="size-4 text-green-400" />
+                    <.icon name="hero-play-mini" class="size-3.5" /> Start Work
                   </button>
                   <.link
                     :if={@ticket.status in [:decomposing, :in_progress, :completed]}

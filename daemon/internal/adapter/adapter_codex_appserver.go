@@ -192,10 +192,10 @@ func (s *codexAppSession) initializeAndStartTurn(workdir, task string) error {
 	}
 
 	threadResp, err := s.request("thread/start", map[string]interface{}{
-		"cwd":                   workdir,
-		"approvalPolicy":        "never",
-		"sandbox":               "danger-full-access",
-		"experimentalRawEvents": false,
+		"cwd":                    workdir,
+		"approvalPolicy":         "never",
+		"sandbox":                "danger-full-access",
+		"experimentalRawEvents":  false,
 		"persistExtendedHistory": false,
 	}, 20*time.Second)
 	if err != nil {

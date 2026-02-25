@@ -71,17 +71,17 @@ done
 		if err := <-errCh; err != nil {
 			t.Fatalf("Wait: %v", err)
 		}
-			if result.ExitCode != 0 {
-				t.Errorf("ExitCode = %d, want 0", result.ExitCode)
-			}
-			if !strings.Contains(string(result.Output), "mock codex output") {
-				t.Errorf("Output = %q, want to contain mock codex output", string(result.Output))
-			}
-		case <-time.After(5 * time.Second):
-			a.Kill(proc)
-			t.Fatal("Wait timed out")
+		if result.ExitCode != 0 {
+			t.Errorf("ExitCode = %d, want 0", result.ExitCode)
 		}
+		if !strings.Contains(string(result.Output), "mock codex output") {
+			t.Errorf("Output = %q, want to contain mock codex output", string(result.Output))
+		}
+	case <-time.After(5 * time.Second):
+		a.Kill(proc)
+		t.Fatal("Wait timed out")
 	}
+}
 
 func TestCodexAdapterKill(t *testing.T) {
 	dir := t.TempDir()
