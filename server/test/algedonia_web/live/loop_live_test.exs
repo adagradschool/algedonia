@@ -43,6 +43,29 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert render(view) =~ loop_id
     end
 
+    test "coalesces terminal data bursts into one pushed chunk", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      loop_id = "coalesce-test-#{System.unique_integer([:positive])}"
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/loops/#{loop_id}")
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        "terminal:#{loop_id}",
+        {:terminal_data, loop_id, "foo"}
+      )
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        "terminal:#{loop_id}",
+        {:terminal_data, loop_id, "bar"}
+      )
+
+      expected = Base.encode64("foobar")
+      assert_push_event(view, "terminal_data", %{data: ^expected})
+    end
+
     test "terminal_input event is a graceful no-op without online daemon", %{
       conn: conn,
       workspace: workspace
@@ -64,8 +87,18 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
         "terminal:#{loop_id}",
+        {:terminal_data, loop_id, "tail output"}
+      )
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        "terminal:#{loop_id}",
         {:terminal_ended, loop_id, 0}
       )
+
+      expected = Base.encode64("tail output")
+      assert_push_event(view, "terminal_data", %{data: ^expected})
+      assert_push_event(view, "terminal_ended", %{exit_code: 0})
 
       html = render(view)
       assert html =~ "Inactive"

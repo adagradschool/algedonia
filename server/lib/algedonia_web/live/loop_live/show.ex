@@ -11,9 +11,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   @status_to_stage %{
     running_checker: "checker",
-    passed: "checker",
-    failed: "checker"
+    passed: "completed",
+    failed: "failed"
   }
+  @terminal_flush_interval_ms 16
   @chat_marker_start "[[ALGEDONIA_CHAT:"
   @chat_marker_end "]]"
 
@@ -41,7 +42,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:overview_content, nil)
       |> assign(:overview_loading, false)
       |> assign(:overview_job_id, nil)
+      |> assign(:terminal_pending_data, "")
+      |> assign(:terminal_flush_scheduled, false)
       |> assign(init_agent_ui(agent_type))
+      |> assign(:show_shortcut_help, false)
       |> assign(:page_title, "Loop #{loop_id}")
       |> assign_history(Orchestrator.get_loop_history(loop_id))
 
@@ -91,6 +95,22 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  def handle_event("toggle_shortcut_help", _params, socket) do
+    {:noreply, assign(socket, :show_shortcut_help, !socket.assigns.show_shortcut_help)}
+  end
+
+  def handle_event("shortcut_toggle_loop", _params, socket) do
+    if socket.assigns.active do
+      handle_event("stop_loop", %{}, socket)
+    else
+      handle_event("start_loop", %{}, socket)
+    end
+  end
+
+  def handle_event("shortcut_back", _params, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
   end
 
   def handle_event("rubric_change", %{"body" => body}, socket) do
@@ -158,13 +178,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, push_event(socket, "terminal_scrollback", %{data: encoded})}
   end
 
+  def handle_info(:flush_terminal_data, socket) do
+    {:noreply, flush_pending_terminal_data(socket)}
+  end
+
   def handle_info({:terminal_data, loop_id, data}, socket) do
     if loop_id == socket.assigns.loop_id do
-      encoded = Base.encode64(data)
-
       socket =
         socket
-        |> push_event("terminal_data", %{data: encoded})
+        |> enqueue_terminal_data(data)
         |> maybe_ingest_chat_data(data)
 
       {:noreply, socket}
@@ -178,6 +200,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       loop_id == socket.assigns.loop_id ->
         socket =
           socket
+          |> flush_pending_terminal_data()
           |> push_event("terminal_ended", %{exit_code: exit_code})
           |> assign(:active, false)
           |> assign_history(Orchestrator.get_loop_history(socket.assigns.loop_id))
@@ -321,27 +344,41 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     loop = socket.assigns.loop_record
 
     """
-    Summarize this loop context for an Overview tab in natural language markdown.
+    You are generating a concise overview panel for a coding task. This will be displayed in a small sidebar, so be brief and scannable. Output only markdown, no commentary.
 
-    Ticket title: #{ticket.title}
-    Ticket description:
-    #{ticket.description || "(none)"}
+    ## Input Context
 
-    Acceptance criteria:
-    #{ticket.acceptance_criteria || "(none)"}
+    **Ticket:** #{ticket.title}
+    #{ticket.description || "(no description)"}
 
-    Loop title: #{loop.title}
-    Loop task:
-    #{loop.description || "(none)"}
+    **Acceptance Criteria:**
+    #{ticket.acceptance_criteria || "(none specified)"}
 
-    Rubric:
+    **Loop Task:** #{loop.title}
+    #{loop.description || "(no description)"}
+
+    **Rubric:**
     #{socket.assigns.rubric || "(none)"}
 
-    Output markdown with sections:
-    - Goal
-    - Acceptance Criteria (bullet list)
-    - Current Status
-    - Final Result (natural language summary)
+    ## Output Format
+
+    Write compact markdown with exactly these sections:
+
+    ### Context
+    One short paragraph summarizing what this task is about and why it matters.
+
+    ### Acceptance Criteria
+    - Bullet list of concrete, testable criteria derived from the ticket and rubric
+    - Keep each bullet to one line
+
+    ### Scope
+    Brief note on which files/areas are likely affected and any constraints.
+
+    Rules:
+    - Be concise — the panel is 24rem wide
+    - No filler phrases ("This task aims to...", "The goal is...")
+    - Start each section with substance, not preamble
+    - Use **bold** for key terms only
     """
   end
 
@@ -410,6 +447,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket
     |> assign(:history, history)
     |> assign(:visible_history, visible_history(history))
+    |> assign(:final_verdict, extract_final_verdict(history))
+  end
+
+  defp extract_final_verdict(history) do
+    history
+    |> Enum.reverse()
+    |> Enum.find(fn entry ->
+      entry.role == "checker" and entry.status == "completed" and Map.has_key?(entry, :verdict)
+    end)
   end
 
   defp visible_history(history) do
@@ -447,9 +493,39 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     |> assign(:chat_messages, [])
     |> assign(:chat_buffer, "")
     |> assign(:chat_split_pending, false)
+    |> assign(:terminal_pending_data, "")
+    |> assign(:terminal_flush_scheduled, false)
   end
 
   defp maybe_reset_chat_state(socket, _previous_key, _key), do: socket
+
+  defp enqueue_terminal_data(socket, data) do
+    pending = (socket.assigns[:terminal_pending_data] || "") <> data
+    socket = assign(socket, :terminal_pending_data, pending)
+
+    if socket.assigns[:terminal_flush_scheduled] do
+      socket
+    else
+      Process.send_after(self(), :flush_terminal_data, @terminal_flush_interval_ms)
+      assign(socket, :terminal_flush_scheduled, true)
+    end
+  end
+
+  defp flush_pending_terminal_data(socket) do
+    pending = socket.assigns[:terminal_pending_data] || ""
+
+    socket =
+      socket
+      |> assign(:terminal_pending_data, "")
+      |> assign(:terminal_flush_scheduled, false)
+
+    if pending == "" do
+      socket
+    else
+      encoded = Base.encode64(pending)
+      push_event(socket, "terminal_data", %{data: encoded})
+    end
+  end
 
   defp current_running_history(history) do
     history

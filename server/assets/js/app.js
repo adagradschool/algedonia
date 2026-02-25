@@ -28,30 +28,14 @@ import Sortable from "sortablejs"
 import XTerm from "./hooks/xterm"
 import DagGraph from "./hooks/dag_graph"
 import MarkdownEditor from "./hooks/markdown_editor"
+import KeyboardShortcuts from "./hooks/keyboard_shortcuts"
 
 const Hooks = {
   ...colocatedHooks,
   XTerm,
   DagGraph,
   MarkdownEditor,
-  TicketShortcuts: {
-    mounted() {
-      this.onKeyDown = (event) => {
-        const tag = event.target?.tagName?.toLowerCase()
-        const isEditable = event.target?.isContentEditable
-        if (isEditable || tag === "input" || tag === "textarea" || tag === "select") return
-
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-          event.preventDefault()
-          this.pushEvent("toggle_view_shortcut", {})
-        }
-      }
-      window.addEventListener("keydown", this.onKeyDown)
-    },
-    destroyed() {
-      window.removeEventListener("keydown", this.onKeyDown)
-    }
-  },
+  KeyboardShortcuts,
   KanbanBoard: {
     mounted() {
       this.sortables = []

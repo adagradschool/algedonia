@@ -79,8 +79,12 @@ defmodule AlgedoniaWeb.Layouts do
         <.link
           patch={workspace_path(@current_workspace, "/tickets/new")}
           class="flex items-center justify-center gap-2 w-full bg-surface-raised border border-border rounded-md text-xs font-medium text-fg hover:bg-surface-panel transition-colors py-1.5"
+          title="New issue (C)"
         >
           <.icon name="hero-plus-mini" class="size-4" /> New issue
+          <kbd class="inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface-panel border border-border text-[9px] font-mono text-fg-muted">
+            C
+          </kbd>
         </.link>
       </div>
 

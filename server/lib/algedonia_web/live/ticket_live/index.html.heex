@@ -6,7 +6,12 @@
   nav_section={@nav_section}
   current_path={@current_path}
 >
-  <div id="ticket-shell" class="flex flex-col h-full" phx-hook="TicketShortcuts">
+  <div
+    id="ticket-shell"
+    class="flex flex-col h-full"
+    phx-hook="KeyboardShortcuts"
+    data-page="tickets"
+  >
     <%!-- Header bar --%>
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
       <div class="flex items-center gap-4">
@@ -109,7 +114,7 @@
               @view_mode == :board && "bg-accent-indigo/20 text-fg",
               @view_mode != :board && "text-fg-muted hover:text-fg"
             ]}
-            title="Board view"
+            title="Board view (B)"
           >
             <.icon name="hero-view-columns" class="size-3.5" />
           </button>
@@ -121,7 +126,7 @@
               @view_mode == :list && "bg-accent-indigo/20 text-fg",
               @view_mode != :list && "text-fg-muted hover:text-fg"
             ]}
-            title="List view"
+            title="List view (B)"
           >
             <.icon name="hero-bars-3" class="size-3.5" />
           </button>
@@ -131,9 +136,11 @@
         <.link
           id="new-issue-button"
           patch={~p"/w/#{@workspace_slug}/tickets/new"}
-          class="flex bg-accent-indigo hover:bg-accent-indigo-hover text-white rounded-md overflow-hidden cursor-pointer"
+          class="flex items-center gap-1.5 bg-accent-indigo hover:bg-accent-indigo-hover text-white rounded-md overflow-hidden cursor-pointer"
+          title="New issue (C)"
         >
-          <span class="px-3 py-1 text-sm font-medium">+ Issue</span>
+          <span class="pl-3 py-1 text-sm font-medium">+ Issue</span>
+          <.kbd class="bg-white/15 border-white/20 text-white/70 mr-1.5">C</.kbd>
         </.link>
       </div>
     </header>
@@ -384,6 +391,8 @@
       </div>
     </div>
   </div>
+
+  <.shortcut_help show={@show_shortcut_help} page="tickets" />
 
   <%!-- Create/Edit modal --%>
   <.modal

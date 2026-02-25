@@ -48,6 +48,13 @@ type Manager struct {
 	repoRoot   string
 }
 
+const (
+	defaultChunkFlushInterval = 50 * time.Millisecond
+	defaultChunkMaxSize       = 4096
+	minChunkFlushMS           = 1
+	minChunkMaxBytes          = 256
+)
+
 // NewManager creates a Manager that uses sendFunc to send events to the server.
 func NewManager(sendFunc func(event string, payload map[string]interface{}) error, registry *adapter.Registry, repoRoot string) *Manager {
 	return &Manager{
@@ -56,6 +63,59 @@ func NewManager(sendFunc func(event string, payload map[string]interface{}) erro
 		adapterReg: registry,
 		repoRoot:   repoRoot,
 	}
+}
+
+func chunkFlushIntervalFromEnv(getenv func(string) string) time.Duration {
+	raw := strings.TrimSpace(getenv("ALGEDONIA_CHUNK_FLUSH_MS"))
+	if raw == "" {
+		return defaultChunkFlushInterval
+	}
+
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms < minChunkFlushMS {
+		log.Printf(
+			"Invalid ALGEDONIA_CHUNK_FLUSH_MS=%q, using default %dms",
+			raw,
+			defaultChunkFlushInterval/time.Millisecond,
+		)
+		return defaultChunkFlushInterval
+	}
+
+	return time.Duration(ms) * time.Millisecond
+}
+
+func chunkMaxSizeFromEnv(getenv func(string) string) int {
+	raw := strings.TrimSpace(getenv("ALGEDONIA_CHUNK_MAX_BYTES"))
+	if raw == "" {
+		return defaultChunkMaxSize
+	}
+
+	size, err := strconv.Atoi(raw)
+	if err != nil || size < minChunkMaxBytes {
+		log.Printf(
+			"Invalid ALGEDONIA_CHUNK_MAX_BYTES=%q, using default %d",
+			raw,
+			defaultChunkMaxSize,
+		)
+		return defaultChunkMaxSize
+	}
+
+	return size
+}
+
+func (m *Manager) newTerminalChunker(loopID string) *Chunker {
+	flushInterval := chunkFlushIntervalFromEnv(os.Getenv)
+	maxSize := chunkMaxSizeFromEnv(os.Getenv)
+
+	return NewChunker(flushInterval, maxSize, func(data []byte) {
+		encoded := base64.StdEncoding.EncodeToString(data)
+		if err := m.sendFunc("terminal_output", map[string]interface{}{
+			"loop_id": loopID,
+			"data":    encoded,
+		}); err != nil {
+			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
+		}
+	})
 }
 
 // typePromptToTUI waits for the TUI to become idle, then types the prompt
@@ -134,15 +194,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 	var lastOutput atomic.Int64
 	lastOutput.Store(time.Now().UnixMilli())
 
-	chunker := NewChunker(50*time.Millisecond, 4096, func(data []byte) {
-		encoded := base64.StdEncoding.EncodeToString(data)
-		if err := m.sendFunc("terminal_output", map[string]interface{}{
-			"loop_id": loopID,
-			"data":    encoded,
-		}); err != nil {
-			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
-		}
-	})
+	chunker := m.newTerminalChunker(loopID)
 
 	lp := &LoopProcess{
 		LoopID:  loopID,
@@ -271,15 +323,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	var lastOutput atomic.Int64
 	lastOutput.Store(time.Now().UnixMilli())
 
-	chunker := NewChunker(50*time.Millisecond, 4096, func(data []byte) {
-		encoded := base64.StdEncoding.EncodeToString(data)
-		if err := m.sendFunc("terminal_output", map[string]interface{}{
-			"loop_id": loopID,
-			"data":    encoded,
-		}); err != nil {
-			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
-		}
-	})
+	chunker := m.newTerminalChunker(loopID)
 
 	lp := &LoopProcess{
 		LoopID:     loopID,

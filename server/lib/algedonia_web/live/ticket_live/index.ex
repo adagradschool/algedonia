@@ -32,6 +32,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
      socket
      |> assign(:statuses, @statuses)
      |> assign(:confirm_delete, false)
+     |> assign(:show_shortcut_help, false)
      |> assign(:current_user_id, session["user_id"])
      |> assign(:current_workspace_id, session["current_workspace_id"])
      |> assign(:current_workspace, current_workspace)
@@ -186,6 +187,22 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     view = if socket.assigns.view_mode == :list, do: "board", else: "list"
     params = build_query_params(socket.assigns, view: view)
     {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
+  end
+
+  def handle_event("toggle_shortcut_help", _params, socket) do
+    {:noreply, assign(socket, :show_shortcut_help, !socket.assigns.show_shortcut_help)}
+  end
+
+  def handle_event("shortcut_new_issue", _params, socket) do
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets/new")}
+  end
+
+  def handle_event("shortcut_back", _params, socket) do
+    if socket.assigns.live_action == :show do
+      {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("filter", %{"status" => status}, socket) do

@@ -506,6 +506,122 @@ defmodule AlgedoniaWeb.CoreComponents do
     |> JS.remove_class("modal-open", to: "##{id}")
   end
 
+  @doc """
+  Renders a keyboard shortcut badge (like Linear's `kbd` elements).
+
+  ## Examples
+
+      <.kbd>B</.kbd>
+      <.kbd>⌘ B</.kbd>
+  """
+  attr :class, :any, default: nil
+  slot :inner_block, required: true
+
+  def kbd(assigns) do
+    ~H"""
+    <kbd class={[
+      "inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded",
+      "bg-surface-panel border border-border text-[10px] font-mono text-fg-muted",
+      @class
+    ]}>
+      {render_slot(@inner_block)}
+    </kbd>
+    """
+  end
+
+  @doc """
+  Renders the keyboard shortcuts help modal.
+
+  Pass `show={true}` to display it, and the `page` assign to show
+  page-specific shortcuts.
+
+  ## Examples
+
+      <.shortcut_help show={@show_shortcut_help} page="tickets" />
+  """
+  attr :show, :boolean, default: false
+  attr :page, :string, default: nil
+
+  def shortcut_help(assigns) do
+    ~H"""
+    <div
+      :if={@show}
+      id="shortcut-help"
+      class="fixed inset-0 z-50 flex items-center justify-center"
+      phx-click="toggle_shortcut_help"
+      phx-window-keydown="toggle_shortcut_help"
+      phx-key="Escape"
+    >
+      <div class="absolute inset-0 bg-black/40" />
+      <div
+        class="relative w-full max-w-md bg-surface-raised border border-border rounded-xl shadow-2xl"
+        phx-click-away="toggle_shortcut_help"
+      >
+        <div class="px-5 py-4 border-b border-border flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-fg">Keyboard shortcuts</h2>
+          <kbd class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded bg-surface-panel border border-border text-[10px] font-mono text-fg-muted">
+            Esc
+          </kbd>
+        </div>
+
+        <div class="px-5 py-3 space-y-4 max-h-[60vh] overflow-y-auto">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-fg-muted mb-2">General</div>
+            <div class="space-y-1.5">
+              <.shortcut_row keys="?" label="Show keyboard shortcuts" />
+            </div>
+          </div>
+
+          <div :if={@page == "tickets"}>
+            <div class="text-[10px] uppercase tracking-wider text-fg-muted mb-2">Issues</div>
+            <div class="space-y-1.5">
+              <.shortcut_row keys="C" label="Create new issue" />
+              <.shortcut_row keys="B" label="Toggle board / list view" />
+              <.shortcut_row keys="Esc" label="Back to list" />
+            </div>
+          </div>
+
+          <div :if={@page == "loop"}>
+            <div class="text-[10px] uppercase tracking-wider text-fg-muted mb-2">Loop</div>
+            <div class="space-y-1.5">
+              <.shortcut_row keys="S" label="Start / stop loop" />
+              <.shortcut_row keys="1" label="Overview tab" />
+              <.shortcut_row keys="2" label="Rubric tab" />
+              <.shortcut_row keys="3" label="History tab" />
+              <.shortcut_row keys="Esc" label="Back to issues" />
+            </div>
+          </div>
+        </div>
+
+        <div class="px-5 py-3 border-t border-border">
+          <p class="text-[10px] text-fg-muted">
+            Shortcuts are disabled when focused on text inputs.
+          </p>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :keys, :string, required: true
+  attr :label, :string, required: true
+
+  defp shortcut_row(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between text-xs">
+      <span class="text-fg-secondary">{@label}</span>
+      <div class="flex items-center gap-0.5">
+        <kbd
+          :for={key <- String.split(@keys, " ")}
+          class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded bg-surface-panel border border-border text-[10px] font-mono text-fg-muted"
+        >
+          {key}
+        </kbd>
+      </div>
+    </div>
+    """
+  end
+
   ## JS Commands
 
   def show(js \\ %JS{}, selector) do

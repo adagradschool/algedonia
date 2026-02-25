@@ -1,4 +1,9 @@
-<div class="h-screen grid grid-rows-[1fr_26px] overflow-hidden bg-surface">
+<div
+  id="loop-shell"
+  class="h-screen grid grid-rows-[1fr_26px] overflow-hidden bg-surface"
+  phx-hook="KeyboardShortcuts"
+  data-page="loop"
+>
   <div class="grid grid-cols-[16rem_1fr] overflow-hidden">
     <Layouts.workspace_sidebar
       current_workspace={@current_workspace}
@@ -11,7 +16,12 @@
           <div class="flex items-center gap-2">
             <span class={[
               "size-2 rounded-full",
-              if(@active, do: "bg-status-blue animate-pulse", else: "bg-fg-muted")
+              cond do
+                @stage == "completed" -> "bg-status-green"
+                @stage == "failed" -> "bg-status-red"
+                @active -> "bg-status-blue animate-pulse"
+                true -> "bg-fg-muted"
+              end
             ]} />
             <span class="text-sm font-medium text-fg truncate">{@loop_title}</span>
           </div>
@@ -29,10 +39,12 @@
             <h1 class="text-2xl font-medium text-fg truncate">{@loop_title}</h1>
             <span class={[
               "px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide",
-              if(@stage == "checker",
-                do: "bg-status-yellow/20 text-status-yellow",
-                else: "bg-accent-indigo/20 text-accent-indigo"
-              )
+              cond do
+                @stage == "completed" -> "bg-status-green/20 text-status-green"
+                @stage == "failed" -> "bg-status-red/20 text-status-red"
+                @stage == "checker" -> "bg-status-yellow/20 text-status-yellow"
+                true -> "bg-accent-indigo/20 text-accent-indigo"
+              end
             ]}>
               {@stage}
             </span>
@@ -50,18 +62,22 @@
           <button
             :if={!@active}
             phx-click="start_loop"
-            class="px-3 py-1 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
             type="button"
+            title="Start loop (S)"
           >
             Start Loop
+            <.kbd class="bg-white/15 border-white/20 text-white/70">S</.kbd>
           </button>
           <button
             :if={@active}
             phx-click="stop_loop"
-            class="px-3 py-1 rounded-md bg-status-red hover:bg-status-red/80 text-white text-sm font-medium transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1 rounded-md bg-status-red hover:bg-status-red/80 text-white text-sm font-medium transition-colors"
             type="button"
+            title="Stop loop (S)"
           >
             Stop Loop
+            <.kbd class="bg-white/15 border-white/20 text-white/70">S</.kbd>
           </button>
         </div>
 
@@ -103,67 +119,86 @@
             phx-click="switch_tab"
             phx-value-tab="overview"
             class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors",
+              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
               if(@active_tab == "overview",
                 do: "text-fg border-accent-indigo",
                 else: "text-fg-muted border-transparent hover:text-fg-secondary"
               )
             ]}
+            title="Overview (1)"
           >
             Overview
+            <.kbd>1</.kbd>
           </button>
           <button
             phx-click="switch_tab"
             phx-value-tab="rubric"
             class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors",
+              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
               if(@active_tab == "rubric",
                 do: "text-fg border-accent-indigo",
                 else: "text-fg-muted border-transparent hover:text-fg-secondary"
               )
             ]}
+            title="Rubric (2)"
           >
             Rubric
+            <.kbd>2</.kbd>
           </button>
           <button
             phx-click="switch_tab"
             phx-value-tab="history"
             class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors",
+              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
               if(@active_tab == "history",
                 do: "text-fg border-accent-indigo",
                 else: "text-fg-muted border-transparent hover:text-fg-secondary"
               )
             ]}
+            title="History (3)"
           >
             History
+            <.kbd>3</.kbd>
           </button>
         </div>
 
         <div :if={@active_tab == "overview"} class="p-3 overflow-y-auto space-y-4">
-          <div class="rounded-md border border-border bg-surface px-3 py-3">
-            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">
-              Context Summary
+          <div
+            :if={@final_verdict}
+            class={[
+              "rounded-md border px-3 py-3",
+              if(@final_verdict.verdict == "pass",
+                do: "border-status-green/40 bg-status-green/5",
+                else: "border-status-red/40 bg-status-red/5"
+              )
+            ]}
+          >
+            <div class="flex items-center gap-2 mb-2">
+              <span class={[
+                "px-2 py-0.5 rounded text-[11px] font-semibold uppercase",
+                if(@final_verdict.verdict == "pass",
+                  do: "bg-status-green/20 text-status-green",
+                  else: "bg-status-red/20 text-status-red"
+                )
+              ]}>
+                {if @final_verdict.verdict == "pass", do: "Passed", else: "Failed"}
+              </span>
+              <span class="text-[11px] uppercase tracking-wide text-fg-muted">
+                Final Verdict
+              </span>
             </div>
-            <div class="text-xs text-fg-secondary whitespace-pre-wrap">
-              {if @ticket,
-                do: @ticket.description || "No ticket description.",
-                else: "Ad hoc loop."}
+            <div
+              :if={Map.get(@final_verdict, :feedback, "") != ""}
+              class="markdown text-xs text-fg-secondary"
+            >
+              {render_markdown(@final_verdict.feedback)}
             </div>
           </div>
 
           <div class="rounded-md border border-border bg-surface px-3 py-3">
-            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">
-              Acceptance Criteria
-            </div>
-            <div class="text-xs text-fg-secondary whitespace-pre-wrap">
-              {if @acceptance_criteria != "", do: @acceptance_criteria, else: "Not provided yet."}
-            </div>
-          </div>
-
-          <div class="rounded-md border border-border bg-surface px-3 py-3">
-            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">Final Result</div>
-            <div :if={@overview_loading} class="text-xs text-fg-muted">
+            <div :if={@overview_loading} class="flex items-center gap-2 text-xs text-fg-muted">
+              <span class="animate-spin inline-block w-3 h-3 border border-fg-muted border-t-transparent rounded-full">
+              </span>
               Generating overview...
             </div>
             <div
@@ -231,9 +266,9 @@
             </div>
             <div
               :if={Map.get(entry, :feedback, "") != ""}
-              class="mt-1 text-[11px] text-fg-secondary"
+              class="mt-1 markdown text-[11px] text-fg-secondary"
             >
-              {entry.feedback}
+              {render_markdown(entry.feedback)}
             </div>
           </div>
         </div>
@@ -245,7 +280,12 @@
     <span class="px-2">Loop {@loop_id}</span>
     <span class="px-2 border-l border-border">PTY connected</span>
     <span class="px-2 border-l border-border">Stage {@stage}</span>
+    <span class="ml-auto px-2 flex items-center gap-1">
+      <.kbd>?</.kbd>
+      shortcuts
+    </span>
   </footer>
 </div>
 
+<.shortcut_help show={@show_shortcut_help} page="loop" />
 <Layouts.flash_group flash={@flash} />
