@@ -4,7 +4,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   """
   use AlgedoniaWeb, :live_view
 
-  alias Algedonia.{Dags, Tickets}
+  alias Algedonia.{Agents, Dags, Tickets}
   alias Algedonia.Loops
   alias Algedonia.Tickets.{Comment, Ticket}
   alias Algedonia.Workspaces
@@ -113,6 +113,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     comment_changeset = Tickets.change_comment(%Comment{ticket_id: id})
     ticket_changeset = Tickets.change_ticket(ticket)
 
+    loop_id = first_loop_id(ticket)
+
     assign(socket,
       page_title: ticket.title,
       ticket: ticket,
@@ -124,7 +126,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       reply_to: nil,
       reply_form: nil,
       editing_comment_id: nil,
-      edit_form: nil
+      edit_form: nil,
+      loop_id: loop_id
     )
   end
 
@@ -207,7 +210,9 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
     case ensure_single_loop(ticket) do
       {:ok, loop_id} ->
-        path = ~p"/w/#{socket.assigns.workspace_slug}/loops/#{loop_id}?#{%{autostart: 1}}"
+        path =
+          ~p"/w/#{socket.assigns.workspace_slug}/loops/#{loop_id}?#{%{autostart: 1, agent_type: ticket_agent_type(ticket)}}"
+
         {:noreply, push_navigate(socket, to: path)}
 
       {:error, :invalid_status} ->
@@ -346,12 +351,21 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     grouped = Tickets.list_tickets_by_status(opts)
     all_count = grouped |> Map.values() |> List.flatten() |> length()
 
+    active_ticket_ids =
+      grouped
+      |> Map.take([:planning, :in_progress, :completed])
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.map(& &1.id)
+
+    loop_ids = Dags.first_loop_ids_for_tickets(active_ticket_ids)
+
     socket =
       Enum.reduce(@statuses, socket, fn s, acc ->
         stream(acc, stream_name(s), Map.get(grouped, s, []), reset: true)
       end)
 
-    assign(socket, ticket_count: all_count, tickets_by_status: grouped)
+    assign(socket, ticket_count: all_count, tickets_by_status: grouped, loop_ids: loop_ids)
   end
 
   @doc false
@@ -401,6 +415,10 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   defp view_string(:list), do: "list"
   defp view_string(_), do: "board"
+
+  defp ticket_agent_type(%Ticket{coding_agent: :codex}), do: "codex"
+  defp ticket_agent_type(%Ticket{coding_agent: :claude_code}), do: "claude_code"
+  defp ticket_agent_type(_ticket), do: Agents.default_coding_agent_string()
 
   defp ensure_single_loop(%Ticket{status: status}) when status not in [:backlog, :halted] do
     {:error, :invalid_status}
@@ -472,6 +490,13 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   defp maybe_mark_in_progress(%Ticket{} = ticket) do
     _ = Tickets.update_ticket(ticket, %{status: :in_progress})
     :ok
+  end
+
+  defp first_loop_id(%Ticket{} = ticket) do
+    case Dags.get_dag_by_ticket(ticket.id) do
+      %{loops: [loop | _]} -> loop.id
+      _ -> nil
+    end
   end
 
   defp next_form_counter(current_id) do

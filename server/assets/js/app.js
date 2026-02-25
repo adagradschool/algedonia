@@ -96,10 +96,39 @@ const Hooks = {
       this.el.style.overflow = "hidden"
       this.resize()
       this.el.addEventListener("input", () => this.resize())
+      this.keyHandler = (event) => {
+        if (this.el.dataset.chatComposer !== "true") return
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault()
+          const text = this.el.value || ""
+          this.pushEvent("send_agent_message", {agent_message: {text}})
+        }
+      }
+      this.el.addEventListener("keydown", this.keyHandler)
+      this.handleEvent("composer_clear", () => {
+        this.el.value = ""
+        this.resize()
+      })
+    },
+    destroyed() {
+      if (this.keyHandler) {
+        this.el.removeEventListener("keydown", this.keyHandler)
+      }
     },
     resize() {
       this.el.style.height = "auto"
       this.el.style.height = this.el.scrollHeight + "px"
+    }
+  },
+  ChatStream: {
+    mounted() {
+      this.scrollToBottom()
+    },
+    updated() {
+      this.scrollToBottom()
+    },
+    scrollToBottom() {
+      this.el.scrollTop = this.el.scrollHeight
     }
   }
 }

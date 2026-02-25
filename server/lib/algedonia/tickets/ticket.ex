@@ -4,6 +4,7 @@ defmodule Algedonia.Tickets.Ticket do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Algedonia.Agents
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -19,6 +20,7 @@ defmodule Algedonia.Tickets.Ticket do
       default: :backlog
 
     field :type, Ecto.Enum, values: [:feature, :bug, :chore, :spike]
+    field :coding_agent, Ecto.Enum, values: [:codex, :claude_code]
     field :priority, :integer, default: 3
     field :assignee, :string
     field :acceptance_criteria, :string
@@ -44,13 +46,22 @@ defmodule Algedonia.Tickets.Ticket do
       :description,
       :status,
       :type,
+      :coding_agent,
       :priority,
       :assignee,
       :acceptance_criteria,
       :rubric
     ])
+    |> maybe_put_default_coding_agent()
     |> validate_required([:workspace_id, :title, :type, :priority])
     |> validate_inclusion(:priority, 1..5)
     |> unique_constraint([:workspace_id, :number])
+  end
+
+  defp maybe_put_default_coding_agent(changeset) do
+    case get_field(changeset, :coding_agent) do
+      nil -> put_change(changeset, :coding_agent, Agents.default_coding_agent())
+      _ -> changeset
+    end
   end
 end

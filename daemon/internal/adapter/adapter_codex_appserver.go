@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,7 +39,19 @@ type codexAppSession struct {
 	doneCh   chan struct{}
 }
 
-func startCodexAppServer(workdir, task, sessionID string, collector *outputCollector) (*codexAppSession, error) {
+func (s *codexAppSession) ThreadID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.threadID
+}
+
+func (s *codexAppSession) TurnID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnID
+}
+
+func startCodexAppServer(workdir, task string, collector *outputCollector, config map[string]string) (*codexAppSession, error) {
 	cmd := exec.Command("codex", "app-server", "--listen", "stdio://")
 	cmd.Dir = workdir
 	cmd.Env = os.Environ()
@@ -69,7 +82,7 @@ func startCodexAppServer(workdir, task, sessionID string, collector *outputColle
 		collector: collector,
 		streamR:   r,
 		streamW:   w,
-		sessionID: sessionID,
+		sessionID: "",
 		pending:   make(map[string]chan map[string]interface{}),
 		resultCh:  make(chan *ExitResult, 1),
 		errCh:     make(chan error, 1),
@@ -80,9 +93,16 @@ func startCodexAppServer(workdir, task, sessionID string, collector *outputColle
 	go s.readStderrLoop()
 	go s.waitCmdLoop()
 
-	if err := s.initializeAndStartTurn(workdir, task); err != nil {
+	if err := s.initializeAndStartTurn(workdir, task, config); err != nil {
 		_ = s.Kill(2 * time.Second)
 		return nil, err
+	}
+
+	if s.sessionID == "" {
+		s.sessionID = s.ThreadID()
+	}
+	if s.sessionID == "" {
+		s.sessionID = s.TurnID()
 	}
 
 	return s, nil
@@ -141,12 +161,13 @@ func (s *codexAppSession) Steer(data []byte) error {
 					"threadId": threadID,
 					"turnId":   turnID,
 				}, 3*time.Second)
-				s.appendStream("\n[codex-app-server] turn interrupt requested\n")
+				s.appendCollector("\n[codex-app-server] turn interrupt requested\n")
 			}
 		case '\r', '\n':
 			line := strings.TrimSpace(s.steer.String())
 			s.steer.Reset()
 			if line != "" && s.threadID != "" && s.turnID != "" {
+				s.emitChatDelta("user", line)
 				go func(threadID, turnID, line string) {
 					_, err := s.request("turn/steer", map[string]interface{}{
 						"threadId":       threadID,
@@ -160,10 +181,9 @@ func (s *codexAppSession) Steer(data []byte) error {
 						},
 					}, 15*time.Second)
 					if err != nil {
-						s.appendStream(fmt.Sprintf("[codex-app-server] steer failed: %v\n", err))
+						s.appendCollector(fmt.Sprintf("[codex-app-server] steer failed: %v\n", err))
 					}
 				}(s.threadID, s.turnID, line)
-				s.appendStream(fmt.Sprintf("\n[you → codex] %s\n", line))
 			}
 		default:
 			s.steer.WriteByte(b)
@@ -172,7 +192,10 @@ func (s *codexAppSession) Steer(data []byte) error {
 	return nil
 }
 
-func (s *codexAppSession) initializeAndStartTurn(workdir, task string) error {
+func (s *codexAppSession) initializeAndStartTurn(workdir, task string, config map[string]string) error {
+	model := strings.TrimSpace(config["model"])
+	effort := strings.TrimSpace(config["effort"])
+
 	_, err := s.request("initialize", map[string]interface{}{
 		"clientInfo": map[string]interface{}{
 			"name":    "algedonia-daemon",
@@ -196,7 +219,7 @@ func (s *codexAppSession) initializeAndStartTurn(workdir, task string) error {
 		"approvalPolicy":         "never",
 		"sandbox":                "danger-full-access",
 		"experimentalRawEvents":  false,
-		"persistExtendedHistory": false,
+		"persistExtendedHistory": true,
 	}, 20*time.Second)
 	if err != nil {
 		return fmt.Errorf("thread/start failed: %w", err)
@@ -211,7 +234,7 @@ func (s *codexAppSession) initializeAndStartTurn(workdir, task string) error {
 	s.threadID = threadID
 	s.mu.Unlock()
 
-	turnResp, err := s.request("turn/start", map[string]interface{}{
+	turnParams := map[string]interface{}{
 		"threadId":       threadID,
 		"approvalPolicy": "never",
 		"sandboxPolicy": map[string]interface{}{
@@ -224,7 +247,18 @@ func (s *codexAppSession) initializeAndStartTurn(workdir, task string) error {
 				"text_elements": []interface{}{},
 			},
 		},
-	}, 20*time.Second)
+	}
+	if model != "" {
+		turnParams["model"] = model
+	}
+	if effort != "" {
+		turnParams["effort"] = effort
+	}
+	if task != "" {
+		s.emitChatDelta("user", task)
+	}
+
+	turnResp, err := s.request("turn/start", turnParams, 20*time.Second)
 	if err != nil {
 		return fmt.Errorf("turn/start failed: %w", err)
 	}
@@ -261,7 +295,7 @@ func (s *codexAppSession) readStdoutLoop() {
 func (s *codexAppSession) readStderrLoop() {
 	scanner := bufio.NewScanner(s.stderr)
 	for scanner.Scan() {
-		s.appendStream("[codex] " + scanner.Text() + "\n")
+		s.appendCollector("[codex] " + scanner.Text() + "\n")
 	}
 }
 
@@ -292,9 +326,20 @@ func (s *codexAppSession) handleMessage(msg map[string]interface{}) {
 	}
 
 	switch method {
-	case "item/agentMessage/delta", "item/commandExecution/outputDelta", "item/reasoning/textDelta":
+	case "item/agentMessage/delta":
 		if delta, ok := params["delta"].(string); ok {
-			s.appendStream(delta)
+			s.appendCollector(delta)
+			s.emitChatDelta("agent", delta)
+		}
+	case "item/commandExecution/outputDelta":
+		if delta, ok := params["delta"].(string); ok {
+			s.appendCollector(delta)
+			s.emitChatDelta("command", delta)
+		}
+	case "item/reasoning/textDelta":
+		if delta, ok := params["delta"].(string); ok {
+			s.appendCollector(delta)
+			s.emitChatDelta("reasoning", delta)
 		}
 	case "turn/started":
 		if turn, ok := params["turn"].(map[string]interface{}); ok {
@@ -329,6 +374,30 @@ func (s *codexAppSession) appendStream(text string) {
 	go func(payload string) {
 		_, _ = s.streamW.Write([]byte(payload))
 	}(text)
+}
+
+func (s *codexAppSession) appendCollector(text string) {
+	if text == "" {
+		return
+	}
+	_, _ = s.collector.Write([]byte(text))
+}
+
+func (s *codexAppSession) emitChatDelta(kind, delta string) {
+	if kind == "" || delta == "" {
+		return
+	}
+	payload, err := json.Marshal(map[string]string{
+		"kind":  kind,
+		"delta": delta,
+	})
+	if err != nil {
+		return
+	}
+	marker := "[[ALGEDONIA_CHAT:" + base64.StdEncoding.EncodeToString(payload) + "]]\n"
+	go func(out string) {
+		_, _ = s.streamW.Write([]byte(out))
+	}(marker)
 }
 
 func (s *codexAppSession) request(method string, params map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {

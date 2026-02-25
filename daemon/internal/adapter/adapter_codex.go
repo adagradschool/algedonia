@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Compile-time interface check.
@@ -16,12 +14,16 @@ type CodexAdapter struct{}
 
 // Start spawns codex and starts a task turn.
 func (a *CodexAdapter) Start(workdir string, task string, config map[string]string) (*Process, error) {
-	sessionID := uuid.New().String()
 	collector := newOutputCollector()
 
-	app, err := startCodexAppServer(workdir, task, sessionID, collector)
+	app, err := startCodexAppServer(workdir, task, collector, config)
 	if err != nil {
 		return nil, fmt.Errorf("starting codex app-server session: %w", err)
+	}
+
+	sessionID := app.ThreadID()
+	if sessionID == "" {
+		sessionID = app.TurnID()
 	}
 
 	return &Process{

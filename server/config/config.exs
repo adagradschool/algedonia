@@ -9,7 +9,8 @@ import Config
 
 config :algedonia,
   ecto_repos: [Algedonia.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  default_coding_agent: :claude_code
 
 # Configure the endpoint
 config :algedonia, AlgedoniaWeb.Endpoint,

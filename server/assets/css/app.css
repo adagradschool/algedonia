@@ -296,6 +296,17 @@ body {
   color: var(--color-fg) !important;
 }
 
+@keyframes indicator-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scaleY(1);
+  }
+}
+
 @keyframes run-panel-enter {
   from {
     opacity: 0;

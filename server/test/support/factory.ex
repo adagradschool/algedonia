@@ -26,6 +26,7 @@ defmodule Algedonia.Factory do
       %{
         title: "Test ticket #{System.unique_integer([:positive])}",
         type: :feature,
+        coding_agent: :claude_code,
         priority: 3,
         status: :backlog,
         description: "A test ticket description",

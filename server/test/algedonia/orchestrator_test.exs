@@ -1,6 +1,7 @@
 defmodule Algedonia.OrchestratorTest do
   use Algedonia.DataCase, async: true
 
+  alias Algedonia.CheckerHandoff
   alias Algedonia.{Dags, Orchestrator, Repo, Tickets}
   alias Ecto.Adapters.SQL.Sandbox
   import Algedonia.Factory
@@ -35,6 +36,14 @@ defmodule Algedonia.OrchestratorTest do
     GenServer.call(pid, {:loop_error, loop_id, error})
   end
 
+  defp handle_attempt_complete(pid, loop_id, payload, daemon_name) do
+    GenServer.call(pid, {:attempt_complete, loop_id, payload, daemon_name})
+  end
+
+  defp get_history(pid, loop_id) do
+    GenServer.call(pid, {:get_loop_history, loop_id})
+  end
+
   describe "start_work/1" do
     test "creates decompose dag and pushes to daemon with ticket context", %{orchestrator: pid} do
       insert_ticket!(%{status: :backlog, title: "My ticket", description: "Do stuff"})
@@ -52,11 +61,29 @@ defmodule Algedonia.OrchestratorTest do
 
         assert_receive {:push, _daemon_name, _loop_id, payload}
         assert payload["role"] == "decompose"
+        assert payload["agent_type"] == "claude_code"
         assert payload["ticket"]["title"] == "My ticket"
         assert payload["ticket"]["description"] == "Do stuff"
         assert payload["ticket"]["type"] == "feature"
         assert payload["ticket"]["priority"] == 3
       end)
+    end
+
+    test "uses codex when ticket coding_agent is codex", %{orchestrator: pid} do
+      ticket =
+        insert_ticket!(%{
+          status: :backlog,
+          title: "Codex ticket",
+          coding_agent: :codex
+        })
+
+      insert_daemon!(%{status: :online})
+
+      assert :ok = start_work(pid, ticket.id)
+
+      assert_receive {:push, _daemon_name, _loop_id, payload}
+      assert payload["role"] == "decompose"
+      assert payload["agent_type"] == "codex"
     end
 
     test "rejects ticket not in backlog", %{orchestrator: pid} do
@@ -93,6 +120,7 @@ defmodule Algedonia.OrchestratorTest do
 
       assert_receive {:push, _, _checker_loop_id, checker_payload}
       assert checker_payload["role"] == "decompose_checker"
+      assert checker_payload["agent_type"] == "claude_code"
       assert checker_payload["ticket"]["title"] == "Checker ticket"
     end
   end
@@ -151,6 +179,7 @@ defmodule Algedonia.OrchestratorTest do
 
       assert_receive {:push, _, _new_loop_id, retry_payload}
       assert retry_payload["role"] == "decompose"
+      assert retry_payload["agent_type"] == "claude_code"
       assert retry_payload["feedback"] == "Tasks are too coarse"
       assert retry_payload["ticket"]["title"] == "Retry ticket"
     end
@@ -195,6 +224,98 @@ defmodule Algedonia.OrchestratorTest do
       assert_receive {:push, _, _new_loop_id, retry_payload}
       assert retry_payload["role"] == "decompose"
       assert is_map(retry_payload["ticket"])
+    end
+  end
+
+  describe "task loop checker handoff repair history" do
+    test "does not add extra checker history entries for handoff repair", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop_id = loop.id
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop_id, daemon.name, []})
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"session_id" => "maker-1", "exit_code" => 0},
+                 daemon.name
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "checker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{
+                   "session_id" => "checker-1",
+                   "handoff_valid" => false,
+                   "handoff_error" => "missing checker_result.json"
+                 },
+                 daemon.name
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "checker", "task" => repair_task}}
+      assert repair_task =~ "REPAIR-ONLY MODE"
+
+      history_after_repair = get_history(pid, loop_id)
+      assert length(history_after_repair) == 2
+
+      checker_entries_after_repair =
+        Enum.filter(history_after_repair, &(&1.role == "checker" && &1.attempt == 1))
+
+      assert length(checker_entries_after_repair) == 1
+      assert hd(checker_entries_after_repair).status == "running"
+
+      expected_feedback_path = CheckerHandoff.expected_paths(loop_id, 1).feedback
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{
+                   "session_id" => "checker-2",
+                   "handoff_valid" => true,
+                   "verdict" => "fail",
+                   "feedback" => "Needs more test coverage",
+                   "feedback_path" => expected_feedback_path
+                 },
+                 daemon.name
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      final_history = get_history(pid, loop_id)
+
+      checker_entries =
+        Enum.filter(final_history, &(&1.role == "checker" && &1.attempt == 1))
+
+      assert length(checker_entries) == 1
+
+      checker_entry = hd(checker_entries)
+      assert checker_entry.status == "completed"
+      assert checker_entry.verdict == "fail"
+      assert checker_entry.feedback == "Needs more test coverage"
+    end
+  end
+
+  describe "start_task_loop agent selection" do
+    test "defaults to ticket coding_agent when options do not provide agent_type", %{
+      orchestrator: pid
+    } do
+      ticket = insert_ticket!(%{status: :in_progress, coding_agent: :claude_code})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop_id = loop.id
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker", "agent_type" => "claude_code"}}
     end
   end
 end

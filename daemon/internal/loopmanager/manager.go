@@ -215,7 +215,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 }
 
 // StartLoopWithAdapter spawns a loop using a registered adapter.
-func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc string, attempt int) error {
+func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc, model, effort string, attempt int) error {
 	m.mu.Lock()
 	if _, exists := m.loops[loopID]; exists {
 		m.mu.Unlock()
@@ -253,6 +253,8 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		"loop_id": loopID,
 		"role":    role,
 		"workdir": workdir,
+		"model":   strings.TrimSpace(model),
+		"effort":  strings.TrimSpace(effort),
 	})
 	if err != nil {
 		return fmt.Errorf("starting adapter for loop %s: %w", loopID, err)
@@ -556,7 +558,7 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	if role != "" {
 		agentType, _ := payload["agent_type"].(string)
 		if agentType == "" {
-			agentType = "codex"
+			agentType = defaultCodingAgent()
 		}
 		attempt := parseAttempt(payload["attempt"])
 		workdir, _ := payload["workdir"].(string)
@@ -564,7 +566,9 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 			workdir = m.repoRoot
 		}
 		taskDesc, _ := payload["task"].(string)
-		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc, attempt)
+		model, _ := payload["model"].(string)
+		effort, _ := payload["effort"].(string)
+		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc, model, effort, attempt)
 	}
 
 	// Legacy raw-process path
@@ -593,6 +597,17 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	}
 
 	return m.StartLoop(ctx, loopID, command, args, workdir, prompt)
+}
+
+func defaultCodingAgent() string {
+	switch strings.TrimSpace(strings.ToLower(os.Getenv("ALGEDONIA_DEFAULT_CODING_AGENT"))) {
+	case "claude_code":
+		return "claude_code"
+	case "codex":
+		return "codex"
+	default:
+		return "claude_code"
+	}
 }
 
 func parseAttempt(raw interface{}) int {

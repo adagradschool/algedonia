@@ -96,4 +96,8 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   def type_options do
     [Feature: :feature, Bug: :bug, Chore: :chore, Spike: :spike]
   end
+
+  def coding_agent_options do
+    [Codex: :codex, Claude: :claude_code]
+  end
 end

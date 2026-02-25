@@ -74,5 +74,30 @@ defmodule Algedonia.Tickets.TicketTest do
       changeset = Ticket.changeset(%Ticket{}, attrs)
       assert Ecto.Changeset.get_field(changeset, :status) == :backlog
     end
+
+    test "default coding_agent follows global config" do
+      workspace = default_workspace!()
+      attrs = %{title: "Test", type: :feature, priority: 3, workspace_id: workspace.id}
+      changeset = Ticket.changeset(%Ticket{}, attrs)
+
+      assert Ecto.Changeset.get_field(changeset, :coding_agent) ==
+               Algedonia.Agents.default_coding_agent()
+    end
+
+    test "invalid coding_agent rejected" do
+      workspace = default_workspace!()
+
+      attrs = %{
+        title: "Test",
+        type: :feature,
+        priority: 3,
+        coding_agent: :invalid,
+        workspace_id: workspace.id
+      }
+
+      changeset = Ticket.changeset(%Ticket{}, attrs)
+      refute changeset.valid?
+      assert %{coding_agent: [_]} = errors_on(changeset)
+    end
   end
 end

@@ -12,7 +12,7 @@ defmodule Algedonia.Orchestrator do
   """
   use GenServer
 
-  alias Algedonia.{CheckerHandoff, Daemons, Dags, Loops, Repo, Tickets}
+  alias Algedonia.{Agents, CheckerHandoff, Daemons, Dags, Loops, Repo, Tickets}
   alias Algedonia.Dags.Dag
 
   @max_decompose_attempts 3
@@ -109,7 +109,8 @@ defmodule Algedonia.Orchestrator do
      state
      |> Map.put(:decompositions, %{})
      |> Map.put(:task_history, %{})
-     |> Map.put(:checker_handoff_repairs, %{})}
+     |> Map.put(:checker_handoff_repairs, %{})
+     |> Map.put(:task_run_config, %{})}
   end
 
   @impl true
@@ -135,6 +136,7 @@ defmodule Algedonia.Orchestrator do
 
       push_fn.(daemon.name, loop.id, %{
         "role" => "decompose",
+        "agent_type" => ticket_agent_type(ticket),
         "ticket_id" => ticket_id,
         "ticket" => ticket_context(ticket)
       })
@@ -174,8 +176,8 @@ defmodule Algedonia.Orchestrator do
     end
   end
 
-  def handle_call({:start_task_loop, loop_id, daemon_name, _opts}, _from, state) do
-    case start_task_loop_internal(loop_id, daemon_name, state) do
+  def handle_call({:start_task_loop, loop_id, daemon_name, opts}, _from, state) do
+    case start_task_loop_internal(loop_id, daemon_name, opts, state) do
       {:ok, next_state} -> {:reply, :ok, next_state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -203,7 +205,7 @@ defmodule Algedonia.Orchestrator do
     end
   end
 
-  defp start_task_loop_internal(loop_id, daemon_name, state) do
+  defp start_task_loop_internal(loop_id, daemon_name, opts, state) do
     with %{} = loop <- Loops.get_loop(loop_id),
          true <- loop.role == :task,
          {:ok, daemon} <- fetch_daemon(daemon_name),
@@ -215,10 +217,16 @@ defmodule Algedonia.Orchestrator do
            }) do
       loop = Repo.preload(loop, dag: :ticket)
       task = maker_task(loop, loop.dag.ticket, "")
+      run_opts = task_run_options(opts, loop.dag.ticket)
 
       state
+      |> put_task_run_config(loop.id, run_opts)
       |> append_history(loop.id, history_entry("maker", loop.current_attempt, "running"))
-      |> push_to_daemon(daemon.name, loop.id, %{"role" => "maker", "task" => task})
+      |> push_to_daemon(
+        daemon.name,
+        loop.id,
+        Map.merge(%{"role" => "maker", "task" => task}, run_opts)
+      )
       |> then(&{:ok, &1})
     else
       nil -> {:error, :not_found}
@@ -271,11 +279,18 @@ defmodule Algedonia.Orchestrator do
               status: "completed"
             )
             |> append_history(loop.id, history_entry("checker", loop.current_attempt, "running"))
-            |> push_to_daemon(daemon.name, loop.id, %{
-              "role" => "checker",
-              "task" => checker_task,
-              "attempt" => loop.current_attempt
-            })
+            |> push_to_daemon(
+              daemon.name,
+              loop.id,
+              Map.merge(
+                %{
+                  "role" => "checker",
+                  "task" => checker_task,
+                  "attempt" => loop.current_attempt
+                },
+                task_run_config(state, loop.id)
+              )
+            )
 
           {:ok, state}
         else
@@ -315,7 +330,7 @@ defmodule Algedonia.Orchestrator do
   defp retry_task_loop(loop, feedback, daemon_name, state) do
     if loop.current_attempt >= loop.max_attempts do
       case Loops.update_loop_status(loop, :failed) do
-        {:ok, _} -> {:ok, state}
+        {:ok, _} -> {:ok, clear_task_run_config(state, loop.id)}
         _ -> {:error, :update_failed}
       end
     else
@@ -331,7 +346,14 @@ defmodule Algedonia.Orchestrator do
         state =
           state
           |> append_history(loop.id, history_entry("maker", loop.current_attempt, "running"))
-          |> push_to_daemon(daemon.name, loop.id, %{"role" => "maker", "task" => maker_prompt})
+          |> push_to_daemon(
+            daemon.name,
+            loop.id,
+            Map.merge(
+              %{"role" => "maker", "task" => maker_prompt},
+              task_run_config(state, loop.id)
+            )
+          )
 
         {:ok, state}
       else
@@ -344,7 +366,7 @@ defmodule Algedonia.Orchestrator do
     case Loops.update_loop_status(loop, :passed) do
       {:ok, updated_loop} ->
         maybe_complete_ticket(updated_loop)
-        {:ok, state}
+        {:ok, clear_task_run_config(state, loop.id)}
 
       _ ->
         {:error, :update_failed}
@@ -454,16 +476,17 @@ defmodule Algedonia.Orchestrator do
   defp repair_checker_handoff(loop, _ticket, daemon_name, handoff_error, session_id, state) do
     repairs = Map.get(state.checker_handoff_repairs, loop.id, 0) + 1
 
-    state =
-      complete_last_history(state, loop.id, "checker", loop.current_attempt,
-        session_id: session_id,
-        verdict: "fail",
-        feedback: "Invalid checker handoff: #{handoff_error}",
-        status: "handoff_invalid"
-      )
-
     if repairs > @max_checker_handoff_repairs do
-      state = clear_checker_handoff_repair(state, loop.id)
+      state =
+        state
+        |> clear_checker_handoff_repair(loop.id)
+        |> complete_last_history(loop.id, "checker", loop.current_attempt,
+          session_id: session_id,
+          verdict: "fail",
+          feedback: "Invalid checker handoff: #{handoff_error}",
+          status: "handoff_invalid"
+        )
+
       retry_task_loop(loop, "Checker handoff invalid: #{handoff_error}", daemon_name, state)
     else
       case ensure_daemon(loop, daemon_name) do
@@ -473,21 +496,33 @@ defmodule Algedonia.Orchestrator do
           state =
             state
             |> put_checker_handoff_repair(loop.id, repairs)
-            |> append_history(
+            |> push_to_daemon(
+              daemon.name,
               loop.id,
-              history_entry("checker", loop.current_attempt, "running")
-              |> Map.put(:repair_round, repairs)
+              Map.merge(
+                %{
+                  "role" => "checker",
+                  "task" => repair_task,
+                  "attempt" => loop.current_attempt
+                },
+                task_run_config(state, loop.id)
+              )
             )
-            |> push_to_daemon(daemon.name, loop.id, %{
-              "role" => "checker",
-              "task" => repair_task,
-              "attempt" => loop.current_attempt
-            })
 
           {:ok, state}
 
         _ ->
-          {:error, :checker_repair_failed}
+          state =
+            state
+            |> clear_checker_handoff_repair(loop.id)
+            |> complete_last_history(loop.id, "checker", loop.current_attempt,
+              session_id: session_id,
+              verdict: "fail",
+              feedback: "Invalid checker handoff: #{handoff_error}",
+              status: "handoff_invalid"
+            )
+
+          {:ok, state}
       end
     end
   end
@@ -524,6 +559,28 @@ defmodule Algedonia.Orchestrator do
   defp clear_checker_handoff_repair(state, loop_id) do
     %{state | checker_handoff_repairs: Map.delete(state.checker_handoff_repairs, loop_id)}
   end
+
+  defp put_task_run_config(state, loop_id, config) do
+    %{state | task_run_config: Map.put(state.task_run_config, loop_id, config)}
+  end
+
+  defp clear_task_run_config(state, loop_id) do
+    %{state | task_run_config: Map.delete(state.task_run_config, loop_id)}
+  end
+
+  defp task_run_config(state, loop_id) do
+    Map.get(state.task_run_config, loop_id, %{})
+  end
+
+  defp task_run_options(opts, ticket) do
+    %{}
+    |> maybe_put_opt("model", Keyword.get(opts, :model))
+    |> maybe_put_opt("effort", Keyword.get(opts, :effort))
+    |> maybe_put_opt("agent_type", Keyword.get(opts, :agent_type) || ticket_agent_type(ticket))
+  end
+
+  defp maybe_put_opt(map, _key, nil), do: map
+  defp maybe_put_opt(map, key, value), do: Map.put(map, key, value)
 
   defp history_entry(role, attempt, status) do
     %{
@@ -595,10 +652,13 @@ defmodule Algedonia.Orchestrator do
       state = put_in(state, [:decompositions, ticket_id], decomp)
       push_fn = state.push_fn
 
+      ticket = Tickets.get_ticket!(ticket_id)
+
       push_fn.(decomp.daemon_name, checker_loop.id, %{
         "role" => "decompose_checker",
+        "agent_type" => ticket_agent_type(ticket),
         "ticket_id" => ticket_id,
-        "ticket" => ticket_context(Tickets.get_ticket!(ticket_id)),
+        "ticket" => ticket_context(ticket),
         "proposed_dag" => dag_data
       })
 
@@ -662,10 +722,13 @@ defmodule Algedonia.Orchestrator do
       state = put_in(state, [:decompositions, ticket_id], decomp)
       push_fn = state.push_fn
 
+      ticket = Tickets.get_ticket!(ticket_id)
+
       push_fn.(decomp.daemon_name, loop.id, %{
         "role" => "decompose",
+        "agent_type" => ticket_agent_type(ticket),
         "ticket_id" => ticket_id,
-        "ticket" => ticket_context(Tickets.get_ticket!(ticket_id)),
+        "ticket" => ticket_context(ticket),
         "feedback" => feedback
       })
 
@@ -747,6 +810,10 @@ defmodule Algedonia.Orchestrator do
       "priority" => ticket.priority
     }
   end
+
+  defp ticket_agent_type(%{coding_agent: :codex}), do: "codex"
+  defp ticket_agent_type(%{coding_agent: :claude_code}), do: "claude_code"
+  defp ticket_agent_type(_ticket), do: Agents.default_coding_agent_string()
 
   defp find_decomposition_by_loop(state, loop_id) do
     Enum.find_value(state.decompositions, fn {ticket_id, decomp} ->

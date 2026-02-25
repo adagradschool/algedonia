@@ -50,7 +50,56 @@ In short: traditional orchestrators optimize flow. Algedonia optimizes trustwort
 - `server/` orchestration service and UI
 - `notes/` product and design documents (including the PRD)
 
-For server setup, see `server/README.md`.
+## Local Setup
+
+### Technologies Used
+
+Install these before bootstrapping:
+
+| Technology | Used for | Install |
+|------------|----------|---------|
+| [Go](https://go.dev/doc/install) | Daemon (`daemon/`) build and tests | Official install guide |
+| [Elixir](https://elixir-lang.org/install.html) | Phoenix server (`server/`) | Official install guide |
+| [Erlang/OTP](https://www.erlang.org/downloads) | Elixir runtime | Official install guide |
+| [PostgreSQL](https://www.postgresql.org/download/) | Development database | Official install guide |
+| [just](https://github.com/casey/just#installation) | Repository task runner | Official install guide |
+
+### Bootstrap Steps
+
+```bash
+# From the repository root
+cp .env.example .env
+
+# Install dependencies, create DB, run migrations and seeds
+cd server && mix setup && cd ..
+
+# Build/install the local daemon CLI (ag) into ~/bin
+just build-cli
+
+# Run the app
+just server
+```
+
+Open http://localhost:4000 after the server starts.
+
+### Justfile Recipes
+
+Run `just --list` from the repository root to see all recipes.
+
+| Recipe | Description |
+|--------|-------------|
+| `just build-cli` | Build `daemon/cmd/algedonia-agent` as `ag` and install it to `~/bin/ag` |
+| `just server` | Start Phoenix dev server on port `4000` |
+| `just format` | Run all formatters (`format-server`, `format-daemon`) |
+| `just lint` | Run all linters (`lint-server`, `lint-daemon`) |
+| `just test` | Run all tests (`test-server`, `test-daemon`) |
+| `just format-server` | Format Elixir server code (`mix format`) |
+| `just format-daemon` | Format Go daemon code (`go fmt ./...`) |
+| `just lint-server` | Compile with warnings-as-errors, check formatting, run credo |
+| `just lint-daemon` | Run Go vet and build daemon packages |
+| `just test-server` | Run Elixir tests (`mix test`) |
+| `just test-daemon` | Run Go tests (`go test ./...`) |
+| `just github` | Open the GitHub repository in a browser |
 
 ## License
 

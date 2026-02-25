@@ -27,6 +27,17 @@ if project_token = System.get_env("PROJECT_TOKEN") do
   config :algedonia, :project_token, project_token
 end
 
+if default_agent = System.get_env("ALGEDONIA_DEFAULT_CODING_AGENT") do
+  normalized =
+    case String.trim(default_agent) do
+      "codex" -> :codex
+      "claude_code" -> :claude_code
+      _ -> :claude_code
+    end
+
+  config :algedonia, :default_coding_agent, normalized
+end
+
 if System.get_env("SUPABASE_PROJECT_URL") do
   config :algedonia, :supabase,
     project_url: System.get_env("SUPABASE_PROJECT_URL"),

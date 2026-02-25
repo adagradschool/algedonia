@@ -109,7 +109,40 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       dag = Dags.get_dag_by_ticket(ticket.id)
       loop = List.first(dag.loops)
 
-      assert_redirect(view, ~p"/w/#{workspace.slug}/loops/#{loop.id}?autostart=1")
+      assert_redirect(
+        view,
+        ~p"/w/#{workspace.slug}/loops/#{loop.id}?#{%{autostart: 1, agent_type: "claude_code"}}"
+      )
+
+      assert Tickets.get_ticket!(ticket.id).status == :in_progress
+    end
+
+    test "start work with codex ticket navigates with codex agent_type", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{
+          title: "Loop me with Codex",
+          status: :backlog,
+          coding_agent: :codex,
+          workspace_id: workspace.id
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets?view=list")
+
+      view
+      |> element(~s{button[phx-click="start_work"][phx-value-id="#{ticket.id}"]})
+      |> render_click()
+
+      dag = Dags.get_dag_by_ticket(ticket.id)
+      loop = List.first(dag.loops)
+
+      assert_redirect(
+        view,
+        ~p"/w/#{workspace.slug}/loops/#{loop.id}?#{%{autostart: 1, agent_type: "codex"}}"
+      )
+
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
     end
   end

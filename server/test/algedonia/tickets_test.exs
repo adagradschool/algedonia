@@ -10,6 +10,7 @@ defmodule Algedonia.TicketsTest do
       assert {:ok, ticket} = Tickets.create_ticket(attrs)
       assert ticket.title == "New feature"
       assert ticket.status == :backlog
+      assert ticket.coding_agent == :claude_code
     end
 
     test "returns error changeset with invalid attrs" do

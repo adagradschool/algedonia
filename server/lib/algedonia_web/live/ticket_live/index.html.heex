@@ -3,6 +3,8 @@
   current_scope={@current_scope}
   current_workspace={@current_workspace}
   current_user={@current_user}
+  nav_section={@nav_section}
+  current_path={@current_path}
 >
   <div id="ticket-shell" class="flex flex-col h-full" phx-hook="TicketShortcuts">
     <%!-- Header bar --%>
@@ -150,6 +152,7 @@
         stream={stream_for(@streams, status)}
         prefix={@workspace_prefix}
         workspace_slug={@workspace_slug}
+        loop_ids={@loop_ids}
       />
     </div>
 
@@ -173,6 +176,7 @@
             id={dom_id}
             prefix={@workspace_prefix}
             workspace_slug={@workspace_slug}
+            loop_ids={@loop_ids}
           />
         </div>
       </div>
@@ -221,11 +225,11 @@
                     <.icon name="hero-play-mini" class="size-3.5" /> Start Work
                   </button>
                   <.link
-                    :if={@ticket.status in [:planning, :in_progress, :completed]}
-                    navigate={~p"/w/#{@workspace_slug}/dags/#{@ticket}"}
+                    :if={@ticket.status in [:planning, :in_progress, :completed] && @loop_id}
+                    navigate={~p"/w/#{@workspace_slug}/loops/#{@loop_id}"}
                     class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
                   >
-                    <.icon name="hero-rectangle-group" class="size-3" /> View DAG
+                    <.icon name="hero-magnifying-glass" class="size-3" /> Inspect
                   </.link>
                   <button
                     phx-click="confirm_delete"
@@ -346,6 +350,18 @@
                   field={@ticket_form[:type]}
                   type="select"
                   options={AlgedoniaWeb.TicketLive.TicketFormComponent.type_options()}
+                  class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  phx-debounce="600"
+                />
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                  <.icon name="hero-cpu-chip-mini" class="size-3.5" /> Coding Agent
+                </div>
+                <.input
+                  field={@ticket_form[:coding_agent]}
+                  type="select"
+                  options={AlgedoniaWeb.TicketLive.TicketFormComponent.coding_agent_options()}
                   class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
                   phx-debounce="600"
                 />

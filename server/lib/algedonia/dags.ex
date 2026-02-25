@@ -109,6 +109,24 @@ defmodule Algedonia.Dags do
   end
 
   @doc """
+  Returns a map of ticket_id => first loop_id for the given ticket IDs.
+  """
+  @spec first_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
+  def first_loop_ids_for_tickets([]), do: %{}
+
+  def first_loop_ids_for_tickets(ticket_ids) do
+    from(d in Dag,
+      join: l in assoc(d, :loops),
+      where: d.ticket_id in ^ticket_ids,
+      distinct: d.ticket_id,
+      order_by: [asc: d.ticket_id, asc: l.inserted_at],
+      select: {d.ticket_id, l.id}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @doc """
   Gets the DAG for a ticket, preloading loops.
   """
   @spec get_dag_by_ticket(binary()) :: Dag.t() | nil
