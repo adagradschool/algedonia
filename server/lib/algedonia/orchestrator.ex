@@ -261,69 +261,80 @@ defmodule Algedonia.Orchestrator do
 
   defp process_task_attempt(loop, payload, daemon_name, state) do
     loop = Repo.preload(loop, dag: :ticket)
-    ticket = loop.dag.ticket
     session_id = Map.get(payload, "session_id")
     exit_code = Map.get(payload, "exit_code", 0)
 
     case loop.status do
       :running_maker ->
-        with {:ok, daemon} <- ensure_daemon(loop, daemon_name),
-             {:ok, loop} <- Loops.update_loop_status(loop, :running_checker) do
-          checker_task = checker_task(loop, ticket)
-
-          state =
-            state
-            |> complete_last_history(loop.id, "maker", loop.current_attempt,
-              session_id: session_id,
-              exit_code: exit_code,
-              status: "completed"
-            )
-            |> append_history(loop.id, history_entry("checker", loop.current_attempt, "running"))
-            |> push_to_daemon(
-              daemon.name,
-              loop.id,
-              Map.merge(
-                %{
-                  "role" => "checker",
-                  "task" => checker_task,
-                  "attempt" => loop.current_attempt
-                },
-                task_run_config(state, loop.id)
-              )
-            )
-
-          {:ok, state}
-        else
-          _ -> {:error, :transition_failed}
-        end
+        process_maker_attempt(loop, daemon_name, session_id, exit_code, state)
 
       :running_checker ->
-        case CheckerHandoff.validate(loop.id, loop.current_attempt, payload) do
-          {:ok, verified} ->
-            verdict = parse_checker_verdict(verified)
-            feedback = parse_checker_feedback(verified)
-            feedback_path = Map.get(verified, :feedback_path)
-
-            state =
-              state
-              |> clear_checker_handoff_repair(loop.id)
-              |> complete_last_history(loop.id, "checker", loop.current_attempt,
-                session_id: session_id,
-                exit_code: exit_code,
-                verdict: verdict,
-                feedback: feedback,
-                feedback_path: feedback_path,
-                status: "completed"
-              )
-
-            finalize_checker_attempt(verdict, loop, feedback, daemon_name, state)
-
-          {:error, handoff_error} ->
-            repair_checker_handoff(loop, ticket, daemon_name, handoff_error, session_id, state)
-        end
+        process_checker_attempt(loop, payload, daemon_name, session_id, exit_code, state)
 
       _ ->
         {:ok, state}
+    end
+  end
+
+  defp process_maker_attempt(loop, daemon_name, session_id, exit_code, state) do
+    ticket = loop.dag.ticket
+
+    with {:ok, daemon} <- ensure_daemon(loop, daemon_name),
+         {:ok, loop} <- Loops.update_loop_status(loop, :running_checker) do
+      checker_task = checker_task(loop, ticket)
+
+      state =
+        state
+        |> complete_last_history(loop.id, "maker", loop.current_attempt,
+          session_id: session_id,
+          exit_code: exit_code,
+          status: "completed"
+        )
+        |> append_history(loop.id, history_entry("checker", loop.current_attempt, "running"))
+        |> push_to_daemon(
+          daemon.name,
+          loop.id,
+          Map.merge(
+            %{
+              "role" => "checker",
+              "task" => checker_task,
+              "attempt" => loop.current_attempt
+            },
+            task_run_config(state, loop.id)
+          )
+        )
+
+      {:ok, state}
+    else
+      _ -> {:error, :transition_failed}
+    end
+  end
+
+  defp process_checker_attempt(loop, payload, daemon_name, session_id, exit_code, state) do
+    ticket = loop.dag.ticket
+
+    case CheckerHandoff.validate(loop.id, loop.current_attempt, payload) do
+      {:ok, verified} ->
+        verdict = parse_checker_verdict(verified)
+        feedback = parse_checker_feedback(verified)
+        feedback_path = Map.get(verified, :feedback_path)
+
+        state =
+          state
+          |> clear_checker_handoff_repair(loop.id)
+          |> complete_last_history(loop.id, "checker", loop.current_attempt,
+            session_id: session_id,
+            exit_code: exit_code,
+            verdict: verdict,
+            feedback: feedback,
+            feedback_path: feedback_path,
+            status: "completed"
+          )
+
+        finalize_checker_attempt(verdict, loop, feedback, daemon_name, state)
+
+      {:error, handoff_error} ->
+        repair_checker_handoff(loop, ticket, daemon_name, handoff_error, session_id, state)
     end
   end
 
@@ -410,58 +421,60 @@ defmodule Algedonia.Orchestrator do
   end
 
   defp maker_task(loop, ticket, feedback) do
-    """
-    You are the maker for loop #{loop.id}.
+    task_desc = loop.description || loop.title
 
-    Ticket title: #{ticket.title}
-    Ticket description:
-    #{ticket.description || "(none)"}
+    sections = [
+      "Ticket: #{ticket.title}",
+      optional_section("Acceptance criteria", ticket.acceptance_criteria),
+      format_comments(Tickets.list_comments(ticket.id)),
+      "Task:\n#{task_desc}",
+      optional_section("Rubric", loop.rubric || ticket.rubric),
+      optional_section("Previous checker feedback", non_empty(feedback)),
+      "Implement the task and run relevant checks before finishing."
+    ]
 
-    Loop task:
-    #{loop.description || loop.title}
-
-    Rubric:
-    #{loop.rubric || ticket.rubric || "(none)"}
-
-    Previous checker feedback:
-    #{if(feedback == "", do: "(none)", else: feedback)}
-
-    Implement the task and run relevant checks before finishing.
-    """
+    sections |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
   end
 
   defp checker_task(loop, ticket) do
     expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt)
-    feedback_path = expected.feedback
-    json_path = expected.json
+    task_desc = loop.description || loop.title
 
-    """
-    You are the checker for loop #{loop.id}. Verify the current workspace changes against the rubric.
+    sections = [
+      "Ticket: #{ticket.title}",
+      optional_section("Acceptance criteria", ticket.acceptance_criteria),
+      format_comments(Tickets.list_comments(ticket.id)),
+      "Task:\n#{task_desc}",
+      optional_section("Rubric", loop.rubric || ticket.rubric),
+      """
+      REQUIRED HANDOFF FORMAT (file IPC):
+      1) Write markdown feedback to: #{expected.feedback}
+      2) Write JSON to: #{expected.json}
 
-    Ticket title: #{ticket.title}
-    Acceptance criteria:
-    #{ticket.acceptance_criteria || "(none)"}
+      JSON must be exactly:
+      {"VERDICT":"pass|fail","FEEDBACK":"#{expected.feedback}"}
 
-    Loop task:
-    #{loop.description || loop.title}
+      Rules:
+      - Create parent directories if they do not exist.
+      - VERDICT must be either "pass" or "fail" (lowercase).
+      - FEEDBACK must be the markdown file path above.
+      - Do not output any alternative verdict format.\
+      """
+    ]
 
-    Rubric:
-    #{loop.rubric || ticket.rubric || "(none)"}
-
-    REQUIRED HANDOFF FORMAT (file IPC):
-    1) Write markdown feedback to: #{feedback_path}
-    2) Write JSON to: #{json_path}
-
-    JSON must be exactly:
-    {"VERDICT":"pass|fail","FEEDBACK":"#{feedback_path}"}
-
-    Rules:
-    - Create parent directories if they do not exist.
-    - VERDICT must be either "pass" or "fail" (lowercase).
-    - FEEDBACK must be the markdown file path above.
-    - Do not output any alternative verdict format.
-    """
+    sections |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
   end
+
+  defp optional_section(_label, nil), do: nil
+  defp optional_section(_label, ""), do: nil
+  defp optional_section(label, content), do: "#{label}:\n#{content}"
+
+  defp non_empty(""), do: nil
+  defp non_empty(nil), do: nil
+  defp non_empty(s), do: s
+
+  defp non_empty_list([]), do: nil
+  defp non_empty_list(list), do: list
 
   defp parse_checker_verdict(%{verdict: verdict}) do
     case verdict do
@@ -765,12 +778,7 @@ defmodule Algedonia.Orchestrator do
     Ecto.NoResultsError -> {:error, :not_found}
   end
 
-  defp find_online_daemon do
-    case Daemons.list_daemons() |> Enum.find(&(&1.status == :online)) do
-      nil -> {:error, :no_online_daemon}
-      daemon -> {:ok, daemon}
-    end
-  end
+  defp find_online_daemon, do: Daemons.find_online()
 
   defp create_decompose_dag(ticket) do
     %Dag{}
@@ -801,19 +809,70 @@ defmodule Algedonia.Orchestrator do
   end
 
   defp ticket_context(ticket) do
+    comments = Tickets.list_comments(ticket.id)
+
     %{
       "title" => ticket.title,
       "description" => ticket.description,
       "acceptance_criteria" => ticket.acceptance_criteria,
       "rubric" => ticket.rubric,
       "type" => to_string(ticket.type),
-      "priority" => ticket.priority
+      "priority" => ticket.priority,
+      "comments" => non_empty_list(format_comments_data(comments))
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp format_comments([]), do: nil
+
+  defp format_comments(comments) do
+    formatted =
+      comments
+      |> Enum.map_join("\n", &format_comment(&1, 0))
+
+    """
+    Ticket comments:
+    #{formatted}
+
+    """
+  end
+
+  defp format_comment(comment, depth) do
+    indent = String.duplicate("  ", depth)
+    header = "#{indent}- [#{comment.author}] #{comment.body}"
+
+    replies =
+      case comment.replies do
+        %Ecto.Association.NotLoaded{} -> ""
+        [] -> ""
+        replies -> "\n" <> Enum.map_join(replies, "\n", &format_comment(&1, depth + 1))
+      end
+
+    header <> replies
+  end
+
+  defp format_comments_data([]), do: []
+
+  defp format_comments_data(comments) do
+    Enum.map(comments, &comment_to_map/1)
+  end
+
+  defp comment_to_map(comment) do
+    replies =
+      case comment.replies do
+        %Ecto.Association.NotLoaded{} -> []
+        replies -> Enum.map(replies, &comment_to_map/1)
+      end
+
+    %{
+      "author" => comment.author,
+      "body" => comment.body,
+      "replies" => replies
     }
   end
 
-  defp ticket_agent_type(%{coding_agent: :codex}), do: "codex"
-  defp ticket_agent_type(%{coding_agent: :claude_code}), do: "claude_code"
-  defp ticket_agent_type(_ticket), do: Agents.default_coding_agent_string()
+  defp ticket_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
 
   defp find_decomposition_by_loop(state, loop_id) do
     Enum.find_value(state.decompositions, fn {ticket_id, decomp} ->

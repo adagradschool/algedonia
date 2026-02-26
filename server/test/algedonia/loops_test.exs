@@ -61,4 +61,39 @@ defmodule Algedonia.LoopsTest do
       assert updated.current_attempt == 2
     end
   end
+
+  describe "get_loop_with_ticket!/1" do
+    test "returns loop with dag and ticket preloaded" do
+      ticket = insert_ticket!(%{title: "Preload test"})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id})
+
+      loaded = Loops.get_loop_with_ticket!(loop.id)
+      assert loaded.id == loop.id
+      assert loaded.dag.id == dag.id
+      assert loaded.dag.ticket.id == ticket.id
+      assert loaded.dag.ticket.title == "Preload test"
+    end
+
+    test "raises for nonexistent id" do
+      assert_raise Ecto.NoResultsError, fn ->
+        Loops.get_loop_with_ticket!(Ecto.UUID.generate())
+      end
+    end
+  end
+
+  describe "preload_ticket/1" do
+    test "preloads dag and ticket on a loop struct" do
+      ticket = insert_ticket!(%{title: "Preload ticket"})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id})
+
+      # Fresh from DB without preloads
+      bare = Loops.get_loop!(loop.id)
+      assert %Ecto.Association.NotLoaded{} = bare.dag
+
+      preloaded = Loops.preload_ticket(bare)
+      assert preloaded.dag.ticket.title == "Preload ticket"
+    end
+  end
 end

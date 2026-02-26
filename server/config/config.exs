@@ -10,7 +10,8 @@ import Config
 config :algedonia,
   ecto_repos: [Algedonia.Repo],
   generators: [timestamp_type: :utc_datetime],
-  default_coding_agent: :claude_code
+  default_coding_agent: :claude_code,
+  overview_model: "claude-haiku-4-5-20251001"
 
 # Configure the endpoint
 config :algedonia, AlgedoniaWeb.Endpoint,

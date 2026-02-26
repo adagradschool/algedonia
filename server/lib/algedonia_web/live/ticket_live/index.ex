@@ -433,9 +433,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   defp view_string(:list), do: "list"
   defp view_string(_), do: "board"
 
-  defp ticket_agent_type(%Ticket{coding_agent: :codex}), do: "codex"
-  defp ticket_agent_type(%Ticket{coding_agent: :claude_code}), do: "claude_code"
-  defp ticket_agent_type(_ticket), do: Agents.default_coding_agent_string()
+  defp ticket_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
 
   defp ensure_single_loop(%Ticket{status: status}) when status not in [:backlog, :halted] do
     {:error, :invalid_status}

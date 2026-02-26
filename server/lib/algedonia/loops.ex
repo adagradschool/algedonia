@@ -18,6 +18,14 @@ defmodule Algedonia.Loops do
   def get_loop(id), do: Repo.get(Loop, id)
 
   @doc """
+  Gets a loop with its DAG and ticket preloaded. Raises if not found.
+  """
+  @spec get_loop_with_ticket!(binary()) :: Loop.t()
+  def get_loop_with_ticket!(id) do
+    get_loop!(id) |> Repo.preload(dag: :ticket)
+  end
+
+  @doc """
   Creates a loop.
   """
   @spec create_loop(map()) :: {:ok, Loop.t()} | {:error, Ecto.Changeset.t()}
@@ -77,6 +85,12 @@ defmodule Algedonia.Loops do
         :ok
     end)
   end
+
+  @doc """
+  Preloads a loop's DAG and ticket associations.
+  """
+  @spec preload_ticket(Loop.t()) :: Loop.t()
+  def preload_ticket(%Loop{} = loop), do: Repo.preload(loop, dag: :ticket)
 
   @doc """
   Subscribes to updates for a specific loop.

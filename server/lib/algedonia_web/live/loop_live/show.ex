@@ -4,7 +4,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   """
   use AlgedoniaWeb, :live_view
 
-  alias Algedonia.{Agents, Daemons, Loops, Orchestrator, Repo, Terminals, Tickets}
+  alias Algedonia.{Agents, Daemons, Loops, Orchestrator, Terminals, Tickets}
   alias AlgedoniaWeb.DaemonChannel
   alias AlgedoniaWeb.Markdown
   import AlgedoniaWeb.LoopComponents
@@ -125,11 +125,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_event("terminal_input", %{"data" => data}, socket) do
-    daemons = Daemons.list_daemons()
-    online = Enum.find(daemons, &(&1.status == :online))
-
-    if online do
-      DaemonChannel.push_stdin_input(online.name, socket.assigns.loop_id, data)
+    with {:ok, daemon} <- Daemons.find_online() do
+      DaemonChannel.push_stdin_input(daemon.name, socket.assigns.loop_id, data)
     end
 
     {:noreply, socket}
@@ -141,11 +138,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket =
       if trimmed != "" do
         data = Base.encode64(trimmed <> "\r")
-        daemons = Daemons.list_daemons()
-        online = Enum.find(daemons, &(&1.status == :online))
 
-        if online do
-          DaemonChannel.push_stdin_input(online.name, socket.assigns.loop_id, data)
+        with {:ok, daemon} <- Daemons.find_online() do
+          DaemonChannel.push_stdin_input(daemon.name, socket.assigns.loop_id, data)
         end
 
         push_event(socket, "composer_clear", %{})
@@ -157,11 +152,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_event("stop_loop", _params, socket) do
-    daemons = Daemons.list_daemons()
-    online = Enum.find(daemons, &(&1.status == :online))
-
-    if online do
-      DaemonChannel.push_stop_loop(online.name, socket.assigns.loop_id)
+    with {:ok, daemon} <- Daemons.find_online() do
+      DaemonChannel.push_stop_loop(daemon.name, socket.assigns.loop_id)
     end
 
     {:noreply, socket}
@@ -222,7 +214,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_info({:loop_updated, loop}, socket) do
-    loop = Repo.preload(loop, dag: :ticket)
+    loop = Loops.preload_ticket(loop)
 
     {:noreply,
      socket
@@ -260,14 +252,11 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   def render_markdown(text), do: Markdown.render(text)
 
   defp start_loop_on_daemon(socket) do
-    daemons = Daemons.list_daemons()
-    online = Enum.find(daemons, &(&1.status == :online))
-
-    case online do
-      nil ->
+    case Daemons.find_online() do
+      {:error, :no_online_daemon} ->
         put_flash(socket, :error, "No online daemon available")
 
-      daemon ->
+      {:ok, daemon} ->
         if socket.assigns.loop_record do
           start_persisted_loop(socket, daemon.name)
         else
@@ -317,24 +306,25 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         socket
 
       true ->
-        daemons = Daemons.list_daemons()
-        online = Enum.find(daemons, &(&1.status == :online))
+        case Daemons.find_online() do
+          {:error, :no_online_daemon} ->
+            socket
 
-        if online == nil do
-          socket
-        else
-          job_id = "overview-#{socket.assigns.loop_id}-#{System.unique_integer([:positive])}"
-          Terminals.subscribe(job_id)
+          {:ok, daemon} ->
+            job_id = "overview-#{socket.assigns.loop_id}-#{System.unique_integer([:positive])}"
+            Terminals.subscribe(job_id)
 
-          DaemonChannel.push_start_loop(online.name, job_id, %{
-            "role" => "overview",
-            "agent_type" => Agents.default_coding_agent_string(),
-            "task" => overview_task(socket)
-          })
+            DaemonChannel.push_start_loop(daemon.name, job_id, %{
+              "role" => "overview",
+              "agent_type" => "claude_code",
+              "model" =>
+                Application.get_env(:algedonia, :overview_model, "claude-haiku-4-5-20251001"),
+              "task" => overview_task(socket)
+            })
 
-          socket
-          |> assign(:overview_loading, true)
-          |> assign(:overview_job_id, job_id)
+            socket
+            |> assign(:overview_loading, true)
+            |> assign(:overview_job_id, job_id)
         end
     end
   end
@@ -382,12 +372,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     """
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp maybe_put(map, key, value), do: AlgedoniaWeb.Helpers.maybe_put(map, key, value)
 
-  defp default_agent_type(%{coding_agent: :codex}), do: "codex"
-  defp default_agent_type(%{coding_agent: :claude_code}), do: "claude_code"
-  defp default_agent_type(_ticket), do: Agents.default_coding_agent_string()
+  defp default_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
 
   defp assign_loop_context(socket, loop_id) do
     loop = if uuid?(loop_id), do: Loops.get_loop(loop_id), else: nil
@@ -404,7 +391,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         |> assign(:acceptance_criteria, "")
 
       loop ->
-        loop = Repo.preload(loop, dag: :ticket)
+        loop = Loops.preload_ticket(loop)
         ticket = loop.dag.ticket
 
         socket
@@ -425,7 +412,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp maybe_subscribe_ticket_updates(loop_id) do
     if uuid?(loop_id) do
       with %{} = loop <- Loops.get_loop(loop_id),
-           loop <- Repo.preload(loop, dag: :ticket) do
+           loop <- Loops.preload_ticket(loop) do
         Tickets.subscribe()
         Tickets.subscribe_comments(loop.dag.ticket_id)
       end

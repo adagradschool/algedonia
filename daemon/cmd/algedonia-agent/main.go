@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,6 +44,8 @@ func main() {
 	rootCmd.AddCommand(newLogoutCmd())
 	rootCmd.AddCommand(newUninstallCmd())
 	rootCmd.AddCommand(newClaudeHookCmd())
+	rootCmd.AddCommand(newTicketCmd())
+	rootCmd.AddCommand(newWorkspaceCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -93,7 +94,9 @@ func newLoginCmd() *cobra.Command {
 				cfg.Token = token
 				cfg.ServerURL = serverURL
 				cfg.Name = name
-				_ = config.Save(cfg)
+				if err := config.Save(cfg); err != nil {
+					return fmt.Errorf("saving config: %w", err)
+				}
 			} else {
 				fmt.Println("Using saved credentials.")
 			}
@@ -118,7 +121,10 @@ func newLoginCmd() *cobra.Command {
 			client := connection.NewClient(serverURL, token, name, capacity)
 
 			registry := adapter.DefaultRegistry()
-			repoRoot, _ := os.Getwd()
+			repoRoot, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting working directory: %w", err)
+			}
 			mgr := loopmanager.NewManager(client.SendEvent, registry, repoRoot)
 			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
@@ -260,25 +266,4 @@ func openBrowser(rawURL string) {
 		return
 	}
 	_ = cmd.Start()
-}
-
-// prompt asks the user for input with an optional default value.
-func prompt(reader *bufio.Reader, label, current, fallback string) string {
-	def := current
-	if def == "" {
-		def = fallback
-	}
-
-	if def != "" {
-		fmt.Printf("%s [%s]: ", label, def)
-	} else {
-		fmt.Printf("%s: ", label)
-	}
-
-	line, _ := reader.ReadString('\n')
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return def
-	}
-	return line
 }

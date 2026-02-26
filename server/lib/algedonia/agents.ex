@@ -4,7 +4,6 @@ defmodule Algedonia.Agents do
   """
 
   @valid_atoms [:codex, :claude_code]
-  @valid_strings ["codex", "claude_code"]
 
   @spec default_coding_agent() :: atom()
   def default_coding_agent do
@@ -23,8 +22,11 @@ defmodule Algedonia.Agents do
   def normalize_agent_atom("claude_code"), do: :claude_code
   def normalize_agent_atom(_), do: :claude_code
 
-  @spec normalize_agent_string(any()) :: String.t()
-  def normalize_agent_string(agent) when agent in @valid_strings, do: agent
-  def normalize_agent_string(agent) when agent in @valid_atoms, do: Atom.to_string(agent)
-  def normalize_agent_string(_), do: "claude_code"
+  @doc """
+  Returns the agent type string for a ticket based on its `coding_agent` field.
+  """
+  @spec ticket_agent_type(map()) :: String.t()
+  def ticket_agent_type(%{coding_agent: :codex}), do: "codex"
+  def ticket_agent_type(%{coding_agent: :claude_code}), do: "claude_code"
+  def ticket_agent_type(_ticket), do: default_coding_agent_string()
 end

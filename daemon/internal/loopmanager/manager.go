@@ -65,6 +65,18 @@ func NewManager(sendFunc func(event string, payload map[string]interface{}) erro
 	}
 }
 
+func (m *Manager) sendEvent(event string, payload map[string]interface{}) {
+	if err := m.sendFunc(event, payload); err != nil {
+		loopID, _ := payload["loop_id"].(string)
+		log.Printf("Failed to send %s event for loop %s: %v", event, loopID, err)
+	}
+}
+
+func payloadStr(p map[string]interface{}, key string) string {
+	s, _ := p[key].(string)
+	return s
+}
+
 func chunkFlushIntervalFromEnv(getenv func(string) string) time.Duration {
 	raw := strings.TrimSpace(getenv("ALGEDONIA_CHUNK_FLUSH_MS"))
 	if raw == "" {
@@ -312,7 +324,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		return fmt.Errorf("starting adapter for loop %s: %w", loopID, err)
 	}
 
-	reader, writer, err := ag.AttachPTY(proc)
+	reader, _, err := ag.AttachPTY(proc)
 	if err != nil {
 		ag.Kill(proc)
 		return fmt.Errorf("attaching pty for loop %s: %w", loopID, err)
@@ -380,7 +392,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		sessionID := ag.SessionID(proc)
 
 		if waitErr != nil {
-			_ = m.sendFunc("error", map[string]interface{}{
+			m.sendEvent("error", map[string]interface{}{
 				"loop_id":     loopID,
 				"message":     fmt.Sprintf("agent wait error: %v", waitErr),
 				"recoverable": true,
@@ -392,13 +404,13 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		case "decompose":
 			dag, parseErr := adapter.ParseDAGOutput(result.Output)
 			if parseErr != nil {
-				_ = m.sendFunc("error", map[string]interface{}{
+				m.sendEvent("error", map[string]interface{}{
 					"loop_id":     loopID,
 					"message":     fmt.Sprintf("decompose output parse error: %v", parseErr),
 					"recoverable": true,
 				})
 			} else {
-				_ = m.sendFunc("loop_result", map[string]interface{}{
+				m.sendEvent("loop_result", map[string]interface{}{
 					"loop_id":    loopID,
 					"verdict":    "pass",
 					"dag":        dag,
@@ -407,7 +419,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 			}
 		default:
 			if result.ExitCode != 0 {
-				_ = m.sendFunc("error", map[string]interface{}{
+				m.sendEvent("error", map[string]interface{}{
 					"loop_id":     loopID,
 					"message":     fmt.Sprintf("agent exited with code %d", result.ExitCode),
 					"recoverable": true,
@@ -429,7 +441,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 					verdict, feedbackPath, feedback, parseErr :=
 						loadCheckerHandoff(loopID, lp.attempt)
 					if parseErr != nil {
-						_ = m.sendFunc("error", map[string]interface{}{
+						m.sendEvent("error", map[string]interface{}{
 							"loop_id":     loopID,
 							"message":     fmt.Sprintf("checker handoff parse error: %v", parseErr),
 							"recoverable": true,
@@ -447,7 +459,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 					}
 				}
 
-				_ = m.sendFunc("attempt_complete", attemptPayload)
+				m.sendEvent("attempt_complete", attemptPayload)
 			}
 		}
 
@@ -460,8 +472,6 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		}
 		go typePromptToTUI(done, &lastOutput, loopID, proc.InitialPrompt, writeFn)
 	}
-
-	_ = writer
 
 	log.Printf("Started adapter loop %s: %s (role=%s)", loopID, agentType, role)
 	return nil
@@ -590,33 +600,126 @@ func (m *Manager) RunningCount() int {
 	return len(m.loops)
 }
 
+// StartOverviewLoop runs claude in pipe mode (-p) for fast headless generation.
+// Output is streamed via terminal_output events and loop_exited is sent on completion.
+func (m *Manager) StartOverviewLoop(ctx context.Context, loopID, task, model string) error {
+	m.mu.Lock()
+	if _, exists := m.loops[loopID]; exists {
+		m.mu.Unlock()
+		return fmt.Errorf("loop %s already running", loopID)
+	}
+	m.mu.Unlock()
+
+	loopCtx, cancel := context.WithCancel(ctx)
+
+	args := []string{"-p", "--dangerously-skip-permissions"}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+
+	cmd := exec.CommandContext(loopCtx, "claude", args...)
+	cmd.Dir = m.repoRoot
+	cmd.Stdin = strings.NewReader(task)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return fmt.Errorf("pipe stdout for overview %s: %w", loopID, err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return fmt.Errorf("start overview %s: %w", loopID, err)
+	}
+
+	done := make(chan struct{})
+	chunker := m.newTerminalChunker(loopID)
+
+	lp := &LoopProcess{
+		LoopID:  loopID,
+		Chunker: chunker,
+		Cancel:  cancel,
+		Done:    done,
+		role:    "overview",
+	}
+
+	m.mu.Lock()
+	m.loops[loopID] = lp
+	m.mu.Unlock()
+
+	// Read stdout and stream to chunker
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := stdout.Read(buf)
+			if n > 0 {
+				chunker.Write(buf[:n])
+			}
+			if readErr != nil {
+				break
+			}
+		}
+		chunker.Close()
+	}()
+
+	// Wait for process exit and notify server
+	go func() {
+		defer close(done)
+		waitErr := cmd.Wait()
+
+		exitCode := 0
+		if waitErr != nil {
+			if exitErr, ok := waitErr.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+			}
+		}
+
+		m.sendEvent("loop_exited", map[string]interface{}{
+			"loop_id":   loopID,
+			"exit_code": exitCode,
+		})
+
+		m.mu.Lock()
+		delete(m.loops, loopID)
+		m.mu.Unlock()
+	}()
+
+	log.Printf("Started overview loop %s (model=%s)", loopID, model)
+	return nil
+}
+
 // HandleStartLoop is a command handler for "start_loop" events from the server.
 func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interface{}) error {
-	loopID, _ := payload["loop_id"].(string)
+	loopID := payloadStr(payload, "loop_id")
 	if loopID == "" {
 		return fmt.Errorf("missing loop_id in start_loop payload")
 	}
 
+	// Overview role uses headless pipe mode for fast generation
+	role := payloadStr(payload, "role")
+	if role == "overview" {
+		return m.StartOverviewLoop(ctx, loopID, payloadStr(payload, "task"), payloadStr(payload, "model"))
+	}
+
 	// If a role is specified, route through adapter path
-	role, _ := payload["role"].(string)
 	if role != "" {
-		agentType, _ := payload["agent_type"].(string)
+		agentType := payloadStr(payload, "agent_type")
 		if agentType == "" {
 			agentType = defaultCodingAgent()
 		}
 		attempt := parseAttempt(payload["attempt"])
-		workdir, _ := payload["workdir"].(string)
+		workdir := payloadStr(payload, "workdir")
 		if workdir == "" {
 			workdir = m.repoRoot
 		}
-		taskDesc, _ := payload["task"].(string)
-		model, _ := payload["model"].(string)
-		effort, _ := payload["effort"].(string)
-		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc, model, effort, attempt)
+		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir,
+			payloadStr(payload, "task"), payloadStr(payload, "model"), payloadStr(payload, "effort"), attempt)
 	}
 
 	// Legacy raw-process path
-	command, _ := payload["command"].(string)
+	command := payloadStr(payload, "command")
 	if command == "" {
 		command = "claude"
 	}
@@ -633,9 +736,9 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 		args = []string{"--dangerously-skip-permissions"}
 	}
 
-	workdir, _ := payload["workdir"].(string)
+	workdir := payloadStr(payload, "workdir")
 
-	prompt, _ := payload["prompt"].(string)
+	prompt := payloadStr(payload, "prompt")
 	if prompt == "" && command == "claude" {
 		prompt = "Say hello and describe what you see in this repo"
 	}
@@ -710,11 +813,11 @@ func (m *Manager) SendInput(loopID string, data []byte) error {
 
 // HandleStdinInput is a command handler for "stdin_input" events from the server.
 func (m *Manager) HandleStdinInput(_ context.Context, payload map[string]interface{}) error {
-	loopID, _ := payload["loop_id"].(string)
+	loopID := payloadStr(payload, "loop_id")
 	if loopID == "" {
 		return fmt.Errorf("missing loop_id in stdin_input payload")
 	}
-	dataStr, _ := payload["data"].(string)
+	dataStr := payloadStr(payload, "data")
 	if dataStr == "" {
 		return nil
 	}
@@ -727,12 +830,12 @@ func (m *Manager) HandleStdinInput(_ context.Context, payload map[string]interfa
 
 // HandleStopLoop is a command handler for "stop_loop" events from the server.
 func (m *Manager) HandleStopLoop(_ context.Context, payload map[string]interface{}) error {
-	loopID, _ := payload["loop_id"].(string)
+	loopID := payloadStr(payload, "loop_id")
 	if loopID == "" {
 		return fmt.Errorf("missing loop_id in stop_loop payload")
 	}
 
-	reason, _ := payload["reason"].(string)
+	reason := payloadStr(payload, "reason")
 	if reason == "" {
 		reason = "server requested stop"
 	}

@@ -5,3 +5,6 @@
 **/.DS_Store
 .algedonia/handoffs/
 .algedonia/runtime/
+
+# build artifacts
+daemon/algedonia-agent

@@ -15,6 +15,8 @@ defmodule Algedonia.Tickets do
   ## Options
 
     * `:status` — filter by status atom
+    * `:type` — filter by type atom (feature, bug, chore, spike)
+    * `:priority` — filter by priority integer (1-5)
     * `:assignee` — filter by assignee string
     * `:sort_by` — field to sort by (default `:inserted_at`)
     * `:sort_order` — `:asc` or `:desc` (default `:desc`)
@@ -29,6 +31,8 @@ defmodule Algedonia.Tickets do
     Ticket
     |> filter_by_workspace(workspace_id)
     |> filter_by_status(opts[:status])
+    |> filter_by_type(opts[:type])
+    |> filter_by_priority(opts[:priority])
     |> filter_by_assignee(opts[:assignee])
     |> order_by([t], [{^sort_order, field(t, ^sort_by)}])
     |> Repo.all()
@@ -48,6 +52,14 @@ defmodule Algedonia.Tickets do
   """
   @spec get_ticket!(binary()) :: Ticket.t()
   def get_ticket!(id), do: Repo.get!(Ticket, id)
+
+  @doc """
+  Gets a ticket by workspace ID and ticket number. Raises if not found.
+  """
+  @spec get_ticket_by_number!(binary(), integer()) :: Ticket.t()
+  def get_ticket_by_number!(workspace_id, number) do
+    Repo.get_by!(Ticket, workspace_id: workspace_id, number: number)
+  end
 
   @doc """
   Creates a ticket.
@@ -211,6 +223,13 @@ defmodule Algedonia.Tickets do
   end
 
   defp broadcast_comment({:error, _} = result, _event), do: result
+
+  defp filter_by_type(query, nil), do: query
+  defp filter_by_type(query, ""), do: query
+  defp filter_by_type(query, type), do: where(query, [t], t.type == ^type)
+
+  defp filter_by_priority(query, nil), do: query
+  defp filter_by_priority(query, priority), do: where(query, [t], t.priority == ^priority)
 
   defp filter_by_assignee(query, nil), do: query
   defp filter_by_assignee(query, ""), do: query

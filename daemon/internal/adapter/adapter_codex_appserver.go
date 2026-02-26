@@ -327,20 +327,11 @@ func (s *codexAppSession) handleMessage(msg map[string]interface{}) {
 
 	switch method {
 	case "item/agentMessage/delta":
-		if delta, ok := params["delta"].(string); ok {
-			s.appendCollector(delta)
-			s.emitChatDelta("agent", delta)
-		}
+		s.handleDelta(params, "agent")
 	case "item/commandExecution/outputDelta":
-		if delta, ok := params["delta"].(string); ok {
-			s.appendCollector(delta)
-			s.emitChatDelta("command", delta)
-		}
+		s.handleDelta(params, "command")
 	case "item/reasoning/textDelta":
-		if delta, ok := params["delta"].(string); ok {
-			s.appendCollector(delta)
-			s.emitChatDelta("reasoning", delta)
-		}
+		s.handleDelta(params, "reasoning")
 	case "turn/started":
 		if turn, ok := params["turn"].(map[string]interface{}); ok {
 			if turnID, _ := turn["id"].(string); turnID != "" {
@@ -366,14 +357,11 @@ func (s *codexAppSession) handleMessage(msg map[string]interface{}) {
 	}
 }
 
-func (s *codexAppSession) appendStream(text string) {
-	if text == "" {
-		return
+func (s *codexAppSession) handleDelta(params map[string]interface{}, kind string) {
+	if delta, ok := params["delta"].(string); ok {
+		s.appendCollector(delta)
+		s.emitChatDelta(kind, delta)
 	}
-	_, _ = s.collector.Write([]byte(text))
-	go func(payload string) {
-		_, _ = s.streamW.Write([]byte(payload))
-	}(text)
 }
 
 func (s *codexAppSession) appendCollector(text string) {
