@@ -64,6 +64,7 @@ defmodule AlgedoniaWeb.Router do
   scope "/api", AlgedoniaWeb.Api do
     pipe_through :api_auth
 
+    post "/terminal/verify", TerminalController, :verify
     get "/workspaces", WorkspaceController, :index
 
     scope "/w/:workspace" do

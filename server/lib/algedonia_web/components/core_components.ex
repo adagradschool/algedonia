@@ -587,7 +587,7 @@ defmodule AlgedoniaWeb.CoreComponents do
               <.shortcut_row keys="S" label="Start / stop loop" />
               <.shortcut_row keys="1" label="Overview tab" />
               <.shortcut_row keys="2" label="Rubric tab" />
-              <.shortcut_row keys="3" label="History tab" />
+              <.shortcut_row keys="3" label="Toggle steps list" />
               <.shortcut_row keys="Esc" label="Back to issues" />
             </div>
           </div>
@@ -659,11 +659,14 @@ defmodule AlgedoniaWeb.CoreComponents do
     # dynamically, so we need to translate them by calling Gettext
     # with our gettext backend as first argument. Translations are
     # available in the errors.po file (as we use the "errors" domain).
-    if count = opts[:count] do
-      Gettext.dngettext(AlgedoniaWeb.Gettext, "errors", msg, msg, count, opts)
-    else
-      Gettext.dgettext(AlgedoniaWeb.Gettext, "errors", msg, opts)
-    end
+    translated =
+      if count = opts[:count] do
+        Gettext.dngettext(AlgedoniaWeb.Gettext, "errors", msg, msg, count, opts)
+      else
+        Gettext.dgettext(AlgedoniaWeb.Gettext, "errors", msg, opts)
+      end
+
+    sentence_case(translated)
   end
 
   @doc """
@@ -671,5 +674,14 @@ defmodule AlgedoniaWeb.CoreComponents do
   """
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
+  end
+
+  defp sentence_case(""), do: ""
+
+  defp sentence_case(text) do
+    case String.next_grapheme(text) do
+      {first, rest} -> String.upcase(first) <> rest
+      nil -> text
+    end
   end
 end

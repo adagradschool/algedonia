@@ -20,7 +20,6 @@ type Process struct {
 	// unexported fields for adapter internal state
 	session          *ptyPkg.Session
 	collector        *outputCollector
-	app              *codexAppSession
 	completionMarker string
 }
 
@@ -55,6 +54,9 @@ type AgentAdapter interface {
 
 	// Kill terminates the agent process.
 	Kill(process *Process) error
+
+	// Resize updates terminal dimensions for interactive PTY sessions.
+	Resize(process *Process, cols, rows uint16) error
 
 	// SessionID returns the unique session identifier for the process.
 	SessionID(process *Process) string

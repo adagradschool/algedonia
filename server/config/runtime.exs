@@ -38,6 +38,10 @@ if default_agent = System.get_env("ALGEDONIA_DEFAULT_CODING_AGENT") do
   config :algedonia, :default_coding_agent, normalized
 end
 
+if terminal_ws_base_url = System.get_env("ALGEDONIA_TERMINAL_WS_BASE_URL") do
+  config :algedonia, :terminal_ws_base_url, terminal_ws_base_url
+end
+
 if System.get_env("SUPABASE_PROJECT_URL") do
   config :algedonia, :supabase,
     project_url: System.get_env("SUPABASE_PROJECT_URL"),

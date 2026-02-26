@@ -3,68 +3,153 @@ package adapter
 import (
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Compile-time interface check.
 var _ AgentAdapter = (*CodexAdapter)(nil)
 
-// CodexAdapter implements AgentAdapter for the Codex CLI in app-server mode.
+// CodexAdapter implements AgentAdapter for the Codex CLI in TUI mode.
 type CodexAdapter struct{}
 
-// Start spawns codex and starts a task turn.
+// Start spawns codex in interactive TUI mode.
 func (a *CodexAdapter) Start(workdir string, task string, config map[string]string) (*Process, error) {
-	collector := newOutputCollector()
-
-	app, err := startCodexAppServer(workdir, task, collector, config)
-	if err != nil {
-		return nil, fmt.Errorf("starting codex app-server session: %w", err)
+	args := []string{"--dangerously-bypass-approvals-and-sandbox"}
+	if model := strings.TrimSpace(config["model"]); model != "" {
+		args = append(args, "--model", model)
+	}
+	if effort := strings.TrimSpace(config["effort"]); effort != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
 	}
 
-	sessionID := app.ThreadID()
-	if sessionID == "" {
-		sessionID = app.TurnID()
+	cmd := exec.Command("codex", args...)
+	cmd.Dir = workdir
+	cmd.Env = os.Environ()
+
+	loopID := strings.TrimSpace(config["loop_id"])
+	role := strings.TrimSpace(config["role"])
+	if loopID != "" {
+		cmd.Env = append(cmd.Env, "ALGEDONIA_LOOP_ID="+loopID)
+	}
+	if role != "" {
+		cmd.Env = append(cmd.Env, "ALGEDONIA_ROLE="+role)
+	}
+	if workdir != "" {
+		cmd.Env = append(cmd.Env, "ALGEDONIA_WORKDIR="+workdir)
+	}
+
+	sess, err := allocatePTY(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("starting codex: %w", err)
+	}
+
+	collector := newOutputCollector()
+	sessionID := uuid.New().String()
+	completionMarker := ""
+	if loopID != "" {
+		completionMarker = filepath.Join(workdir, ".algedonia", "runtime", loopID, "attempt_complete.json")
+		_ = os.Remove(completionMarker)
 	}
 
 	return &Process{
-		ID:        sessionID,
-		SessionID: sessionID,
-		Workdir:   workdir,
-		collector: collector,
-		app:       app,
+		ID:               sessionID,
+		SessionID:        sessionID,
+		Workdir:          workdir,
+		LoopID:           loopID,
+		Role:             role,
+		InitialPrompt:    task,
+		session:          sess,
+		collector:        collector,
+		completionMarker: completionMarker,
 	}, nil
 }
 
 // AttachPTY returns a reader and writer stream for terminal UX.
 func (a *CodexAdapter) AttachPTY(process *Process) (io.Reader, io.WriteCloser, error) {
-	if process.app == nil {
-		return nil, nil, fmt.Errorf("process has no app-server session")
+	if process.session == nil {
+		return nil, nil, fmt.Errorf("process has no PTY session")
 	}
-	return process.app.Attach()
+	return process.session.Reader(), &sessionWriter{session: process.session}, nil
 }
 
 // SendInput writes user steering input.
 func (a *CodexAdapter) SendInput(process *Process, data []byte) error {
-	if process.app == nil {
-		return fmt.Errorf("process has no app-server session")
+	if process.session == nil {
+		return fmt.Errorf("process has no PTY session")
 	}
-	return process.app.Steer(data)
+	_, err := process.session.Write(data)
+	return err
 }
 
 // Wait blocks until completion.
 func (a *CodexAdapter) Wait(process *Process) (*ExitResult, error) {
-	if process.app == nil {
-		return nil, fmt.Errorf("process has no app-server session")
+	type waitOutcome struct {
+		exitCode int
+		fromHook bool
+		err      error
 	}
-	return process.app.Wait()
+
+	outcomeCh := make(chan waitOutcome, 2)
+
+	go func() {
+		exitCode, err := waitProcess(process.session)
+		outcomeCh <- waitOutcome{exitCode: exitCode, err: err}
+	}()
+
+	if process.completionMarker != "" {
+		go func() {
+			for {
+				if _, err := os.Stat(process.completionMarker); err == nil {
+					outcomeCh <- waitOutcome{exitCode: 0, fromHook: true}
+					return
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+		}()
+	}
+
+	outcome := <-outcomeCh
+	if outcome.fromHook {
+		_ = killProcess(process.session, 2*time.Second)
+	}
+	if outcome.err != nil {
+		return nil, outcome.err
+	}
+
+	if outcome.fromHook && process.completionMarker != "" {
+		if raw, err := os.ReadFile(process.completionMarker); err == nil {
+			_, _ = process.collector.Write(raw)
+			_, _ = process.collector.Write([]byte("\n"))
+		}
+	}
+
+	return &ExitResult{
+		ExitCode:  outcome.exitCode,
+		SessionID: process.SessionID,
+		Output:    process.collector.Bytes(),
+	}, nil
 }
 
 // Kill terminates the process.
 func (a *CodexAdapter) Kill(process *Process) error {
-	if process.app == nil {
-		return fmt.Errorf("process has no app-server session")
+	return killProcess(process.session, 5*time.Second)
+}
+
+// Resize updates PTY dimensions.
+func (a *CodexAdapter) Resize(process *Process, cols, rows uint16) error {
+	if process.session == nil {
+		return fmt.Errorf("process has no PTY session")
 	}
-	return process.app.Kill(5 * time.Second)
+	if cols == 0 || rows == 0 {
+		return nil
+	}
+	return process.session.SetSize(rows, cols)
 }
 
 // SessionID returns the session identifier.

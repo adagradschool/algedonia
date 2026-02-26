@@ -11,7 +11,8 @@ config :algedonia,
   ecto_repos: [Algedonia.Repo],
   generators: [timestamp_type: :utc_datetime],
   default_coding_agent: :claude_code,
-  overview_model: "claude-haiku-4-5-20251001"
+  overview_model: "claude-haiku-4-5-20251001",
+  terminal_ws_base_url: "ws://127.0.0.1:8765/terminal/ws"
 
 # Configure the endpoint
 config :algedonia, AlgedoniaWeb.Endpoint,

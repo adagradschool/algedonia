@@ -101,6 +101,32 @@ defmodule Algedonia.Orchestrator do
     end
   end
 
+  @doc """
+  Returns the currently running step terminal id for a loop, if one exists.
+  """
+  @spec current_step_terminal_id(binary(), keyword()) :: binary() | nil
+  def current_step_terminal_id(loop_id, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
+    case GenServer.whereis(name) do
+      nil -> nil
+      pid -> GenServer.call(pid, {:current_step_terminal_id, loop_id})
+    end
+  end
+
+  @doc """
+  Returns the latest step terminal id for a loop, if history exists.
+  """
+  @spec latest_step_terminal_id(binary(), keyword()) :: binary() | nil
+  def latest_step_terminal_id(loop_id, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
+    case GenServer.whereis(name) do
+      nil -> nil
+      pid -> GenServer.call(pid, {:latest_step_terminal_id, loop_id})
+    end
+  end
+
   # -- Server Callbacks --
 
   @impl true
@@ -186,6 +212,16 @@ defmodule Algedonia.Orchestrator do
   def handle_call({:get_loop_history, loop_id}, _from, state) do
     history = Map.get(state.task_history, loop_id, [])
     {:reply, history, state}
+  end
+
+  def handle_call({:current_step_terminal_id, loop_id}, _from, state) do
+    history = Map.get(state.task_history, loop_id, [])
+    {:reply, history |> current_running_history_entry() |> maybe_history_entry_id(), state}
+  end
+
+  def handle_call({:latest_step_terminal_id, loop_id}, _from, state) do
+    history = Map.get(state.task_history, loop_id, [])
+    {:reply, history |> latest_history_entry() |> maybe_history_entry_id(), state}
   end
 
   # -- Internal Logic --
@@ -604,6 +640,17 @@ defmodule Algedonia.Orchestrator do
       started_at: DateTime.utc_now()
     }
   end
+
+  defp current_running_history_entry(history) do
+    history
+    |> Enum.reverse()
+    |> Enum.find(&(&1.status == "running"))
+  end
+
+  defp latest_history_entry(history), do: List.last(history)
+
+  defp maybe_history_entry_id(nil), do: nil
+  defp maybe_history_entry_id(entry), do: Map.get(entry, :id)
 
   defp append_history(state, loop_id, entry) do
     updated = Map.update(state.task_history, loop_id, [entry], fn h -> h ++ [entry] end)

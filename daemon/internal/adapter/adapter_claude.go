@@ -137,6 +137,17 @@ func (a *ClaudeCodeAdapter) Kill(process *Process) error {
 	return killProcess(process.session, 5*time.Second)
 }
 
+// Resize updates PTY dimensions.
+func (a *ClaudeCodeAdapter) Resize(process *Process, cols, rows uint16) error {
+	if process.session == nil {
+		return fmt.Errorf("process has no PTY session")
+	}
+	if cols == 0 || rows == 0 {
+		return nil
+	}
+	return process.session.SetSize(rows, cols)
+}
+
 // SessionID returns the session identifier.
 func (a *ClaudeCodeAdapter) SessionID(process *Process) string {
 	return process.SessionID

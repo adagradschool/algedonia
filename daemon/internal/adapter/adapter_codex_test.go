@@ -15,26 +15,9 @@ func TestCodexAdapterInterface(t *testing.T) {
 func TestCodexAdapterStartWithMockBinary(t *testing.T) {
 	dir := t.TempDir()
 	script := `#!/bin/sh
-if [ "$1" != "app-server" ]; then
-  exit 1
-fi
-n=0
-while IFS= read -r line; do
-  if echo "$line" | grep -q 'initialize'; then
-    printf '{"jsonrpc":"2.0","id":"1","result":{}}\n'
-  elif echo "$line" | grep -q 'thread/start'; then
-    printf '{"jsonrpc":"2.0","id":"2","result":{"thread":{"id":"thread-1"}}}\n'
-  elif echo "$line" | grep -q 'turn/start'; then
-    printf '{"jsonrpc":"2.0","id":"3","result":{"turn":{"id":"turn-1"}}}\n'
-    printf '{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"delta":"mock codex output"}}\n'
-    printf '{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}\n'
-    exit 0
-  elif echo "$line" | grep -q 'turn/interrupt'; then
-    printf '{"jsonrpc":"2.0","id":"4","result":{}}\n'
-  elif echo "$line" | grep -q 'turn/steer'; then
-    printf '{"jsonrpc":"2.0","id":"5","result":{}}\n'
-  fi
-done
+printf 'mock codex output\n'
+sleep 1
+exit 0
 `
 	if err := os.WriteFile(dir+"/codex", []byte(script), 0755); err != nil {
 		t.Fatal(err)
@@ -54,9 +37,9 @@ done
 		t.Error("SessionID is empty")
 	}
 
-	// Drain PTY output
+	// Drain PTY output and copy it to collector
 	reader, _, _ := a.AttachPTY(proc)
-	go io.Copy(io.Discard, reader)
+	go io.Copy(io.MultiWriter(io.Discard, proc.Collector()), reader)
 
 	done := make(chan *ExitResult, 1)
 	errCh := make(chan error, 1)
@@ -86,25 +69,8 @@ done
 func TestCodexAdapterKill(t *testing.T) {
 	dir := t.TempDir()
 	script := `#!/bin/sh
-if [ "$1" != "app-server" ]; then
-  exit 1
-fi
-n=0
-while IFS= read -r line; do
-  if echo "$line" | grep -q 'initialize'; then
-    printf '{"jsonrpc":"2.0","id":"1","result":{}}\n'
-  elif echo "$line" | grep -q 'thread/start'; then
-    printf '{"jsonrpc":"2.0","id":"2","result":{"thread":{"id":"thread-1"}}}\n'
-  elif echo "$line" | grep -q 'turn/start'; then
-    printf '{"jsonrpc":"2.0","id":"3","result":{"turn":{"id":"turn-1"}}}\n'
-    # keep process alive until killed
-    sleep 60
-  elif echo "$line" | grep -q 'turn/interrupt'; then
-    printf '{"jsonrpc":"2.0","id":"4","result":{}}\n'
-  elif echo "$line" | grep -q 'turn/steer'; then
-    printf '{"jsonrpc":"2.0","id":"5","result":{}}\n'
-  fi
-done
+printf 'running\n'
+sleep 60
 `
 	if err := os.WriteFile(dir+"/codex", []byte(script), 0755); err != nil {
 		t.Fatal(err)

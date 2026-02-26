@@ -7,6 +7,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   alias Algedonia.{Agents, Daemons, Loops, Orchestrator, Terminals, Tickets}
   alias AlgedoniaWeb.DaemonChannel
   alias AlgedoniaWeb.Markdown
+  alias AlgedoniaWeb.TerminalAccessToken
   import AlgedoniaWeb.LoopComponents
 
   @status_to_stage %{
@@ -14,9 +15,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     passed: "completed",
     failed: "failed"
   }
-  @terminal_flush_interval_ms 16
-  @chat_marker_start "[[ALGEDONIA_CHAT:"
-  @chat_marker_end "]]"
 
   @impl true
   def mount(%{"loop_id" => loop_id, "workspace" => workspace_slug}, _session, socket) do
@@ -24,7 +22,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       Terminals.subscribe(loop_id)
       maybe_subscribe_loop_updates(loop_id)
       maybe_subscribe_ticket_updates(loop_id)
-      push_scrollback(loop_id)
     end
 
     socket = assign_loop_context(socket, loop_id)
@@ -38,20 +35,21 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:role, "maker")
       |> assign(:agent_type, agent_type)
       |> assign(:auto_start_requested, false)
+      |> assign(:show_steps, false)
       |> assign(:active_tab, "overview")
       |> assign(:overview_content, nil)
       |> assign(:overview_loading, false)
       |> assign(:overview_job_id, nil)
-      |> assign(:terminal_pending_data, "")
-      |> assign(:terminal_flush_scheduled, false)
       |> assign(init_agent_ui(agent_type))
       |> assign(:show_shortcut_help, false)
       |> assign(:page_title, "Loop #{loop_id}")
       |> assign_history(Orchestrator.get_loop_history(loop_id))
-
-    socket =
-      socket
       |> assign_terminal_run()
+      |> assign_terminal_ws_access()
+
+    if connected?(socket) do
+      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
+    end
 
     {:ok, socket}
   end
@@ -85,16 +83,26 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, start_loop_on_daemon(socket)}
   end
 
-  def handle_event("set_model", %{"model" => model}, socket) do
-    {:noreply, assign(socket, apply_model_change(socket.assigns, model))}
-  end
-
-  def handle_event("set_effort", %{"effort" => effort}, socket) do
-    {:noreply, assign(socket, apply_effort_change(socket.assigns, effort))}
-  end
-
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  def handle_event("toggle_steps", _params, socket) do
+    {:noreply, assign(socket, :show_steps, !socket.assigns.show_steps)}
+  end
+
+  def handle_event("select_step", %{"step_id" => step_id}, socket) do
+    socket =
+      socket
+      |> assign(:selected_step_id, step_id)
+      |> assign_terminal_run()
+      |> assign_terminal_ws_access()
+
+    if connected?(socket) do
+      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
+    end
+
+    {:noreply, socket}
   end
 
   def handle_event("toggle_shortcut_help", _params, socket) do
@@ -124,35 +132,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     end
   end
 
-  def handle_event("terminal_input", %{"data" => data}, socket) do
-    with {:ok, daemon} <- Daemons.find_online() do
-      DaemonChannel.push_stdin_input(daemon.name, socket.assigns.loop_id, data)
-    end
-
-    {:noreply, socket}
-  end
-
-  def handle_event("send_agent_message", %{"agent_message" => %{"text" => text}}, socket) do
-    trimmed = String.trim(text || "")
-
-    socket =
-      if trimmed != "" do
-        data = Base.encode64(trimmed <> "\r")
-
-        with {:ok, daemon} <- Daemons.find_online() do
-          DaemonChannel.push_stdin_input(daemon.name, socket.assigns.loop_id, data)
-        end
-
-        push_event(socket, "composer_clear", %{})
-      else
-        socket
-      end
-
-    {:noreply, socket}
-  end
-
   def handle_event("stop_loop", _params, socket) do
-    with {:ok, daemon} <- Daemons.find_online() do
+    with {:ok, daemon} <- resolve_daemon(socket) do
       DaemonChannel.push_stop_loop(daemon.name, socket.assigns.loop_id)
     end
 
@@ -165,22 +146,14 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   @impl true
-  def handle_info({:send_scrollback, scrollback}, socket) do
+  def handle_info({:send_scrollback, terminal_id}, socket) do
+    scrollback = Terminals.get_scrollback(terminal_id)
     encoded = Base.encode64(scrollback)
     {:noreply, push_event(socket, "terminal_scrollback", %{data: encoded})}
   end
 
-  def handle_info(:flush_terminal_data, socket) do
-    {:noreply, flush_pending_terminal_data(socket)}
-  end
-
-  def handle_info({:terminal_data, loop_id, data}, socket) do
+  def handle_info({:terminal_data, loop_id, _data}, socket) do
     if loop_id == socket.assigns.loop_id do
-      socket =
-        socket
-        |> enqueue_terminal_data(data)
-        |> maybe_ingest_chat_data(data)
-
       {:noreply, socket}
     else
       {:noreply, socket}
@@ -192,12 +165,16 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       loop_id == socket.assigns.loop_id ->
         socket =
           socket
-          |> flush_pending_terminal_data()
           |> push_event("terminal_ended", %{exit_code: exit_code})
           |> assign(:active, false)
           |> assign_history(Orchestrator.get_loop_history(socket.assigns.loop_id))
+          |> assign_terminal_run()
+          |> assign_terminal_ws_access()
 
         {:noreply, socket}
+
+      loop_id == socket.assigns.selected_terminal_id ->
+        {:noreply, push_event(socket, "terminal_ended", %{exit_code: exit_code})}
 
       loop_id == socket.assigns.overview_job_id ->
         overview = Terminals.get_scrollback(loop_id)
@@ -224,14 +201,24 @@ defmodule AlgedoniaWeb.LoopLive.Show do
      |> assign(:stage, Map.get(@status_to_stage, loop.status, "maker"))
      |> assign(:attempt, max(loop.current_attempt, 1))
      |> assign(:rubric, loop.rubric || loop.dag.ticket.rubric || "")
-     |> assign_terminal_run()}
+     |> assign_terminal_run()
+     |> assign_terminal_ws_access()}
   end
 
   def handle_info({:loop_history_updated, history}, socket) do
-    {:noreply,
-     socket
-     |> assign_history(history)
-     |> assign_terminal_run()}
+    previous_terminal_id = socket.assigns.selected_terminal_id
+
+    socket =
+      socket
+      |> assign_history(history)
+      |> assign_terminal_run()
+      |> assign_terminal_ws_access()
+
+    if connected?(socket) && socket.assigns.selected_terminal_id != previous_terminal_id do
+      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
+    end
+
+    {:noreply, socket}
   end
 
   def handle_info({event, ticket}, socket) when event in [:ticket_updated] do
@@ -252,7 +239,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   def render_markdown(text), do: Markdown.render(text)
 
   defp start_loop_on_daemon(socket) do
-    case Daemons.find_online() do
+    case resolve_daemon(socket) do
       {:error, :no_online_daemon} ->
         put_flash(socket, :error, "No online daemon available")
 
@@ -419,11 +406,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     end
   end
 
-  defp push_scrollback(loop_id) do
-    scrollback = Terminals.get_scrollback(loop_id)
-    if scrollback != "", do: send(self(), {:send_scrollback, scrollback})
-  end
-
   defp uuid?(value) when is_binary(value) do
     String.match?(value, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
   end
@@ -431,9 +413,17 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp uuid?(_), do: false
 
   defp assign_history(socket, history) do
+    step_history = step_history(history)
+    current_step_id = current_step_id(socket, step_history)
+
+    selected_step_id =
+      selected_step_id(step_history, socket.assigns[:selected_step_id], current_step_id)
+
     socket
     |> assign(:history, history)
-    |> assign(:visible_history, visible_history(history))
+    |> assign(:step_history, step_history)
+    |> assign(:selected_step_id, selected_step_id)
+    |> assign(:current_step_id, current_step_id)
     |> assign(:final_verdict, extract_final_verdict(history))
   end
 
@@ -445,162 +435,172 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     end)
   end
 
-  defp visible_history(history) do
-    Enum.reject(history, fn entry -> entry.status == "handoff_invalid" end)
+  defp step_history(history) do
+    history
+    |> Enum.reject(fn entry -> entry.status == "handoff_invalid" end)
+    |> Enum.sort_by(&step_history_sort_key/1)
   end
 
   defp assign_terminal_run(socket) do
-    history = socket.assigns[:history] || []
+    history = socket.assigns[:step_history] || []
     attempt = socket.assigns[:attempt] || 1
     stage = socket.assigns[:stage] || "maker"
-    running_entry = current_running_history(history)
-    previous_key = socket.assigns[:terminal_run_key]
-    {key, label} = terminal_run_identity(running_entry, attempt, stage)
+    selected_step = selected_step(history, socket.assigns[:selected_step_id])
+    current_step_id = socket.assigns[:current_step_id]
 
-    socket =
-      socket
-      |> assign(:terminal_run_key, key)
-      |> assign(:terminal_run_label, label)
+    {key, scrollback_terminal_id} =
+      terminal_run_identity(selected_step, socket.assigns.loop_id, attempt, stage)
 
-    maybe_reset_chat_state(socket, previous_key, key)
-  end
+    stream_loop_id =
+      terminal_stream_loop_id(selected_step, current_step_id, socket.assigns.loop_id)
 
-  defp terminal_run_identity(nil, attempt, stage) do
-    {"attempt-#{attempt}-#{stage}", "Attempt #{attempt} \u00b7 #{String.upcase(stage)}"}
-  end
-
-  defp terminal_run_identity(entry, _attempt, _stage) do
-    {"attempt-#{entry.attempt}-#{entry.role}-#{entry.id}",
-     "Attempt #{entry.attempt} \u00b7 #{String.upcase(entry.role)}"}
-  end
-
-  defp maybe_reset_chat_state(socket, previous_key, key)
-       when previous_key != nil and previous_key != key do
     socket
-    |> assign(:chat_messages, [])
-    |> assign(:chat_buffer, "")
-    |> assign(:chat_split_pending, false)
-    |> assign(:terminal_pending_data, "")
-    |> assign(:terminal_flush_scheduled, false)
+    |> assign(:terminal_run_key, key)
+    |> assign(:selected_terminal_id, scrollback_terminal_id)
+    |> assign(:terminal_stream_loop_id, stream_loop_id)
   end
 
-  defp maybe_reset_chat_state(socket, _previous_key, _key), do: socket
+  defp assign_terminal_ws_access(socket) do
+    terminal_ws_url = Application.get_env(:algedonia, :terminal_ws_base_url)
 
-  defp enqueue_terminal_data(socket, data) do
-    pending = (socket.assigns[:terminal_pending_data] || "") <> data
-    socket = assign(socket, :terminal_pending_data, pending)
+    stream_loop_id = socket.assigns[:terminal_stream_loop_id]
 
-    if socket.assigns[:terminal_flush_scheduled] do
-      socket
-    else
-      Process.send_after(self(), :flush_terminal_data, @terminal_flush_interval_ms)
-      assign(socket, :terminal_flush_scheduled, true)
-    end
-  end
-
-  defp flush_pending_terminal_data(socket) do
-    pending = socket.assigns[:terminal_pending_data] || ""
-
-    socket =
-      socket
-      |> assign(:terminal_pending_data, "")
-      |> assign(:terminal_flush_scheduled, false)
-
-    if pending == "" do
-      socket
-    else
-      encoded = Base.encode64(pending)
-      push_event(socket, "terminal_data", %{data: encoded})
-    end
-  end
-
-  defp current_running_history(history) do
-    history
-    |> Enum.reverse()
-    |> Enum.find(fn entry -> entry.status == "running" end)
-  end
-
-  defp ingest_chat_data(socket, data) do
-    text = (socket.assigns.chat_buffer || "") <> to_string(data)
-    {socket, rest} = consume_chat_markers(socket, text)
-    assign(socket, :chat_buffer, String.slice(rest, max(String.length(rest) - 256, 0), 256))
-  end
-
-  defp consume_chat_markers(socket, text) do
-    case :binary.match(text, @chat_marker_start) do
-      :nomatch ->
-        {socket, text}
-
-      {start_idx, _} ->
-        sliced = binary_part(text, start_idx, byte_size(text) - start_idx)
-        after_start_idx = byte_size(@chat_marker_start)
-
-        case :binary.match(
-               binary_part(sliced, after_start_idx, byte_size(sliced) - after_start_idx),
-               @chat_marker_end
-             ) do
-          :nomatch ->
-            {socket, sliced}
-
-          {end_rel_idx, _} ->
-            payload_b64 = binary_part(sliced, after_start_idx, end_rel_idx)
-            rest_start = after_start_idx + end_rel_idx + byte_size(@chat_marker_end)
-            rest = binary_part(sliced, rest_start, byte_size(sliced) - rest_start)
-            socket = apply_chat_marker(socket, payload_b64)
-            consume_chat_markers(socket, rest)
-        end
-    end
-  end
-
-  defp apply_chat_marker(socket, payload_b64) do
-    with {:ok, decoded} <- Base.decode64(payload_b64),
-         {:ok, payload} <- Jason.decode(decoded),
-         kind when is_binary(kind) <- payload["kind"],
-         delta when is_binary(delta) <- payload["delta"] do
-      case kind do
-        "user" -> append_chat_message(socket, "user", "user", delta, merge: true)
-        "agent" -> append_chat_message(socket, "agent", "agent", delta, merge: true)
-        "reasoning" -> append_chat_message(socket, "agent", "reasoning", delta, merge: true)
-        "command" -> append_chat_message(socket, "agent", "command", delta, merge: true)
-        _ -> socket
-      end
-    else
-      _ -> socket
-    end
-  end
-
-  defp append_chat_message(socket, role, kind, text, opts) do
-    trimmed = String.replace(text, ~r/\r/u, "")
-    if trimmed == "", do: socket, else: do_append_chat_message(socket, role, kind, trimmed, opts)
-  end
-
-  defp do_append_chat_message(socket, role, kind, text, opts) do
-    messages = socket.assigns.chat_messages || []
-    merge = Keyword.get(opts, :merge, false)
-
-    updated =
-      case List.last(messages) do
-        %{role: ^role, kind: ^kind, text: prev} when merge ->
-          List.replace_at(messages, length(messages) - 1, %{
-            role: role,
-            kind: kind,
-            text: prev <> text
-          })
+    token =
+      case {socket.assigns[:current_user], stream_loop_id} do
+        {%{id: user_id}, loop_id} when is_binary(loop_id) and loop_id != "" ->
+          TerminalAccessToken.sign(user_id, loop_id)
 
         _ ->
-          messages ++
-            [%{id: System.unique_integer([:positive]), role: role, kind: kind, text: text}]
+          nil
       end
 
     socket
-    |> assign(:chat_messages, Enum.take(updated, -200))
+    |> assign(:terminal_ws_url, terminal_ws_url)
+    |> assign(:terminal_ws_token, token)
   end
 
-  defp maybe_ingest_chat_data(socket, data) do
-    if socket.assigns.agent_type == "claude_code" do
-      socket
+  defp terminal_run_identity(nil, loop_id, attempt, stage) do
+    {"attempt-#{attempt}-#{stage}", loop_id}
+  end
+
+  defp terminal_run_identity(entry, _loop_id, _attempt, _stage) do
+    {"attempt-#{entry.attempt}-#{entry.role}-#{entry.id}", entry.id}
+  end
+
+  defp terminal_stream_loop_id(nil, _current_step_id, loop_id), do: loop_id
+
+  defp terminal_stream_loop_id(entry, current_step_id, loop_id) do
+    if entry.id == current_step_id do
+      loop_id
     else
-      ingest_chat_data(socket, data)
+      nil
     end
   end
+
+  defp resolve_daemon(socket) do
+    case socket.assigns[:loop_record] do
+      %{assigned_daemon_id: daemon_id} when is_binary(daemon_id) ->
+        case Daemons.get_daemon(daemon_id) do
+          %{status: :online} = daemon -> {:ok, daemon}
+          _ -> Daemons.find_online()
+        end
+
+      _ ->
+        Daemons.find_online()
+    end
+  end
+
+  defp selected_step(history, selected_step_id) do
+    Enum.find(history, &(&1.id == selected_step_id))
+  end
+
+  defp selected_step_id([], _selected, _current_step_id), do: nil
+
+  defp selected_step_id(history, selected, current_step_id) do
+    cond do
+      is_binary(selected) && Enum.any?(history, &(&1.id == selected)) ->
+        selected
+
+      is_binary(current_step_id) && Enum.any?(history, &(&1.id == current_step_id)) ->
+        current_step_id
+
+      true ->
+        history |> List.last() |> Map.get(:id)
+    end
+  end
+
+  defp current_step_id(_socket, []), do: nil
+
+  defp current_step_id(socket, history) do
+    loop_id = socket.assigns.loop_id
+
+    cond do
+      current = current_step_id_from_history_status(history) ->
+        current.id
+
+      current_id = Orchestrator.current_step_terminal_id(loop_id) ->
+        if Enum.any?(history, &(&1.id == current_id)), do: current_id
+
+      current_id = current_step_id_from_loop_context(socket, history) ->
+        current_id
+
+      latest_id = Orchestrator.latest_step_terminal_id(loop_id) ->
+        if Enum.any?(history, &(&1.id == latest_id)), do: latest_id
+
+      true ->
+        history |> List.last() |> Map.get(:id)
+    end
+  end
+
+  defp current_step_id_from_history_status(history) do
+    Enum.find(history, fn entry -> entry.status == "running" end)
+  end
+
+  defp current_step_id_from_loop_context(socket, history) do
+    stage = socket.assigns[:stage]
+    attempt = socket.assigns[:attempt]
+
+    role =
+      case stage do
+        "maker" -> "maker"
+        "checker" -> "checker"
+        _ -> nil
+      end
+
+    if is_integer(attempt) && is_binary(role) do
+      history
+      |> Enum.find(fn entry -> entry.attempt == attempt && entry.role == role end)
+      |> case do
+        nil -> nil
+        entry -> entry.id
+      end
+    end
+  end
+
+  defp step_history_sort_key(entry) do
+    role_order = if entry.role == "maker", do: 0, else: 1
+    timestamp_order = entry |> Map.get(:started_at) |> sortable_timestamp()
+
+    {
+      Map.get(entry, :attempt, 0),
+      role_order,
+      timestamp_order,
+      Map.get(entry, :id, "")
+    }
+  end
+
+  defp sortable_timestamp(nil), do: 0
+
+  defp sortable_timestamp(%DateTime{} = timestamp) do
+    DateTime.to_unix(timestamp, :microsecond)
+  end
+
+  defp sortable_timestamp(timestamp) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, parsed, _offset} -> DateTime.to_unix(parsed, :microsecond)
+      _ -> 0
+    end
+  end
+
+  defp sortable_timestamp(_), do: 0
 end
