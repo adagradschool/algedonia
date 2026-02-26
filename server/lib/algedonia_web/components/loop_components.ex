@@ -166,7 +166,9 @@ defmodule AlgedoniaWeb.LoopComponents do
           <.icon name="hero-command-line" class="size-4" />
           <span class="text-fg-secondary">
             Running {running_terminal_count(@history)} terminal{if running_terminal_count(@history) ==
-                                                                     1, do: "", else: "s"}
+                                                                     1,
+                                                                   do: "",
+                                                                   else: "s"}
           </span>
         </div>
         <button
