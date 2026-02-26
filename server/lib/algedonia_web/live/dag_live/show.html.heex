@@ -3,6 +3,8 @@
   current_scope={@current_scope}
   current_workspace={@current_workspace}
   current_user={@current_user}
+  nav_section={@nav_section}
+  current_path={@current_path}
 >
   <div class="flex flex-col h-full">
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
@@ -29,13 +31,13 @@
     </header>
 
     <div
-      :if={!@dag && @ticket.status == :decomposing}
+      :if={!@dag && @ticket.status == :planning}
       class="flex-1 flex items-center justify-center"
     >
       <div class="text-center text-fg-muted">
         <div class="animate-spin inline-block w-6 h-6 border-2 border-fg-muted border-t-transparent rounded-full mb-3">
         </div>
-        <p class="text-sm">Decomposition in progress...</p>
+        <p class="text-sm">Planning in progress...</p>
       </div>
     </div>
 
@@ -78,7 +80,7 @@
                     style={"background: #{status_color(loop.status)}"}
                   >
                   </span>
-                  {loop.status}
+                  {friendly_status(loop.status)}
                 </span>
               </td>
             </tr>
@@ -88,7 +90,7 @@
     </div>
 
     <div
-      :if={!@dag && @ticket.status != :decomposing}
+      :if={!@dag && @ticket.status != :planning}
       class="flex-1 flex items-center justify-center"
     >
       <p class="text-sm text-fg-muted">No DAG available for this ticket.</p>

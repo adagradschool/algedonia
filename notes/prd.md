@@ -129,15 +129,24 @@ Acceptance criteria are parsed and fed to the checker as semantic checks (layer 
 
 ---
 
-## UI Views
+## UI Layout
 
-**Issue Tracker View** — Table or board of tickets showing status, assignee, and DAG preview.
+The interface is a three-column layout with a consistent left sidebar. Information flows left to right: DAG → Loop → Artifacts.
 
-**DAG Viewer** — Loop dependency graph with color-coded nodes: pending, running, verifying, passed, failed, escalated.
+**Left Sidebar:**
+- **Top section:** Navigation between views (Tickets, Monitor). The Loop Inspector is the default/primary view.
+- **Bottom section:** User settings and collaboration panel (presence, and in the future, voice calls for real-time team communication).
 
-**Loop Inspector** — Embedded live terminal (agent session), diff viewer, checker scores as a pyramid heatmap, rubric editor, and attempt history.
+**Three views:**
 
-**Monitor View** — Escalation queue, circuit breaker status, and running loops overview.
+**Tickets** — Table or board of tickets showing status, assignee, and DAG progress summary.
+
+**Loop Inspector** — The primary workspace. Three columns:
+- *Left panel:* DAG tree for the current ticket. Loops are shown as a flat tree with status icons, grouped by dependency depth. Parallel loops appear as siblings at the same level. Manual gates are visible as a state on the loop node. Clicking a node loads that loop's agent run. Designed for 5–10 loops per ticket — if a ticket needs more, it should be split.
+- *Center panel:* Live terminal showing the active agent run (maker or checker). This is a full interactive terminal. Steering is native terminal interaction: type to send input, esc to pause, ctrl+c to stop. No GUI buttons for pause/resume — the terminal is the interface. Both maker and checker runs are viewed identically here; the checker is just another agent run with different context (diff + rubric instead of task description).
+- *Right panel:* Tabbed context for the current loop — Diff (working changes vs base), Rubric (editable, changes apply to next attempt), Verdict (structured checker results: hard gate pass/fail, weighted check scores, overall threshold), History (attempt list, each entry showing maker summary, checker verdict, scores, duration, token usage, agent session ID for resume/replay).
+
+**Monitor** — Escalation queue (one-piece flow), circuit breaker status, running loops overview, daemon health.
 
 ---
 
@@ -145,7 +154,9 @@ Acceptance criteria are parsed and fed to the checker as semantic checks (layer 
 
 Users can watch agents work in real-time. Terminal output from the local machine streams to the browser.
 
-Users can intervene by typing into a running agent session.
+Users can intervene by typing directly into a running agent session. Steering is native terminal interaction — no separate control surface. Multiple users can type into the same session simultaneously; inputs arrive in order (like SSH shared sessions, users coordinate verbally).
+
+Both maker and checker agents are viewed the same way: a live terminal with contextual artifacts on the right. The checker is not a special UI — it is an agent run with different inputs (diff, rubric, acceptance criteria instead of a task description).
 
 Multiple users can watch the same loop terminal simultaneously.
 
@@ -155,7 +166,7 @@ Multiple users can watch the same loop terminal simultaneously.
 
 Multiple users see tickets, loops, escalations, and terminal output in real-time.
 
-Presence is first-class: who is viewing what is always visible.
+Presence is first-class: who is viewing what is always visible. The collaboration panel in the sidebar shows active users and supports team communication (voice calls planned for future).
 
 Collaboration is native to the architecture, not bolted on.
 
@@ -199,7 +210,7 @@ Prompts are stored per-repo and versioned with the codebase.
 1. Create a ticket: "Add JWT authentication to API."
 2. Write acceptance criteria as markdown checkboxes.
 3. Hit "Start Work." Algedonia decomposes the task into loops (schema, auth endpoint, middleware, tests).
-4. The DAG view shows progress. Loops execute in parallel where possible.
+4. The Loop Inspector's DAG tree shows progress. Loops execute in parallel where possible.
 5. One loop fails the checker and escalates. The developer sees one card: the diff, the rejection reason, and the rubric.
 6. The developer provides clarification. The loop retries and passes.
 7. All loops green. Squash-merged commits land on the branch.

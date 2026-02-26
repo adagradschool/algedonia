@@ -4,11 +4,15 @@ package loopmanager
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -31,6 +35,8 @@ type LoopProcess struct {
 	process    *adapter.Process
 	role       string
 	promptsDir string
+	workdir    string
+	attempt    int
 }
 
 // Manager tracks running loop processes and streams their output.
@@ -42,6 +48,13 @@ type Manager struct {
 	repoRoot   string
 }
 
+const (
+	defaultChunkFlushInterval = 50 * time.Millisecond
+	defaultChunkMaxSize       = 4096
+	minChunkFlushMS           = 1
+	minChunkMaxBytes          = 256
+)
+
 // NewManager creates a Manager that uses sendFunc to send events to the server.
 func NewManager(sendFunc func(event string, payload map[string]interface{}) error, registry *adapter.Registry, repoRoot string) *Manager {
 	return &Manager{
@@ -50,6 +63,71 @@ func NewManager(sendFunc func(event string, payload map[string]interface{}) erro
 		adapterReg: registry,
 		repoRoot:   repoRoot,
 	}
+}
+
+func (m *Manager) sendEvent(event string, payload map[string]interface{}) {
+	if err := m.sendFunc(event, payload); err != nil {
+		loopID, _ := payload["loop_id"].(string)
+		log.Printf("Failed to send %s event for loop %s: %v", event, loopID, err)
+	}
+}
+
+func payloadStr(p map[string]interface{}, key string) string {
+	s, _ := p[key].(string)
+	return s
+}
+
+func chunkFlushIntervalFromEnv(getenv func(string) string) time.Duration {
+	raw := strings.TrimSpace(getenv("ALGEDONIA_CHUNK_FLUSH_MS"))
+	if raw == "" {
+		return defaultChunkFlushInterval
+	}
+
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms < minChunkFlushMS {
+		log.Printf(
+			"Invalid ALGEDONIA_CHUNK_FLUSH_MS=%q, using default %dms",
+			raw,
+			defaultChunkFlushInterval/time.Millisecond,
+		)
+		return defaultChunkFlushInterval
+	}
+
+	return time.Duration(ms) * time.Millisecond
+}
+
+func chunkMaxSizeFromEnv(getenv func(string) string) int {
+	raw := strings.TrimSpace(getenv("ALGEDONIA_CHUNK_MAX_BYTES"))
+	if raw == "" {
+		return defaultChunkMaxSize
+	}
+
+	size, err := strconv.Atoi(raw)
+	if err != nil || size < minChunkMaxBytes {
+		log.Printf(
+			"Invalid ALGEDONIA_CHUNK_MAX_BYTES=%q, using default %d",
+			raw,
+			defaultChunkMaxSize,
+		)
+		return defaultChunkMaxSize
+	}
+
+	return size
+}
+
+func (m *Manager) newTerminalChunker(loopID string) *Chunker {
+	flushInterval := chunkFlushIntervalFromEnv(os.Getenv)
+	maxSize := chunkMaxSizeFromEnv(os.Getenv)
+
+	return NewChunker(flushInterval, maxSize, func(data []byte) {
+		encoded := base64.StdEncoding.EncodeToString(data)
+		if err := m.sendFunc("terminal_output", map[string]interface{}{
+			"loop_id": loopID,
+			"data":    encoded,
+		}); err != nil {
+			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
+		}
+	})
 }
 
 // typePromptToTUI waits for the TUI to become idle, then types the prompt
@@ -128,15 +206,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 	var lastOutput atomic.Int64
 	lastOutput.Store(time.Now().UnixMilli())
 
-	chunker := NewChunker(50*time.Millisecond, 4096, func(data []byte) {
-		encoded := base64.StdEncoding.EncodeToString(data)
-		if err := m.sendFunc("terminal_output", map[string]interface{}{
-			"loop_id": loopID,
-			"data":    encoded,
-		}); err != nil {
-			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
-		}
-	})
+	chunker := m.newTerminalChunker(loopID)
 
 	lp := &LoopProcess{
 		LoopID:  loopID,
@@ -209,13 +279,17 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 }
 
 // StartLoopWithAdapter spawns a loop using a registered adapter.
-func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc string) error {
+func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc, model, effort string, attempt int) error {
 	m.mu.Lock()
 	if _, exists := m.loops[loopID]; exists {
 		m.mu.Unlock()
 		return fmt.Errorf("loop %s already running", loopID)
 	}
 	m.mu.Unlock()
+
+	if attempt < 1 {
+		attempt = 1
+	}
 
 	ag, err := m.adapterReg.Get(agentType)
 	if err != nil {
@@ -239,12 +313,18 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		task += "\n\nIMPORTANT: Output your DAG as JSON between these exact delimiters:\n---ALGEDONIA_DAG_BEGIN---\n<your JSON here>\n---ALGEDONIA_DAG_END---"
 	}
 
-	proc, err := ag.Start(workdir, task, nil)
+	proc, err := ag.Start(workdir, task, map[string]string{
+		"loop_id": loopID,
+		"role":    role,
+		"workdir": workdir,
+		"model":   strings.TrimSpace(model),
+		"effort":  strings.TrimSpace(effort),
+	})
 	if err != nil {
 		return fmt.Errorf("starting adapter for loop %s: %w", loopID, err)
 	}
 
-	reader, writer, err := ag.AttachPTY(proc)
+	reader, _, err := ag.AttachPTY(proc)
 	if err != nil {
 		ag.Kill(proc)
 		return fmt.Errorf("attaching pty for loop %s: %w", loopID, err)
@@ -255,15 +335,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	var lastOutput atomic.Int64
 	lastOutput.Store(time.Now().UnixMilli())
 
-	chunker := NewChunker(50*time.Millisecond, 4096, func(data []byte) {
-		encoded := base64.StdEncoding.EncodeToString(data)
-		if err := m.sendFunc("terminal_output", map[string]interface{}{
-			"loop_id": loopID,
-			"data":    encoded,
-		}); err != nil {
-			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
-		}
-	})
+	chunker := m.newTerminalChunker(loopID)
 
 	lp := &LoopProcess{
 		LoopID:     loopID,
@@ -274,6 +346,8 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		process:    proc,
 		role:       role,
 		promptsDir: promptsDir,
+		workdir:    workdir,
+		attempt:    attempt,
 	}
 
 	m.mu.Lock()
@@ -304,19 +378,25 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	// Wait goroutine — handles result based on role
 	go func() {
 		defer close(done)
+		defer func() {
+			if err := m.closeAdapterProcess(lp); err != nil {
+				log.Printf("Failed to close adapter process for loop %s: %v", loopID, err)
+			}
+			m.mu.Lock()
+			delete(m.loops, loopID)
+			m.mu.Unlock()
+		}()
+
 		result, waitErr := ag.Wait(proc)
 
 		sessionID := ag.SessionID(proc)
 
 		if waitErr != nil {
-			_ = m.sendFunc("error", map[string]interface{}{
+			m.sendEvent("error", map[string]interface{}{
 				"loop_id":     loopID,
 				"message":     fmt.Sprintf("agent wait error: %v", waitErr),
 				"recoverable": true,
 			})
-			m.mu.Lock()
-			delete(m.loops, loopID)
-			m.mu.Unlock()
 			return
 		}
 
@@ -324,13 +404,13 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		case "decompose":
 			dag, parseErr := adapter.ParseDAGOutput(result.Output)
 			if parseErr != nil {
-				_ = m.sendFunc("error", map[string]interface{}{
+				m.sendEvent("error", map[string]interface{}{
 					"loop_id":     loopID,
 					"message":     fmt.Sprintf("decompose output parse error: %v", parseErr),
 					"recoverable": true,
 				})
 			} else {
-				_ = m.sendFunc("loop_result", map[string]interface{}{
+				m.sendEvent("loop_result", map[string]interface{}{
 					"loop_id":    loopID,
 					"verdict":    "pass",
 					"dag":        dag,
@@ -339,31 +419,139 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 			}
 		default:
 			if result.ExitCode != 0 {
-				_ = m.sendFunc("error", map[string]interface{}{
+				m.sendEvent("error", map[string]interface{}{
 					"loop_id":     loopID,
 					"message":     fmt.Sprintf("agent exited with code %d", result.ExitCode),
 					"recoverable": true,
 				})
 			} else {
-				_ = m.sendFunc("attempt_complete", map[string]interface{}{
+				attemptPayload := map[string]interface{}{
 					"loop_id":    loopID,
 					"exit_code":  result.ExitCode,
 					"session_id": sessionID,
-				})
+				}
+
+				if role == "checker" {
+					expectedJSONPath, expectedFeedbackPath :=
+						expectedCheckerHandoffPaths(loopID, lp.attempt)
+					attemptPayload["expected_handoff_json_path"] = expectedJSONPath
+					attemptPayload["expected_handoff_feedback_path"] = expectedFeedbackPath
+					attemptPayload["attempt"] = lp.attempt
+
+					verdict, feedbackPath, feedback, parseErr :=
+						loadCheckerHandoff(loopID, lp.attempt)
+					if parseErr != nil {
+						m.sendEvent("error", map[string]interface{}{
+							"loop_id":     loopID,
+							"message":     fmt.Sprintf("checker handoff parse error: %v", parseErr),
+							"recoverable": true,
+						})
+						attemptPayload["handoff_valid"] = false
+						attemptPayload["handoff_error"] = parseErr.Error()
+						attemptPayload["verdict"] = "fail"
+						attemptPayload["feedback"] =
+							"Checker did not produce required handoff JSON/markdown files."
+					} else {
+						attemptPayload["handoff_valid"] = true
+						attemptPayload["verdict"] = verdict
+						attemptPayload["feedback_path"] = feedbackPath
+						attemptPayload["feedback"] = feedback
+					}
+				}
+
+				m.sendEvent("attempt_complete", attemptPayload)
 			}
 		}
 
-		m.mu.Lock()
-		delete(m.loops, loopID)
-		m.mu.Unlock()
 	}()
 
 	// If the agent is a TUI (no -p flag mode), type the prompt
-	// For now, adapters use -p flag so no TUI typing needed
-	_ = writer
+	if strings.TrimSpace(proc.InitialPrompt) != "" {
+		writeFn := func(data []byte) error {
+			return ag.SendInput(proc, data)
+		}
+		go typePromptToTUI(done, &lastOutput, loopID, proc.InitialPrompt, writeFn)
+	}
 
 	log.Printf("Started adapter loop %s: %s (role=%s)", loopID, agentType, role)
 	return nil
+}
+
+type checkerHandoff struct {
+	VERDICT  string `json:"VERDICT"`
+	FEEDBACK string `json:"FEEDBACK"`
+}
+
+func globalAlgedoniaDir() string {
+	if custom := strings.TrimSpace(os.Getenv("ALGEDONIA_HOME")); custom != "" {
+		return filepath.Clean(custom)
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".algedonia")
+	}
+	return filepath.Clean(".algedonia")
+}
+
+func checkerHandoffSuffix(loopID string, attempt int) string {
+	return filepath.ToSlash(filepath.Join(".algedonia", "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt), "checker_feedback.md"))
+}
+
+func expectedCheckerHandoffPaths(loopID string, attempt int) (string, string) {
+	base := filepath.Join(globalAlgedoniaDir(), "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt))
+	return filepath.Join(base, "checker_result.json"), filepath.Join(base, "checker_feedback.md")
+}
+
+func loadCheckerHandoff(loopID string, attempt int) (string, string, string, error) {
+	handoffPath, expectedFeedbackPath := expectedCheckerHandoffPaths(loopID, attempt)
+	raw, err := os.ReadFile(handoffPath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read %s: %w", handoffPath, err)
+	}
+
+	var handoff checkerHandoff
+	if err := json.Unmarshal(raw, &handoff); err != nil {
+		return "", "", "", fmt.Errorf("decode checker handoff json: %w", err)
+	}
+
+	verdict := strings.ToLower(strings.TrimSpace(handoff.VERDICT))
+	if verdict != "pass" && verdict != "fail" {
+		return "", "", "", fmt.Errorf("invalid VERDICT %q", handoff.VERDICT)
+	}
+
+	feedbackPath := strings.TrimSpace(handoff.FEEDBACK)
+	if feedbackPath == "" {
+		return "", "", "", fmt.Errorf("missing FEEDBACK path")
+	}
+
+	absFeedbackPath := strings.TrimSpace(feedbackPath)
+	if strings.HasPrefix(absFeedbackPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil && strings.TrimSpace(home) != "" {
+			absFeedbackPath = filepath.Join(home, absFeedbackPath[2:])
+		}
+	}
+	if !filepath.IsAbs(absFeedbackPath) {
+		absFeedbackPath = filepath.Join(globalAlgedoniaDir(), absFeedbackPath)
+	}
+	absFeedbackPath = filepath.Clean(absFeedbackPath)
+	expectedFeedbackPath = filepath.Clean(expectedFeedbackPath)
+	if absFeedbackPath != expectedFeedbackPath &&
+		!strings.HasSuffix(filepath.ToSlash(absFeedbackPath), checkerHandoffSuffix(loopID, attempt)) {
+		return "", "", "", fmt.Errorf("FEEDBACK path must be %s", filepath.Clean(expectedFeedbackPath))
+	}
+
+	markdown, err := os.ReadFile(absFeedbackPath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read FEEDBACK markdown %s: %w", absFeedbackPath, err)
+	}
+
+	feedback := strings.TrimSpace(string(markdown))
+	if feedback == "" {
+		return "", "", "", fmt.Errorf("FEEDBACK markdown is empty at %s", absFeedbackPath)
+	}
+
+	return verdict, filepath.Clean(absFeedbackPath), feedback, nil
 }
 
 // StopLoop sends SIGTERM to the process, then SIGKILL after 5 seconds.
@@ -412,30 +600,126 @@ func (m *Manager) RunningCount() int {
 	return len(m.loops)
 }
 
+// StartOverviewLoop runs claude in pipe mode (-p) for fast headless generation.
+// Output is streamed via terminal_output events and loop_exited is sent on completion.
+func (m *Manager) StartOverviewLoop(ctx context.Context, loopID, task, model string) error {
+	m.mu.Lock()
+	if _, exists := m.loops[loopID]; exists {
+		m.mu.Unlock()
+		return fmt.Errorf("loop %s already running", loopID)
+	}
+	m.mu.Unlock()
+
+	loopCtx, cancel := context.WithCancel(ctx)
+
+	args := []string{"-p", "--dangerously-skip-permissions"}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+
+	cmd := exec.CommandContext(loopCtx, "claude", args...)
+	cmd.Dir = m.repoRoot
+	cmd.Stdin = strings.NewReader(task)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return fmt.Errorf("pipe stdout for overview %s: %w", loopID, err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return fmt.Errorf("start overview %s: %w", loopID, err)
+	}
+
+	done := make(chan struct{})
+	chunker := m.newTerminalChunker(loopID)
+
+	lp := &LoopProcess{
+		LoopID:  loopID,
+		Chunker: chunker,
+		Cancel:  cancel,
+		Done:    done,
+		role:    "overview",
+	}
+
+	m.mu.Lock()
+	m.loops[loopID] = lp
+	m.mu.Unlock()
+
+	// Read stdout and stream to chunker
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := stdout.Read(buf)
+			if n > 0 {
+				chunker.Write(buf[:n])
+			}
+			if readErr != nil {
+				break
+			}
+		}
+		chunker.Close()
+	}()
+
+	// Wait for process exit and notify server
+	go func() {
+		defer close(done)
+		waitErr := cmd.Wait()
+
+		exitCode := 0
+		if waitErr != nil {
+			if exitErr, ok := waitErr.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+			}
+		}
+
+		m.sendEvent("loop_exited", map[string]interface{}{
+			"loop_id":   loopID,
+			"exit_code": exitCode,
+		})
+
+		m.mu.Lock()
+		delete(m.loops, loopID)
+		m.mu.Unlock()
+	}()
+
+	log.Printf("Started overview loop %s (model=%s)", loopID, model)
+	return nil
+}
+
 // HandleStartLoop is a command handler for "start_loop" events from the server.
 func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interface{}) error {
-	loopID, _ := payload["loop_id"].(string)
+	loopID := payloadStr(payload, "loop_id")
 	if loopID == "" {
 		return fmt.Errorf("missing loop_id in start_loop payload")
 	}
 
+	// Overview role uses headless pipe mode for fast generation
+	role := payloadStr(payload, "role")
+	if role == "overview" {
+		return m.StartOverviewLoop(ctx, loopID, payloadStr(payload, "task"), payloadStr(payload, "model"))
+	}
+
 	// If a role is specified, route through adapter path
-	role, _ := payload["role"].(string)
 	if role != "" {
-		agentType, _ := payload["agent_type"].(string)
+		agentType := payloadStr(payload, "agent_type")
 		if agentType == "" {
-			agentType = "claude_code"
+			agentType = defaultCodingAgent()
 		}
-		workdir, _ := payload["workdir"].(string)
+		attempt := parseAttempt(payload["attempt"])
+		workdir := payloadStr(payload, "workdir")
 		if workdir == "" {
 			workdir = m.repoRoot
 		}
-		taskDesc, _ := payload["task"].(string)
-		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, taskDesc)
+		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir,
+			payloadStr(payload, "task"), payloadStr(payload, "model"), payloadStr(payload, "effort"), attempt)
 	}
 
 	// Legacy raw-process path
-	command, _ := payload["command"].(string)
+	command := payloadStr(payload, "command")
 	if command == "" {
 		command = "claude"
 	}
@@ -452,14 +736,57 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 		args = []string{"--dangerously-skip-permissions"}
 	}
 
-	workdir, _ := payload["workdir"].(string)
+	workdir := payloadStr(payload, "workdir")
 
-	prompt, _ := payload["prompt"].(string)
+	prompt := payloadStr(payload, "prompt")
 	if prompt == "" && command == "claude" {
 		prompt = "Say hello and describe what you see in this repo"
 	}
 
 	return m.StartLoop(ctx, loopID, command, args, workdir, prompt)
+}
+
+func defaultCodingAgent() string {
+	switch strings.TrimSpace(strings.ToLower(os.Getenv("ALGEDONIA_DEFAULT_CODING_AGENT"))) {
+	case "claude_code":
+		return "claude_code"
+	case "codex":
+		return "codex"
+	default:
+		return "claude_code"
+	}
+}
+
+func parseAttempt(raw interface{}) int {
+	switch v := raw.(type) {
+	case int:
+		return v
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return parsed
+		}
+	}
+	return 1
+}
+
+func (m *Manager) closeAdapterProcess(lp *LoopProcess) error {
+	if lp == nil || lp.adapter == nil || lp.process == nil {
+		return nil
+	}
+
+	// Codex app-server stays alive after turn completion; close it to avoid leaked processes.
+	if _, ok := lp.adapter.(*adapter.CodexAdapter); ok {
+		return lp.adapter.Kill(lp.process)
+	}
+
+	return nil
 }
 
 // SendInput writes raw bytes to the PTY stdin of a running loop.
@@ -486,11 +813,11 @@ func (m *Manager) SendInput(loopID string, data []byte) error {
 
 // HandleStdinInput is a command handler for "stdin_input" events from the server.
 func (m *Manager) HandleStdinInput(_ context.Context, payload map[string]interface{}) error {
-	loopID, _ := payload["loop_id"].(string)
+	loopID := payloadStr(payload, "loop_id")
 	if loopID == "" {
 		return fmt.Errorf("missing loop_id in stdin_input payload")
 	}
-	dataStr, _ := payload["data"].(string)
+	dataStr := payloadStr(payload, "data")
 	if dataStr == "" {
 		return nil
 	}
@@ -503,12 +830,12 @@ func (m *Manager) HandleStdinInput(_ context.Context, payload map[string]interfa
 
 // HandleStopLoop is a command handler for "stop_loop" events from the server.
 func (m *Manager) HandleStopLoop(_ context.Context, payload map[string]interface{}) error {
-	loopID, _ := payload["loop_id"].(string)
+	loopID := payloadStr(payload, "loop_id")
 	if loopID == "" {
 		return fmt.Errorf("missing loop_id in stop_loop payload")
 	}
 
-	reason, _ := payload["reason"].(string)
+	reason := payloadStr(payload, "reason")
 	if reason == "" {
 		reason = "server requested stop"
 	}

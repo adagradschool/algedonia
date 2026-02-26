@@ -13,6 +13,7 @@ type Config struct {
 	ServerURL string `json:"server_url,omitempty"`
 	Token     string `json:"token,omitempty"`
 	Name      string `json:"name,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
 }
 
 // Path returns the config file path (~/.config/ag/config.json).

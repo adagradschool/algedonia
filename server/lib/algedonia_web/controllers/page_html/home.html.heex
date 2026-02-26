@@ -3,6 +3,8 @@
   current_scope={@current_scope}
   current_workspace={@current_workspace}
   current_user={@current_user}
+  nav_section={@nav_section}
+  current_path={@current_path}
 >
   <div class="flex flex-col h-full">
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
@@ -50,10 +52,10 @@
               View daemon status <.icon name="hero-signal" class="size-4 text-fg-muted" />
             </.link>
             <.link
-              navigate={workspace_path(@current_workspace, "/loops/primary")}
+              navigate={workspace_path(@current_workspace, "/tickets")}
               class="flex items-center justify-between px-3 py-2 rounded-md border border-border text-xs text-fg hover:bg-surface-raised transition-colors"
             >
-              Inspect loops <.icon name="hero-cpu-chip" class="size-4 text-fg-muted" />
+              View halted tickets <.icon name="hero-pause-circle" class="size-4 text-fg-muted" />
             </.link>
           </div>
         </div>

@@ -75,7 +75,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   def status_options do
     [
       Backlog: :backlog,
-      Decomposing: :decomposing,
+      Planning: :planning,
       Halted: :halted,
       "In Progress": :in_progress,
       Completed: :completed,
@@ -95,5 +95,9 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
   def type_options do
     [Feature: :feature, Bug: :bug, Chore: :chore, Spike: :spike]
+  end
+
+  def coding_agent_options do
+    [Codex: :codex, Claude: :claude_code]
   end
 end

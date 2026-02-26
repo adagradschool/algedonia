@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,16 +20,25 @@ var _ AgentAdapter = (*ClaudeCodeAdapter)(nil)
 // ClaudeCodeAdapter implements AgentAdapter for Claude Code CLI.
 type ClaudeCodeAdapter struct{}
 
-// Start spawns claude with --dangerously-skip-permissions --verbose.
+// Start spawns claude in interactive TUI mode.
 func (a *ClaudeCodeAdapter) Start(workdir string, task string, config map[string]string) (*Process, error) {
 	args := []string{"--dangerously-skip-permissions", "--verbose"}
-	if task != "" {
-		args = append(args, "-p", task)
-	}
 
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = workdir
 	cmd.Env = os.Environ()
+
+	loopID := strings.TrimSpace(config["loop_id"])
+	role := strings.TrimSpace(config["role"])
+	if loopID != "" {
+		cmd.Env = append(cmd.Env, "ALGEDONIA_LOOP_ID="+loopID)
+	}
+	if role != "" {
+		cmd.Env = append(cmd.Env, "ALGEDONIA_ROLE="+role)
+	}
+	if workdir != "" {
+		cmd.Env = append(cmd.Env, "ALGEDONIA_WORKDIR="+workdir)
+	}
 
 	sess, err := allocatePTY(cmd)
 	if err != nil {
@@ -36,13 +47,22 @@ func (a *ClaudeCodeAdapter) Start(workdir string, task string, config map[string
 
 	collector := newOutputCollector()
 	sessionID := uuid.New().String()
+	completionMarker := ""
+	if loopID != "" {
+		completionMarker = filepath.Join(workdir, ".algedonia", "runtime", loopID, "attempt_complete.json")
+		_ = os.Remove(completionMarker)
+	}
 
 	return &Process{
-		ID:        sessionID,
-		SessionID: sessionID,
-		Workdir:   workdir,
-		session:   sess,
-		collector: collector,
+		ID:               sessionID,
+		SessionID:        sessionID,
+		Workdir:          workdir,
+		LoopID:           loopID,
+		Role:             role,
+		InitialPrompt:    task,
+		session:          sess,
+		collector:        collector,
+		completionMarker: completionMarker,
 	}, nil
 }
 
@@ -65,12 +85,48 @@ func (a *ClaudeCodeAdapter) SendInput(process *Process, data []byte) error {
 
 // Wait blocks until the process exits and returns the result.
 func (a *ClaudeCodeAdapter) Wait(process *Process) (*ExitResult, error) {
-	exitCode, err := waitProcess(process.session)
-	if err != nil {
-		return nil, err
+	type waitOutcome struct {
+		exitCode int
+		fromHook bool
+		err      error
 	}
+
+	outcomeCh := make(chan waitOutcome, 2)
+
+	go func() {
+		exitCode, err := waitProcess(process.session)
+		outcomeCh <- waitOutcome{exitCode: exitCode, err: err}
+	}()
+
+	if process.completionMarker != "" {
+		go func() {
+			for {
+				if _, err := os.Stat(process.completionMarker); err == nil {
+					outcomeCh <- waitOutcome{exitCode: 0, fromHook: true}
+					return
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+		}()
+	}
+
+	outcome := <-outcomeCh
+	if outcome.fromHook {
+		_ = killProcess(process.session, 2*time.Second)
+	}
+	if outcome.err != nil {
+		return nil, outcome.err
+	}
+
+	if outcome.fromHook && process.completionMarker != "" {
+		if raw, err := os.ReadFile(process.completionMarker); err == nil {
+			_, _ = process.collector.Write(raw)
+			_, _ = process.collector.Write([]byte("\n"))
+		}
+	}
+
 	return &ExitResult{
-		ExitCode:  exitCode,
+		ExitCode:  outcome.exitCode,
 		SessionID: process.SessionID,
 		Output:    process.collector.Bytes(),
 	}, nil

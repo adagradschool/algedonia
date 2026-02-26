@@ -101,6 +101,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
 
       - run: go build ./...
       - run: go vet ./...

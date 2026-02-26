@@ -4,7 +4,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   """
   use AlgedoniaWeb, :live_view
 
-  alias Algedonia.Tickets
+  alias Algedonia.{Agents, Dags, Tickets}
+  alias Algedonia.Loops
   alias Algedonia.Tickets.{Comment, Ticket}
   alias Algedonia.Workspaces
 
@@ -12,7 +13,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   import AlgedoniaWeb.CommentComponents
   import AlgedoniaWeb.PresenceComponents
 
-  @statuses [:backlog, :decomposing, :halted, :in_progress, :completed, :archived]
+  @statuses [:backlog, :planning, :halted, :in_progress, :completed, :archived]
 
   @impl true
   def mount(params, session, socket) do
@@ -31,6 +32,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
      socket
      |> assign(:statuses, @statuses)
      |> assign(:confirm_delete, false)
+     |> assign(:show_shortcut_help, false)
      |> assign(:current_user_id, session["user_id"])
      |> assign(:current_workspace_id, session["current_workspace_id"])
      |> assign(:current_workspace, current_workspace)
@@ -112,6 +114,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     comment_changeset = Tickets.change_comment(%Comment{ticket_id: id})
     ticket_changeset = Tickets.change_ticket(ticket)
 
+    loop_id = first_loop_id(ticket)
+
     assign(socket,
       page_title: ticket.title,
       ticket: ticket,
@@ -123,7 +127,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       reply_to: nil,
       reply_form: nil,
       editing_comment_id: nil,
-      edit_form: nil
+      edit_form: nil,
+      loop_id: loop_id
     )
   end
 
@@ -184,6 +189,22 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
   end
 
+  def handle_event("toggle_shortcut_help", _params, socket) do
+    {:noreply, assign(socket, :show_shortcut_help, !socket.assigns.show_shortcut_help)}
+  end
+
+  def handle_event("shortcut_new_issue", _params, socket) do
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets/new")}
+  end
+
+  def handle_event("shortcut_back", _params, socket) do
+    if socket.assigns.live_action == :show do
+      {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("filter", %{"status" => status}, socket) do
     params = build_query_params(socket.assigns, status: status)
     {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
@@ -199,6 +220,24 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
     {:noreply,
      push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{%{view: view}}")}
+  end
+
+  def handle_event("start_work", %{"id" => ticket_id}, socket) do
+    ticket = Tickets.get_ticket!(ticket_id)
+
+    case ensure_single_loop(ticket) do
+      {:ok, loop_id} ->
+        path =
+          ~p"/w/#{socket.assigns.workspace_slug}/loops/#{loop_id}?#{%{autostart: 1, agent_type: ticket_agent_type(ticket)}}"
+
+        {:noreply, push_navigate(socket, to: path)}
+
+      {:error, :invalid_status} ->
+        {:noreply, put_flash(socket, :error, "Only backlog or halted tickets can start work")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Unable to start work")}
+    end
   end
 
   def handle_event("submit_comment", %{"comment" => params}, socket) do
@@ -329,12 +368,21 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     grouped = Tickets.list_tickets_by_status(opts)
     all_count = grouped |> Map.values() |> List.flatten() |> length()
 
+    active_ticket_ids =
+      grouped
+      |> Map.take([:planning, :in_progress, :completed])
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.map(& &1.id)
+
+    loop_ids = Dags.first_loop_ids_for_tickets(active_ticket_ids)
+
     socket =
       Enum.reduce(@statuses, socket, fn s, acc ->
         stream(acc, stream_name(s), Map.get(grouped, s, []), reset: true)
       end)
 
-    assign(socket, ticket_count: all_count, tickets_by_status: grouped)
+    assign(socket, ticket_count: all_count, tickets_by_status: grouped, loop_ids: loop_ids)
   end
 
   @doc false
@@ -384,6 +432,87 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   defp view_string(:list), do: "list"
   defp view_string(_), do: "board"
+
+  defp ticket_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
+
+  defp ensure_single_loop(%Ticket{status: status}) when status not in [:backlog, :halted] do
+    {:error, :invalid_status}
+  end
+
+  defp ensure_single_loop(%Ticket{} = ticket) do
+    case Dags.get_dag_by_ticket(ticket.id) do
+      nil ->
+        create_single_loop(ticket)
+
+      dag ->
+        loop = dag.loops |> List.first()
+
+        if loop do
+          maybe_mark_in_progress(ticket)
+          {:ok, loop.id}
+        else
+          create_loop_for_dag(dag, ticket)
+        end
+    end
+  end
+
+  defp create_single_loop(ticket) do
+    case Dags.create_dag_with_loops(
+           %{ticket_id: ticket.id},
+           %{
+             "loops" => [
+               %{
+                 "temp_id" => "primary",
+                 "title" => ticket.title,
+                 "description" => ticket.description || "",
+                 "role" => "task",
+                 "max_attempts" => 3,
+                 "rubric" => ticket.rubric || ""
+               }
+             ],
+             "dependencies" => []
+           }
+         ) do
+      {:ok, dag} ->
+        maybe_mark_in_progress(ticket)
+        {:ok, dag.loops |> List.first() |> Map.fetch!(:id)}
+
+      {:error, _step, _changeset, _changes} ->
+        {:error, :dag_create_failed}
+    end
+  end
+
+  defp create_loop_for_dag(dag, ticket) do
+    case Loops.create_loop(%{
+           dag_id: dag.id,
+           title: ticket.title,
+           description: ticket.description || "",
+           role: :task,
+           max_attempts: 3,
+           rubric: ticket.rubric || ""
+         }) do
+      {:ok, loop} ->
+        maybe_mark_in_progress(ticket)
+        {:ok, loop.id}
+
+      {:error, _changeset} ->
+        {:error, :loop_create_failed}
+    end
+  end
+
+  defp maybe_mark_in_progress(%Ticket{status: :in_progress}), do: :ok
+
+  defp maybe_mark_in_progress(%Ticket{} = ticket) do
+    _ = Tickets.update_ticket(ticket, %{status: :in_progress})
+    :ok
+  end
+
+  defp first_loop_id(%Ticket{} = ticket) do
+    case Dags.get_dag_by_ticket(ticket.id) do
+      %{loops: [loop | _]} -> loop.id
+      _ -> nil
+    end
+  end
 
   defp next_form_counter(current_id) do
     current_id

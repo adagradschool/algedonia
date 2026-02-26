@@ -24,7 +24,7 @@ const DagGraph = {
     const positions = this.layout(layers, nodes)
 
     const NODE_W = 180
-    const NODE_H = 44
+    const NODE_H = 56
     const PAD = 40
     const maxX = Math.max(...Object.values(positions).map(p => p.x)) + NODE_W + PAD
     const maxY = Math.max(...Object.values(positions).map(p => p.y)) + NODE_H + PAD
@@ -55,11 +55,15 @@ const DagGraph = {
 
       svg += `<g class="dag-node" data-id="${node.id}" style="cursor:pointer">`
       svg += `<rect x="${pos.x}" y="${pos.y}" width="${NODE_W}" height="${NODE_H}" rx="6" fill="#1F2937" stroke="${node.color}" stroke-width="2" />`
-      svg += `<circle cx="${pos.x + 14}" cy="${pos.y + NODE_H / 2}" r="5" fill="${node.color}" />`
+      svg += `<circle cx="${pos.x + 14}" cy="${pos.y + 18}" r="5" fill="${node.color}" />`
 
       // Truncate title
       const title = node.title.length > 20 ? node.title.slice(0, 18) + "..." : node.title
-      svg += `<text x="${pos.x + 26}" y="${pos.y + NODE_H / 2 + 1}" fill="#E5E7EB" font-size="12" dominant-baseline="middle" font-family="ui-monospace, monospace">${this.escapeHtml(title)}</text>`
+      svg += `<text x="${pos.x + 26}" y="${pos.y + 19}" fill="#E5E7EB" font-size="12" dominant-baseline="middle" font-family="ui-monospace, monospace">${this.escapeHtml(title)}</text>`
+
+      // Status label
+      const statusLabel = node.status_label || node.status
+      svg += `<text x="${pos.x + 26}" y="${pos.y + 40}" fill="${node.color}" font-size="10" dominant-baseline="middle" font-family="ui-monospace, monospace">${this.escapeHtml(statusLabel)}</text>`
       svg += `</g>`
     }
 

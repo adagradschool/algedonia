@@ -82,8 +82,11 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :id, :string, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
+  attr :loop_ids, :map, default: %{}
 
   def ticket_card(assigns) do
+    assigns = assign(assigns, :loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+
     ~H"""
     <div
       id={@id}
@@ -100,6 +103,28 @@ defmodule AlgedoniaWeb.TicketComponents do
           </span>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            :if={@ticket.status in [:backlog, :halted]}
+            phx-click="start_work"
+            phx-value-id={@ticket.id}
+            phx-stop-propagation
+            class="px-2 py-0.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[10px] font-medium hover:bg-status-green/20 transition-colors"
+            title="Start work"
+            type="button"
+          >
+            Start Work
+          </button>
+          <a
+            :if={@ticket.status in [:in_progress, :completed] && @loop_id}
+            href={workspace_path(@workspace_slug, "/loops/#{@loop_id}")}
+            phx-stop-propagation
+            data-phx-link="redirect"
+            data-phx-link-state="push"
+            class="px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[10px] font-medium hover:bg-accent-indigo/20 transition-colors"
+            title="Inspect loop"
+          >
+            Inspect
+          </a>
           <.type_badge type={@ticket.type} />
           <span
             :if={@ticket.assignee}
@@ -120,12 +145,15 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :id, :string, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
+  attr :loop_ids, :map, default: %{}
 
   def ticket_row(assigns) do
+    assigns = assign(assigns, :loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+
     ~H"""
     <div
       id={@id}
-      class="flex items-center gap-4 py-2.5 px-3.5 rounded-lg border border-transparent hover:border-border hover:bg-surface-raised transition-all cursor-pointer"
+      class="flex items-center gap-3 py-2.5 px-3.5 rounded-lg border border-transparent hover:border-border hover:bg-surface-raised transition-all cursor-pointer"
       phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket.id}"))}
     >
       <.priority_icon priority={@ticket.priority} />
@@ -137,6 +165,28 @@ defmodule AlgedoniaWeb.TicketComponents do
         {@ticket.title}
       </span>
       <.type_badge type={@ticket.type} />
+      <button
+        :if={@ticket.status in [:backlog, :halted]}
+        phx-click="start_work"
+        phx-value-id={@ticket.id}
+        phx-stop-propagation
+        class="px-2 py-1 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors shrink-0"
+        title="Start work"
+        type="button"
+      >
+        Start Work
+      </button>
+      <a
+        :if={@ticket.status in [:in_progress, :completed] && @loop_id}
+        href={workspace_path(@workspace_slug, "/loops/#{@loop_id}")}
+        phx-stop-propagation
+        data-phx-link="redirect"
+        data-phx-link-state="push"
+        class="px-2 py-1 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors shrink-0"
+        title="Inspect loop"
+      >
+        Inspect
+      </a>
       <span :if={@ticket.assignee} class="text-[10px] text-fg-muted w-16 text-right truncate">
         {@ticket.assignee}
       </span>
@@ -152,6 +202,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :stream, :any, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
+  attr :loop_ids, :map, default: %{}
 
   def status_column(assigns) do
     label = status_label(assigns.status)
@@ -195,6 +246,7 @@ defmodule AlgedoniaWeb.TicketComponents do
           id={dom_id}
           prefix={@prefix}
           workspace_slug={@workspace_slug}
+          loop_ids={@loop_ids}
         />
       </div>
     </div>
@@ -205,7 +257,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   Returns a human-readable label for a status atom.
   """
   def status_label(:backlog), do: "Backlog"
-  def status_label(:decomposing), do: "Decomposing"
+  def status_label(:planning), do: "Planning"
   def status_label(:halted), do: "Halted"
   def status_label(:in_progress), do: "In Progress"
   def status_label(:completed), do: "Completed"
@@ -213,7 +265,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   def status_label(status), do: status |> to_string() |> String.capitalize()
 
   defp status_color(:backlog), do: "bg-fg-muted"
-  defp status_color(:decomposing), do: "bg-status-yellow"
+  defp status_color(:planning), do: "bg-status-yellow"
   defp status_color(:halted), do: "bg-status-red"
   defp status_color(:in_progress), do: "bg-status-blue"
   defp status_color(:completed), do: "bg-status-green"

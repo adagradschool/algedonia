@@ -19,6 +19,17 @@ defmodule Algedonia.Daemons do
     Repo.get_by(DaemonRegistration, name: name)
   end
 
+  @doc """
+  Returns the first online daemon, or `{:error, :no_online_daemon}`.
+  """
+  @spec find_online() :: {:ok, DaemonRegistration.t()} | {:error, :no_online_daemon}
+  def find_online do
+    case list_daemons() |> Enum.find(&(&1.status == :online)) do
+      nil -> {:error, :no_online_daemon}
+      daemon -> {:ok, daemon}
+    end
+  end
+
   def register_daemon(attrs) do
     name = Map.get(attrs, :name) || Map.get(attrs, "name")
     now = DateTime.utc_now()

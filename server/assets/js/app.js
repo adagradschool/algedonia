@@ -27,29 +27,15 @@ import topbar from "../vendor/topbar"
 import Sortable from "sortablejs"
 import XTerm from "./hooks/xterm"
 import DagGraph from "./hooks/dag_graph"
+import MarkdownEditor from "./hooks/markdown_editor"
+import KeyboardShortcuts from "./hooks/keyboard_shortcuts"
 
 const Hooks = {
   ...colocatedHooks,
   XTerm,
   DagGraph,
-  TicketShortcuts: {
-    mounted() {
-      this.onKeyDown = (event) => {
-        const tag = event.target?.tagName?.toLowerCase()
-        const isEditable = event.target?.isContentEditable
-        if (isEditable || tag === "input" || tag === "textarea" || tag === "select") return
-
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-          event.preventDefault()
-          this.pushEvent("toggle_view_shortcut", {})
-        }
-      }
-      window.addEventListener("keydown", this.onKeyDown)
-    },
-    destroyed() {
-      window.removeEventListener("keydown", this.onKeyDown)
-    }
-  },
+  MarkdownEditor,
+  KeyboardShortcuts,
   KanbanBoard: {
     mounted() {
       this.sortables = []
@@ -94,10 +80,39 @@ const Hooks = {
       this.el.style.overflow = "hidden"
       this.resize()
       this.el.addEventListener("input", () => this.resize())
+      this.keyHandler = (event) => {
+        if (this.el.dataset.chatComposer !== "true") return
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault()
+          const text = this.el.value || ""
+          this.pushEvent("send_agent_message", {agent_message: {text}})
+        }
+      }
+      this.el.addEventListener("keydown", this.keyHandler)
+      this.handleEvent("composer_clear", () => {
+        this.el.value = ""
+        this.resize()
+      })
+    },
+    destroyed() {
+      if (this.keyHandler) {
+        this.el.removeEventListener("keydown", this.keyHandler)
+      }
     },
     resize() {
       this.el.style.height = "auto"
       this.el.style.height = this.el.scrollHeight + "px"
+    }
+  },
+  ChatStream: {
+    mounted() {
+      this.scrollToBottom()
+    },
+    updated() {
+      this.scrollToBottom()
+    },
+    scrollToBottom() {
+      this.el.scrollTop = this.el.scrollHeight
     }
   }
 }

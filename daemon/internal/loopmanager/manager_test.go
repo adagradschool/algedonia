@@ -393,7 +393,7 @@ func TestStartLoopWithAdapter(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "adapter-loop", "claude_code", "maker", dir, "do a thing")
+	err := mgr.StartLoopWithAdapter(ctx, "adapter-loop", "claude_code", "maker", dir, "do a thing", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestDecomposeOutputParsing(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "decompose-loop", "claude_code", "decompose", dir, "decompose this ticket")
+	err := mgr.StartLoopWithAdapter(ctx, "decompose-loop", "claude_code", "decompose", dir, "decompose this ticket", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestAgentCrashReportsError(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "crash-loop", "claude_code", "maker", dir, "do a thing")
+	err := mgr.StartLoopWithAdapter(ctx, "crash-loop", "claude_code", "maker", dir, "do a thing", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}

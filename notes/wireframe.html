@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Algedonia — Loop Inspector</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --surface: #0f1117;
+    --surface-raised: #1a1d27;
+    --surface-sidebar: #13151d;
+    --surface-panel: #161822;
+    --terminal-bg: #0d0d0d;
+    --border: #2a2d3a;
+    --border-soft: #1f2230;
+    --fg: #e2e4ea;
+    --fg-secondary: #9ca0b0;
+    --fg-muted: #5c6070;
+    --accent: #6366f1;
+    --status-green: #22c55e;
+    --status-red: #ef4444;
+    --status-orange: #f97316;
+    --status-yellow: #eab308;
+    --status-blue: #3b82f6;
+    --status-cyan: #06b6d4;
+    --status-purple: #a855f7;
+    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  html, body { height: 100%; overflow: hidden; background: var(--surface); color: var(--fg); font-family: var(--font-ui); font-size: 13px; line-height: 1.45; }
+
+  #app {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: 1fr auto;
+    height: 100vh;
+  }
+
+  /* ---- STATUS BAR (bottom, spans full width) ---- */
+  .status-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 6px;
+    background: var(--surface-sidebar);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--fg-muted);
+    flex-shrink: 0;
+    user-select: none;
+    gap: 2px;
+  }
+  .status-bar-right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .status-item {
+    display: flex; align-items: center; gap: 4px; cursor: default;
+    padding: 2px 7px; border-radius: 3px; transition: background 0.1s;
+  }
+  .status-item:hover { background: var(--surface-raised); color: var(--fg-secondary); }
+  .status-item.clickable { cursor: pointer; }
+
+  /* Presence popover */
+  .presence-trigger { position: relative; }
+  .presence-popover {
+    display: none; position: absolute; bottom: 28px; left: 0;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 0; min-width: 150px; z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .presence-popover.open { display: block; }
+  .presence-popover-item {
+    display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 12px; color: var(--fg-secondary);
+  }
+  .presence-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .presence-dot.online { background: var(--status-green); }
+  .presence-dot.away { background: var(--status-yellow); }
+
+  /* ---- SIDEBAR ---- */
+  .sidebar {
+    background: var(--surface-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-top { padding: 16px 12px; flex-shrink: 0; }
+  .logo { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 20px; color: var(--fg); }
+  .nav-links { display: flex; flex-direction: column; gap: 2px; }
+  .nav-link {
+    display: block; padding: 7px 10px; border-radius: 6px; color: var(--fg-secondary);
+    text-decoration: none; font-size: 13px; cursor: pointer; transition: background 0.1s;
+  }
+  .nav-link:hover { background: var(--surface-raised); color: var(--fg); }
+  .nav-link.active { background: var(--surface-raised); color: var(--fg); font-weight: 500; }
+
+  /* (collab/presence moved to status bar) */
+
+  /* ---- INSPECTOR (2 columns) ---- */
+  .inspector {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    overflow: hidden;
+  }
+
+  /* ---- DAG SECTION (inside sidebar) ---- */
+  .dag-section {
+    flex: 1;
+    overflow-y: auto;
+    border-top: 1px solid var(--border-soft);
+  }
+  .dag-header { padding: 12px 12px 8px; }
+  .dag-header h2 { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+  .dag-progress { font-size: 11px; color: var(--fg-muted); }
+  .dag-tree { padding: 4px 8px; }
+
+  .tree-node { position: relative; }
+  .tree-children { position: relative; padding-left: 20px; }
+  .tree-children::before {
+    content: ""; position: absolute; left: 14px; top: 0; bottom: 12px;
+    width: 1px; background: var(--border);
+  }
+  .tree-children .tree-node { position: relative; }
+  .tree-children .tree-node::before {
+    content: ""; position: absolute; left: -6px; top: 15px;
+    width: 12px; height: 1px; background: var(--border);
+  }
+
+  .loop-node {
+    display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px;
+    cursor: pointer; transition: background 0.1s; font-size: 12px; position: relative;
+    border-left: 3px solid transparent; user-select: none;
+  }
+  .loop-node:hover { background: var(--surface-raised); }
+  .loop-node.selected { background: var(--surface-raised); border-left-color: var(--accent); }
+
+  .status-icon { font-size: 12px; flex-shrink: 0; width: 16px; text-align: center; }
+  .loop-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-secondary); }
+  .loop-node.selected .loop-title { color: var(--fg); }
+  .attempt-badge { font-size: 10px; color: var(--fg-muted); flex-shrink: 0; }
+  .gate-icon { font-size: 10px; color: var(--status-cyan); flex-shrink: 0; }
+
+  .status-passed .status-icon { color: var(--status-green); }
+  .status-running_maker .status-icon, .status-running_checker .status-icon { color: var(--status-blue); }
+  .status-pending .status-icon { color: var(--fg-muted); }
+  .status-pending_approval .status-icon { color: var(--status-cyan); }
+  .status-escalated .status-icon { color: var(--status-orange); }
+  .status-failed .status-icon { color: var(--status-red); }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .status-running_maker .status-icon, .status-running_checker .status-icon { animation: pulse 1.5s ease-in-out infinite; }
+
+  /* ---- TERMINAL PANEL ---- */
+  .terminal-panel {
+    display: flex; flex-direction: column; background: var(--terminal-bg); overflow: hidden;
+  }
+  .terminal-header {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
+  }
+  .terminal-title { font-size: 12px; font-weight: 500; flex: 1; }
+  .role-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .role-badge.maker { background: rgba(99,102,241,0.2); color: var(--accent); }
+  .role-badge.checker { background: rgba(234,179,8,0.2); color: var(--status-yellow); }
+  .status-badge { font-size: 10px; color: var(--fg-muted); }
+
+  .terminal-body { flex: 1; overflow-y: auto; padding: 12px 14px; }
+  .terminal-body pre {
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap;
+    word-wrap: break-word; color: #c8c8c8;
+  }
+  .t-cmd { color: #7dd3fc; }
+  .t-green { color: #4ade80; }
+  .t-red { color: #f87171; }
+  .t-yellow { color: #fbbf24; }
+  .t-cyan { color: #22d3ee; }
+  .t-dim { color: #6b7280; }
+  .t-bold { font-weight: 600; color: #e2e4ea; }
+  .t-comment { color: #6b7280; font-style: italic; }
+
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  .cursor { animation: blink 1s step-end infinite; color: #e2e4ea; }
+
+  .terminal-input {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    border-top: 1px solid var(--border-soft); flex-shrink: 0; background: rgba(255,255,255,0.02);
+  }
+  .terminal-input span { color: var(--fg-muted); font-family: var(--font-mono); font-size: 12px; }
+  .terminal-input input {
+    flex: 1; background: none; border: none; color: var(--fg); font-family: var(--font-mono);
+    font-size: 12px; outline: none;
+  }
+  .terminal-input input::placeholder { color: var(--fg-muted); }
+
+  .approval-bar {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: rgba(6,182,212,0.08); border-top: 1px solid rgba(6,182,212,0.2); flex-shrink: 0;
+  }
+  .approval-bar .approval-text { flex: 1; font-size: 12px; color: var(--status-cyan); }
+  .btn {
+    padding: 5px 14px; border-radius: 5px; border: none; font-size: 12px; font-weight: 500;
+    cursor: pointer; font-family: var(--font-ui); transition: opacity 0.1s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-approve { background: var(--status-green); color: #fff; }
+  .btn-reject { background: var(--status-red); color: #fff; }
+
+  /* ---- CONTEXT PANEL (right) ---- */
+  .context-panel {
+    background: var(--surface-panel); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .tab-bar {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    background: var(--surface);
+  }
+  .tab {
+    padding: 9px 16px; font-size: 12px; color: var(--fg-muted); background: none;
+    border: none; border-bottom: 2px solid transparent; cursor: pointer;
+    font-family: var(--font-ui); transition: color 0.1s;
+  }
+  .tab:hover { color: var(--fg-secondary); }
+  .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+  .tab-content { flex: 1; overflow-y: auto; padding: 14px; display: none; }
+  .tab-content.visible { display: block; }
+
+  /* Diff */
+  .diff-file-header { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); padding: 6px 0; border-bottom: 1px solid var(--border-soft); margin-bottom: 8px; }
+  .diff-hunk { font-family: var(--font-mono); font-size: 11px; color: var(--status-cyan); padding: 4px 0; }
+  .diff-line { font-family: var(--font-mono); font-size: 11px; line-height: 1.7; padding: 0 8px; border-radius: 2px; white-space: pre-wrap; }
+  .diff-add { background: rgba(34,197,94,0.1); color: #4ade80; }
+  .diff-del { background: rgba(239,68,68,0.1); color: #f87171; }
+  .diff-ctx { color: var(--fg-secondary); }
+
+  /* Rubric */
+  .rubric-note { font-size: 11px; color: var(--fg-muted); margin-bottom: 10px; font-style: italic; }
+  .rubric-editor {
+    width: 100%; flex: 1; background: var(--surface); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px; font-family: var(--font-mono); font-size: 12px;
+    line-height: 1.6; resize: none; outline: none; min-height: 300px;
+  }
+  .rubric-editor:focus { border-color: var(--accent); }
+
+  /* Verdict */
+  .verdict-section { margin-bottom: 20px; }
+  .verdict-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-muted); margin-bottom: 8px; }
+  .gate-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .badge.pass { background: rgba(34,197,94,0.15); color: var(--status-green); }
+  .badge.fail { background: rgba(239,68,68,0.15); color: var(--status-red); }
+
+  .check-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .check-name { flex: 1; color: var(--fg-secondary); }
+  .check-weight { font-size: 10px; color: var(--fg-muted); width: 28px; }
+  .score-bar { width: 60px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .score-fill.high { background: var(--status-green); }
+  .score-fill.mid { background: var(--status-yellow); }
+  .score-fill.low { background: var(--status-red); }
+  .score-value { font-size: 11px; color: var(--fg-muted); width: 28px; text-align: right; font-family: var(--font-mono); }
+
+  .threshold-container { margin-top: 8px; }
+  .threshold-bar { position: relative; height: 10px; background: var(--border); border-radius: 5px; overflow: visible; margin: 8px 0; }
+  .threshold-fill { height: 100%; border-radius: 5px; background: var(--status-green); }
+  .threshold-marker { position: absolute; top: -3px; width: 2px; height: 16px; background: var(--fg); border-radius: 1px; }
+  .threshold-label { font-size: 12px; color: var(--fg-secondary); }
+
+  /* History */
+  .attempt-entry { border-bottom: 1px solid var(--border-soft); padding: 10px 0; }
+  .attempt-entry:last-child { border-bottom: none; }
+  .attempt-header { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .attempt-number { font-weight: 600; color: var(--fg); width: 24px; }
+  .attempt-role { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 500; text-transform: uppercase; }
+  .attempt-role.maker { background: rgba(99,102,241,0.15); color: var(--accent); }
+  .attempt-role.checker { background: rgba(234,179,8,0.15); color: var(--status-yellow); }
+  .attempt-meta { flex: 1; text-align: right; font-size: 11px; color: var(--fg-muted); }
+  .verdict-pill { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+  .verdict-pill.pass { background: rgba(34,197,94,0.15); color: var(--status-green); }
+  .verdict-pill.fail { background: rgba(239,68,68,0.15); color: var(--status-red); }
+  .attempt-detail { margin-top: 6px; padding: 8px; background: var(--surface); border-radius: 4px; font-size: 11px; color: var(--fg-secondary); line-height: 1.5; }
+
+  /* Overview */
+  .overview-section { margin-bottom: 20px; }
+  .overview-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-muted); margin-bottom: 8px; }
+  .overview-goal { font-size: 13px; color: var(--fg); line-height: 1.6; }
+  .overview-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+  .overview-meta-item { font-size: 11px; color: var(--fg-secondary); }
+  .overview-meta-item span { color: var(--fg-muted); }
+  .overview-files { list-style: none; padding: 0; }
+  .overview-files li { font-family: var(--font-mono); font-size: 11px; color: var(--fg-secondary); padding: 2px 0; }
+  .overview-files li::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-muted); margin-right: 8px; vertical-align: middle; }
+  .overview-deps { font-size: 12px; color: var(--fg-secondary); line-height: 1.6; }
+  .overview-deps code { font-family: var(--font-mono); font-size: 11px; background: var(--surface); padding: 1px 5px; border-radius: 3px; }
+  .result-divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  .result-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .result-header h3 { margin-bottom: 0; }
+
+  /* Empty state */
+  .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--fg-muted); font-size: 12px; font-style: italic; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="logo">Algedonia</div>
+      <nav class="nav-links">
+        <a class="nav-link" href="#">Tickets</a>
+        <a class="nav-link active" href="#">Loop Inspector</a>
+        <a class="nav-link" href="#">Monitor</a>
+      </nav>
+    </div>
+    <div class="dag-section">
+      <div class="dag-header">
+        <h2>Add JWT authentication to API</h2>
+        <span class="dag-progress" id="dag-progress">2/6 passed</span>
+      </div>
+      <div class="dag-tree" id="dag-tree"></div>
+    </div>
+  </aside>
+
+  <!-- INSPECTOR -->
+  <div class="inspector">
+    <!-- TERMINAL PANEL -->
+    <section class="terminal-panel">
+      <div class="terminal-header">
+        <span class="terminal-title" id="terminal-title">Add login endpoint</span>
+        <span class="role-badge maker" id="role-badge">maker</span>
+        <span class="status-badge" id="status-badge">running</span>
+      </div>
+      <div class="terminal-body">
+        <pre id="terminal-content"></pre>
+      </div>
+      <div class="terminal-input" id="terminal-input">
+        <span>$</span>
+        <input type="text" placeholder="Type to send input to agent…" id="stdin-input" />
+      </div>
+      <div class="approval-bar" id="approval-bar" style="display:none;">
+        <span class="approval-text">Checker passed. Manual gate active — awaiting your approval.</span>
+        <button class="btn btn-reject" onclick="handleReject()">Reject</button>
+        <button class="btn btn-approve" onclick="handleApprove()">Approve</button>
+      </div>
+    </section>
+
+    <!-- CONTEXT PANEL -->
+    <section class="context-panel">
+      <div class="tab-bar">
+        <button class="tab active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+        <button class="tab" data-tab="rubric" onclick="switchTab('rubric')">Rubric</button>
+        <button class="tab" data-tab="diff" onclick="switchTab('diff')">Diff</button>
+        <button class="tab" data-tab="history" onclick="switchTab('history')">History</button>
+      </div>
+      <div class="tab-content visible" id="tab-overview"></div>
+      <div class="tab-content" id="tab-rubric"></div>
+      <div class="tab-content" id="tab-diff"></div>
+      <div class="tab-content" id="tab-history"></div>
+    </section>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <span class="status-item clickable" onclick="toggleSettings()" title="Settings">⚙</span>
+    <div class="presence-trigger">
+      <span class="status-item clickable" onclick="togglePresence()" title="3 online">
+        <span class="presence-dot online"></span> 3
+      </span>
+      <div class="presence-popover" id="presence-popover">
+        <div class="presence-popover-item"><span class="presence-dot online"></span> Ada <span style="color:var(--fg-muted); margin-left:auto; font-size:10px;">you</span></div>
+        <div class="presence-popover-item"><span class="presence-dot online"></span> Ben</div>
+        <div class="presence-popover-item"><span class="presence-dot away"></span> Cara</div>
+      </div>
+    </div>
+    <span class="status-item">◉ 3 loops running</span>
+    <span class="status-item">⚡ Circuit: closed</span>
+    <div class="status-bar-right">
+      <span class="status-item">Loop 3 · attempt 1/3</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- DATA ----
+const LOOPS = [
+  { id: "loop-1", title: "Define JWT schema & config", status: "passed", depth: 0, attempt: 2, maxAttempts: 3, manualGate: false, filesLocked: ["lib/auth/", "config/"], role: "checker" },
+  { id: "loop-2", title: "Implement token signing & verification", status: "passed", depth: 1, attempt: 1, maxAttempts: 3, manualGate: false, filesLocked: ["lib/auth/token.ex"], role: "checker" },
+  { id: "loop-3", title: "Add login endpoint", status: "running_maker", depth: 1, attempt: 1, maxAttempts: 3, manualGate: false, filesLocked: ["lib/api/auth_controller.ex", "lib/api/router.ex"], role: "maker" },
+  { id: "loop-4", title: "Auth middleware (plug)", status: "pending_approval", depth: 2, attempt: 1, maxAttempts: 3, manualGate: true, filesLocked: ["lib/api/plugs/"], role: "checker" },
+  { id: "loop-5", title: "Refresh token rotation", status: "pending", depth: 2, attempt: 0, maxAttempts: 3, manualGate: false, filesLocked: [], role: "maker" },
+  { id: "loop-6", title: "Integration tests for auth flow", status: "pending", depth: 3, attempt: 0, maxAttempts: 3, manualGate: false, filesLocked: [], role: "maker" },
+];
+
+const LOOP_GOALS = {
+  "loop-1": {
+    description: "Create the database migration for JWT tokens and add JWT configuration (secret, TTL, refresh TTL) to the application config. This is the foundation that all other auth loops depend on.",
+    dependsOn: [],
+    acceptanceCriteria: ["JWT tokens table exists with jti, user_id, expires_at columns", "Config includes secret key, access token TTL (24h), refresh token TTL (7d)", "Migration is reversible"],
+  },
+  "loop-2": {
+    description: "Implement the Token module with sign/1 and verify/1 functions using Phoenix.Token. Tokens should encode user claims and respect the configured TTL for expiration.",
+    dependsOn: ["Define JWT schema & config"],
+    acceptanceCriteria: ["Token.sign/1 returns a signed JWT with user claims", "Token.verify/1 validates signature and checks expiration", "Expired tokens are rejected"],
+  },
+  "loop-3": {
+    description: "Add a POST /api/auth/login endpoint that accepts email and password, authenticates the user, and returns a signed JWT token. Return 401 with an error message on invalid credentials.",
+    dependsOn: ["Define JWT schema & config"],
+    acceptanceCriteria: ["POST /api/auth/login returns token on valid credentials", "Returns 401 on invalid credentials", "Response includes user id and email"],
+  },
+  "loop-4": {
+    description: "Create a Plug that extracts the Bearer token from the Authorization header, verifies it, and sets current_user_id on the connection. Halt with 401 if the token is missing or invalid.",
+    dependsOn: ["Implement token signing & verification", "Add login endpoint"],
+    acceptanceCriteria: ["Plug halts with 401 on missing/invalid token", "Plug assigns current_user_id on valid token", "Plug is composable in router pipelines"],
+  },
+  "loop-5": {
+    description: "Implement refresh token rotation: when a refresh token is used, issue a new access token and a new refresh token, and revoke the old refresh token. Prevent reuse of revoked tokens.",
+    dependsOn: ["Implement token signing & verification"],
+    acceptanceCriteria: ["Refresh endpoint issues new access + refresh tokens", "Old refresh token is revoked after use", "Revoked tokens cannot be reused"],
+  },
+  "loop-6": {
+    description: "Write end-to-end integration tests covering the full auth flow: registration → login → authenticated request → token refresh → expired token rejection.",
+    dependsOn: ["Auth middleware (plug)", "Refresh token rotation"],
+    acceptanceCriteria: ["Full login → use token → refresh flow tested", "Expired and revoked token rejection tested", "All tests pass in CI"],
+  },
+};
+
+const STATUS_ICONS = {
+  pending: "○", passed: "●", running_maker: "◉", running_checker: "◉",
+  failed: "✕", escalated: "▲", needs_clarification: "?", pending_approval: "◈", skipped: "—"
+};
+
+const TERMINAL = {
+  "loop-1": `<span class="t-dim">── Loop 1: Define JWT schema & config (attempt 2/3) ──</span>
+
+<span class="t-cmd">$ mix ecto.gen.migration add_jwt_tokens</span>
+* creating priv/repo/migrations/20260224120000_add_jwt_tokens.exs
+
+<span class="t-cmd">$ cat priv/repo/migrations/20260224120000_add_jwt_tokens.exs</span>
+<span class="t-green">defmodule Algedonia.Repo.Migrations.AddJwtTokens do</span>
+<span class="t-green">  use Ecto.Migration</span>
+<span class="t-green"></span>
+<span class="t-green">  def change do</span>
+<span class="t-green">    create table(:jwt_tokens, primary_key: false) do</span>
+<span class="t-green">      add :id, :binary_id, primary_key: true</span>
+<span class="t-green">      add :user_id, references(:users, type: :binary_id)</span>
+<span class="t-green">      add :jti, :string, null: false</span>
+<span class="t-green">      add :expires_at, :utc_datetime, null: false</span>
+<span class="t-green">      add :revoked_at, :utc_datetime</span>
+<span class="t-green">      timestamps()</span>
+<span class="t-green">    end</span>
+<span class="t-green">    create unique_index(:jwt_tokens, [:jti])</span>
+<span class="t-green">  end</span>
+<span class="t-green">end</span>
+
+<span class="t-cmd">$ mix ecto.migrate</span>
+<span class="t-green">Generated algedonia app</span>
+<span class="t-green">14:20:01.234 [info] == Running migration 20260224120000</span>
+<span class="t-green">14:20:01.280 [info] == Migrated 20260224120000 in 0.0s</span>
+
+<span class="t-dim">Adding JWT config to config/config.exs...</span>
+<span class="t-green">✓ Schema migration created and applied</span>
+<span class="t-green">✓ JWT config added (secret, TTL: 24h, refresh TTL: 7d)</span>
+<span class="t-green">✓ All existing tests pass</span>
+
+<span class="t-bold">Done. 3 files changed, 47 insertions.</span>`,
+
+  "loop-2": `<span class="t-dim">── Loop 2: Implement token signing & verification (attempt 1/3) ──</span>
+
+<span class="t-cmd">$ touch lib/auth/token.ex</span>
+
+<span class="t-dim">Writing lib/auth/token.ex...</span>
+<span class="t-green">defmodule Algedonia.Auth.Token do</span>
+<span class="t-green">  @moduledoc "JWT token signing and verification."</span>
+<span class="t-green"></span>
+<span class="t-green">  @signing_salt "algedonia_auth"</span>
+<span class="t-green">  @token_ttl 86_400  # 24 hours</span>
+<span class="t-green"></span>
+<span class="t-green">  def sign(claims) do</span>
+<span class="t-green">    token = Phoenix.Token.sign(</span>
+<span class="t-green">      AlgedoniaWeb.Endpoint,</span>
+<span class="t-green">      @signing_salt,</span>
+<span class="t-green">      claims</span>
+<span class="t-green">    )</span>
+<span class="t-green">    {:ok, token}</span>
+<span class="t-green">  end</span>
+<span class="t-green"></span>
+<span class="t-green">  def verify(token) do</span>
+<span class="t-green">    Phoenix.Token.verify(</span>
+<span class="t-green">      AlgedoniaWeb.Endpoint,</span>
+<span class="t-green">      @signing_salt,</span>
+<span class="t-green">      token,</span>
+<span class="t-green">      max_age: @token_ttl</span>
+<span class="t-green">    )</span>
+<span class="t-green">  end</span>
+<span class="t-green">end</span>
+
+<span class="t-cmd">$ mix test test/auth/token_test.exs</span>
+<span class="t-green">....</span>
+<span class="t-green">Finished in 0.1 seconds (0.08s async, 0.02s sync)</span>
+<span class="t-green">4 tests, 0 failures</span>
+
+<span class="t-bold">Done. 2 files changed, 38 insertions.</span>`,
+
+  "loop-3": `<span class="t-dim">── Loop 3: Add login endpoint (attempt 1/3) ──</span>
+
+<span class="t-cmd">$ git checkout -b loop-3/add-login-endpoint</span>
+Switched to a new branch 'loop-3/add-login-endpoint'
+
+<span class="t-dim">Reading existing router at lib/api/router.ex...</span>
+<span class="t-dim">Planning: need AuthController with login/2 action, wire into router.</span>
+
+<span class="t-cmd">$ touch lib/api/auth_controller.ex</span>
+
+<span class="t-dim">Writing lib/api/auth_controller.ex...</span>
+<span class="t-green">defmodule AlgedoniaWeb.AuthController do</span>
+<span class="t-green">  use AlgedoniaWeb, :controller</span>
+<span class="t-green"></span>
+<span class="t-green">  alias Algedonia.Auth</span>
+<span class="t-green">  alias Algedonia.Auth.Token</span>
+<span class="t-green"></span>
+<span class="t-green">  def login(conn, %{"email" => email, "password" => password}) do</span>
+<span class="t-green">    case Auth.authenticate(email, password) do</span>
+<span class="t-green">      {:ok, user} -></span>
+<span class="t-green">        {:ok, token} = Token.sign(%{user_id: user.id})</span>
+<span class="t-green">        json(conn, %{token: token, user: %{id: user.id, email: user.email}})</span>
+<span class="t-green"></span>
+<span class="t-green">      {:error, :invalid_credentials} -></span>
+<span class="t-green">        conn</span>
+<span class="t-green">        |> put_status(:unauthorized)</span>
+<span class="t-green">        |> json(%{error: "Invalid email or password"})</span>
+<span class="t-green">    end</span>
+<span class="t-green">  end</span>
+<span class="t-green">end</span>
+
+<span class="t-dim">Updating lib/api/router.ex to add /auth/login route...</span>
+<span class="t-cyan">  scope "/api", AlgedoniaWeb do</span>
+<span class="t-cyan">    pipe_through :api</span>
+<span class="t-green">+   post "/auth/login", AuthController, :login</span>
+<span class="t-cyan">  end</span>
+
+<span class="t-cmd">$ mix compile --warnings-as-errors</span>
+<span class="t-green">Compiled 2 files without errors or warnings</span>
+
+<span class="t-dim">Writing test/api/auth_controller_test.exs...</span>
+<span class="t-cmd">$ mix test test/api/auth_controller_test.exs</span>
+<span class="t-green">...</span>
+<span class="t-green">Finished in 0.3 seconds</span>
+<span class="t-green">3 tests, 0 failures</span>
+<span class="cursor">█</span>`,
+
+  "loop-4": `<span class="t-dim">── Loop 4: Auth middleware plug (attempt 1/3) ──</span>
+<span class="t-dim">── Checker run ──</span>
+
+<span class="t-cmd">$ mix compile --warnings-as-errors</span>
+<span class="t-green">Compiled 0 files (0 errors, 0 warnings)</span>
+
+<span class="t-cmd">$ mix test</span>
+<span class="t-green">....................…</span>
+<span class="t-green">42 tests, 0 failures</span>
+
+<span class="t-cmd">$ mix credo --strict</span>
+<span class="t-green">Analysis took 0.4s (0.1s to load, 0.3s running 70 checks)</span>
+<span class="t-green">No issues found.</span>
+
+<span class="t-dim">Evaluating diff against rubric...</span>
+<span class="t-dim">  ✓ Hard gate: typechecks pass</span>
+<span class="t-dim">  ✓ Hard gate: no critical security findings</span>
+<span class="t-dim">  ✓ Weighted: all existing tests pass (1.0)</span>
+<span class="t-dim">  ✓ Weighted: new code has test coverage (1.0)</span>
+<span class="t-dim">  ✓ Weighted: no lint warnings (1.0)</span>
+<span class="t-dim">  ✓ Acceptance: plug halts on missing/invalid token</span>
+<span class="t-dim">  ✓ Acceptance: plug passes valid token through</span>
+
+<span class="t-green">Verdict: PASS (score: 0.95, threshold: 0.80)</span>
+<span class="t-yellow">⚠ Manual gate active — awaiting human approval.</span>
+
+<span class="t-bold">Checker complete. Awaiting approval.</span>`,
+
+  "loop-5": `<span class="t-dim">── Loop 5: Refresh token rotation ──</span>
+<span class="t-comment">Pending. Blocked by: Loop 2 (passed), Loop 4 (awaiting approval).</span>`,
+
+  "loop-6": `<span class="t-dim">── Loop 6: Integration tests for auth flow ──</span>
+<span class="t-comment">Pending. Blocked by: Loop 4 (awaiting approval), Loop 5 (pending).</span>`,
+};
+
+const DIFFS = {
+  "loop-1": `<div class="diff-file-header">--- /dev/null\n+++ b/priv/repo/migrations/20260224120000_add_jwt_tokens.exs</div>
+<div class="diff-hunk">@@ -0,0 +1,16 @@</div>
+<div class="diff-line diff-add">+defmodule Algedonia.Repo.Migrations.AddJwtTokens do</div>
+<div class="diff-line diff-add">+  use Ecto.Migration</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+  def change do</div>
+<div class="diff-line diff-add">+    create table(:jwt_tokens, primary_key: false) do</div>
+<div class="diff-line diff-add">+      add :id, :binary_id, primary_key: true</div>
+<div class="diff-line diff-add">+      add :user_id, references(:users, type: :binary_id)</div>
+<div class="diff-line diff-add">+      add :jti, :string, null: false</div>
+<div class="diff-line diff-add">+      add :expires_at, :utc_datetime, null: false</div>
+<div class="diff-line diff-add">+      add :revoked_at, :utc_datetime</div>
+<div class="diff-line diff-add">+      timestamps()</div>
+<div class="diff-line diff-add">+    end</div>
+<div class="diff-line diff-add">+    create unique_index(:jwt_tokens, [:jti])</div>
+<div class="diff-line diff-add">+  end</div>
+<div class="diff-line diff-add">+end</div>
+<div class="diff-file-header" style="margin-top:12px;">--- a/config/config.exs\n+++ b/config/config.exs</div>
+<div class="diff-hunk">@@ -12,3 +12,8 @@</div>
+<div class="diff-line diff-ctx"> config :algedonia, AlgedoniaWeb.Endpoint,</div>
+<div class="diff-line diff-ctx">   url: [host: "localhost"]</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+config :algedonia, Algedonia.Auth.Token,</div>
+<div class="diff-line diff-add">+  secret: System.get_env("JWT_SECRET"),</div>
+<div class="diff-line diff-add">+  ttl: 86_400,</div>
+<div class="diff-line diff-add">+  refresh_ttl: 604_800</div>`,
+
+  "loop-3": `<div class="diff-file-header">--- /dev/null\n+++ b/lib/api/auth_controller.ex</div>
+<div class="diff-hunk">@@ -0,0 +1,19 @@</div>
+<div class="diff-line diff-add">+defmodule AlgedoniaWeb.AuthController do</div>
+<div class="diff-line diff-add">+  use AlgedoniaWeb, :controller</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+  alias Algedonia.Auth</div>
+<div class="diff-line diff-add">+  alias Algedonia.Auth.Token</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+  def login(conn, %{"email" => email, "password" => password}) do</div>
+<div class="diff-line diff-add">+    case Auth.authenticate(email, password) do</div>
+<div class="diff-line diff-add">+      {:ok, user} -></div>
+<div class="diff-line diff-add">+        {:ok, token} = Token.sign(%{user_id: user.id})</div>
+<div class="diff-line diff-add">+        json(conn, %{token: token, user: %{id: user.id, email: user.email}})</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+      {:error, :invalid_credentials} -></div>
+<div class="diff-line diff-add">+        conn</div>
+<div class="diff-line diff-add">+        |> put_status(:unauthorized)</div>
+<div class="diff-line diff-add">+        |> json(%{error: "Invalid email or password"})</div>
+<div class="diff-line diff-add">+    end</div>
+<div class="diff-line diff-add">+  end</div>
+<div class="diff-line diff-add">+end</div>
+<div class="diff-file-header" style="margin-top:12px;">--- a/lib/api/router.ex\n+++ b/lib/api/router.ex</div>
+<div class="diff-hunk">@@ -8,6 +8,7 @@</div>
+<div class="diff-line diff-ctx">   scope "/api", AlgedoniaWeb do</div>
+<div class="diff-line diff-ctx">     pipe_through :api</div>
+<div class="diff-line diff-add">+    post "/auth/login", AuthController, :login</div>
+<div class="diff-line diff-ctx">   end</div>`,
+
+  "loop-4": `<div class="diff-file-header">--- /dev/null\n+++ b/lib/api/plugs/require_auth.ex</div>
+<div class="diff-hunk">@@ -0,0 +1,28 @@</div>
+<div class="diff-line diff-add">+defmodule AlgedoniaWeb.Plugs.RequireAuth do</div>
+<div class="diff-line diff-add">+  import Plug.Conn</div>
+<div class="diff-line diff-add">+  alias Algedonia.Auth.Token</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+  def init(opts), do: opts</div>
+<div class="diff-line diff-add">+</div>
+<div class="diff-line diff-add">+  def call(conn, _opts) do</div>
+<div class="diff-line diff-add">+    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),</div>
+<div class="diff-line diff-add">+         {:ok, claims} <- Token.verify(token) do</div>
+<div class="diff-line diff-add">+      assign(conn, :current_user_id, claims.user_id)</div>
+<div class="diff-line diff-add">+    else</div>
+<div class="diff-line diff-add">+      _ -></div>
+<div class="diff-line diff-add">+        conn</div>
+<div class="diff-line diff-add">+        |> put_status(:unauthorized)</div>
+<div class="diff-line diff-add">+        |> Phoenix.Controller.json(%{error: "Unauthorized"})</div>
+<div class="diff-line diff-add">+        |> halt()</div>
+<div class="diff-line diff-add">+    end</div>
+<div class="diff-line diff-add">+  end</div>
+<div class="diff-line diff-add">+end</div>`,
+};
+
+const RUBRICS = {
+  _default: `## Hard Gates
+- [ ] Typechecks pass (typecheck)
+- [ ] No critical security findings (security)
+
+## Weighted Checks
+- [ ] All existing tests pass (weight: 3) (deterministic)
+- [ ] New code has test coverage (weight: 2) (deterministic)
+- [ ] No lint warnings introduced (weight: 1) (static)
+
+## Threshold
+Weighted score >= 0.8
+
+## Options
+manual_gate: false`,
+
+  "loop-1": `## Hard Gates
+- [x] Typechecks pass (typecheck)
+- [x] No critical security findings (security)
+
+## Weighted Checks
+- [x] All existing tests pass (weight: 3) (deterministic)
+- [x] Migration is reversible (weight: 2) (deterministic)
+- [x] No lint warnings introduced (weight: 1) (static)
+
+## Acceptance Criteria
+- [x] JWT tokens table exists with jti, user_id, expires_at (semantic)
+- [x] Config includes secret, TTL, refresh TTL (semantic)
+
+## Threshold
+Weighted score >= 0.8
+
+## Options
+manual_gate: false`,
+
+  "loop-3": `## Hard Gates
+- [ ] Typechecks pass (typecheck)
+- [ ] No critical security findings (security)
+
+## Weighted Checks
+- [ ] All existing tests pass (weight: 3) (deterministic)
+- [ ] New code has test coverage (weight: 2) (deterministic)
+- [ ] No lint warnings introduced (weight: 1) (static)
+
+## Acceptance Criteria
+- [ ] POST /api/auth/login returns token on valid credentials (semantic)
+- [ ] Returns 401 on invalid credentials (semantic)
+- [ ] Response includes user id and email (semantic)
+
+## Threshold
+Weighted score >= 0.8
+
+## Options
+manual_gate: false`,
+
+  "loop-4": `## Hard Gates
+- [x] Typechecks pass (typecheck)
+- [x] No critical security findings (security)
+
+## Weighted Checks
+- [x] All existing tests pass (weight: 3) (deterministic)
+- [x] New code has test coverage (weight: 2) (deterministic)
+- [x] No lint warnings introduced (weight: 1) (static)
+
+## Acceptance Criteria
+- [x] Plug halts with 401 on missing/invalid token (semantic)
+- [x] Plug passes valid token and sets current_user_id (semantic)
+
+## Threshold
+Weighted score >= 0.8
+
+## Options
+manual_gate: true`,
+};
+
+const VERDICTS = {
+  "loop-1": {
+    hardGates: [{ name: "Typechecks pass", passed: true }, { name: "No critical security findings", passed: true }],
+    checks: [
+      { name: "All existing tests pass", weight: 3, score: 1.0 },
+      { name: "Migration is reversible", weight: 2, score: 1.0 },
+      { name: "No lint warnings", weight: 1, score: 1.0 },
+    ],
+    acceptance: [
+      { name: "JWT tokens table with required fields", passed: true },
+      { name: "Config includes secret, TTL, refresh TTL", passed: true },
+    ],
+    overall: 0.92, threshold: 0.80, verdict: "pass"
+  },
+  "loop-4": {
+    hardGates: [{ name: "Typechecks pass", passed: true }, { name: "No critical security findings", passed: true }],
+    checks: [
+      { name: "All existing tests pass", weight: 3, score: 1.0 },
+      { name: "New code has test coverage", weight: 2, score: 1.0 },
+      { name: "No lint warnings", weight: 1, score: 1.0 },
+    ],
+    acceptance: [
+      { name: "Plug halts on missing/invalid token", passed: true },
+      { name: "Plug passes valid token through", passed: true },
+    ],
+    overall: 0.95, threshold: 0.80, verdict: "pass"
+  },
+};
+
+const HISTORIES = {
+  "loop-1": [
+    { attempt: 1, role: "maker", duration: "1m 48s", tokens: "10.2k", verdict: null },
+    { attempt: 1, role: "checker", duration: "1m 05s", tokens: "7.1k", verdict: "fail", detail: "Migration is not reversible — uses execute() instead of create/drop. Config secret is hardcoded, not from env." },
+    { attempt: 2, role: "maker", duration: "2m 12s", tokens: "13.8k", verdict: null },
+    { attempt: 2, role: "checker", duration: "1m 22s", tokens: "8.4k", verdict: "pass", detail: null },
+  ],
+  "loop-3": [
+    { attempt: 1, role: "maker", duration: "2m 34s", tokens: "15.1k", verdict: null, detail: "In progress…" },
+  ],
+  "loop-4": [
+    { attempt: 1, role: "maker", duration: "1m 55s", tokens: "11.3k", verdict: null },
+    { attempt: 1, role: "checker", duration: "1m 40s", tokens: "9.8k", verdict: "pass", detail: "All gates passed. Score 0.95. Manual gate active." },
+  ],
+};
+
+// ---- STATE ----
+let selectedLoopId = "loop-3";
+let activeTab = "overview";
+
+// ---- RENDER ----
+// Build a tree structure from flat LOOPS + DEPENDENCIES
+function buildTree() {
+  // Find which loops are children of which (downstream depends on upstream)
+  const DEPENDENCIES = [
+    { upstream: "loop-1", downstream: "loop-2" },
+    { upstream: "loop-1", downstream: "loop-3" },
+    { upstream: "loop-2", downstream: "loop-4" },
+    { upstream: "loop-3", downstream: "loop-4" },
+    { upstream: "loop-2", downstream: "loop-5" },
+    { upstream: "loop-4", downstream: "loop-6" },
+    { upstream: "loop-5", downstream: "loop-6" },
+  ];
+
+  // For tree display, assign each loop to its primary parent (first upstream dep)
+  const parentMap = {};
+  const childrenMap = {};
+  DEPENDENCIES.forEach(d => {
+    if (!parentMap[d.downstream]) {
+      parentMap[d.downstream] = d.upstream;
+      if (!childrenMap[d.upstream]) childrenMap[d.upstream] = [];
+      childrenMap[d.upstream].push(d.downstream);
+    }
+  });
+
+  // Roots = loops with no parent
+  const roots = LOOPS.filter(l => !parentMap[l.id]).map(l => l.id);
+  return { roots, childrenMap };
+}
+
+function renderNode(loopId, childrenMap) {
+  const l = LOOPS.find(lo => lo.id === loopId);
+  const sel = l.id === selectedLoopId ? " selected" : "";
+  const icon = STATUS_ICONS[l.status] || "○";
+  const badge = l.attempt > 0 ? `<span class="attempt-badge">${l.attempt}/${l.maxAttempts}</span>` : "";
+  const gate = l.manualGate ? `<span class="gate-icon" title="Manual gate">⊞</span>` : "";
+  const children = childrenMap[loopId] || [];
+
+  let html = `<div class="tree-node">`;
+  html += `<div class="loop-node status-${l.status}${sel}" data-loop="${l.id}" onclick="selectLoop('${l.id}')" title="Files: ${l.filesLocked.join(', ') || 'none'}">`;
+  html += `<span class="status-icon">${icon}</span>`;
+  html += `<span class="loop-title">${l.title}</span>`;
+  html += gate + badge;
+  html += `</div>`;
+
+  if (children.length > 0) {
+    html += `<div class="tree-children">`;
+    children.forEach(cid => { html += renderNode(cid, childrenMap); });
+    html += `</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderDagTree() {
+  const tree = document.getElementById("dag-tree");
+  const { roots, childrenMap } = buildTree();
+  let html = "";
+  roots.forEach(rid => { html += renderNode(rid, childrenMap); });
+  tree.innerHTML = html;
+}
+
+function selectLoop(id) {
+  selectedLoopId = id;
+  const loop = LOOPS.find(l => l.id === id);
+
+  // Update DAG selection
+  document.querySelectorAll(".loop-node").forEach(n => n.classList.toggle("selected", n.dataset.loop === id));
+
+  // Terminal
+  document.getElementById("terminal-title").textContent = loop.title;
+  const roleBadge = document.getElementById("role-badge");
+  roleBadge.textContent = loop.role;
+  roleBadge.className = `role-badge ${loop.role}`;
+  document.getElementById("status-badge").textContent = loop.status.replace("_", " ");
+  document.getElementById("terminal-content").innerHTML = TERMINAL[id] || `<span class="t-dim">No terminal output.</span>`;
+
+  // Approval bar
+  const bar = document.getElementById("approval-bar");
+  bar.style.display = loop.status === "pending_approval" ? "flex" : "none";
+
+  // Stdin input
+  const input = document.getElementById("terminal-input");
+  const isRunning = loop.status === "running_maker" || loop.status === "running_checker";
+  input.querySelector("input").disabled = !isRunning;
+  input.querySelector("input").placeholder = isRunning ? "Type to send input to agent…" : "Agent not running";
+
+  // Right panel
+  renderOverview(id);
+  renderRubric(id);
+  renderDiff(id);
+  renderHistory(id);
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("visible"));
+  document.getElementById("tab-" + tab).classList.add("visible");
+}
+
+function renderDiff(id) {
+  const el = document.getElementById("tab-diff");
+  el.innerHTML = DIFFS[id] || `<div class="empty-state">No diff available yet.</div>`;
+}
+
+function renderRubric(id) {
+  const el = document.getElementById("tab-rubric");
+  const rubric = RUBRICS[id] || RUBRICS._default;
+  el.innerHTML = `<div class="rubric-note">Edits apply to the next attempt, not the current one.</div><textarea class="rubric-editor">${rubric}</textarea>`;
+}
+
+function renderOverview(id) {
+  const el = document.getElementById("tab-overview");
+  const loop = LOOPS.find(l => l.id === id);
+  const goal = LOOP_GOALS[id];
+  if (!goal) { el.innerHTML = `<div class="empty-state">No overview available.</div>`; return; }
+
+  let html = "";
+
+  // Goal
+  html += `<div class="overview-section"><h3>Goal</h3><div class="overview-goal">${goal.description}</div></div>`;
+
+  // Acceptance criteria
+  html += `<div class="overview-section"><h3>Acceptance Criteria</h3><ul class="overview-files">`;
+  goal.acceptanceCriteria.forEach(c => { html += `<li>${c}</li>`; });
+  html += `</ul></div>`;
+
+  // Dependencies
+  if (goal.dependsOn.length > 0) {
+    html += `<div class="overview-section"><h3>Depends On</h3><div class="overview-deps">`;
+    html += goal.dependsOn.map(d => `<code>${d}</code>`).join(", ");
+    html += `</div></div>`;
+  }
+
+  // Meta
+  html += `<div class="overview-section"><h3>Details</h3><div class="overview-meta">`;
+  html += `<span class="overview-meta-item"><span>Attempt:</span> ${loop.attempt}/${loop.maxAttempts}</span>`;
+  html += `<span class="overview-meta-item"><span>Gate:</span> ${loop.manualGate ? "Manual" : "Auto"}</span>`;
+  if (loop.filesLocked.length > 0) {
+    html += `<span class="overview-meta-item"><span>Files:</span> ${loop.filesLocked.join(", ")}</span>`;
+  }
+  html += `</div></div>`;
+
+  // Result (verdict) — only shown for loops that have been checked
+  const v = VERDICTS[id];
+  if (v) {
+    html += `<hr class="result-divider">`;
+    html += `<div class="result-header"><h3>Result</h3><span class="badge ${v.verdict}">${v.verdict.toUpperCase()}</span></div>`;
+
+    html += `<div class="verdict-section"><h3>Hard Gates</h3>`;
+    v.hardGates.forEach(g => {
+      const cls = g.passed ? "pass" : "fail";
+      html += `<div class="gate-row"><span class="badge ${cls}">${cls.toUpperCase()}</span> ${g.name}</div>`;
+    });
+    html += `</div>`;
+
+    html += `<div class="verdict-section"><h3>Weighted Checks</h3>`;
+    v.checks.forEach(c => {
+      const pct = Math.round(c.score * 100);
+      const cls = c.score >= 0.8 ? "high" : c.score >= 0.5 ? "mid" : "low";
+      html += `<div class="check-row"><span class="check-name">${c.name}</span><span class="check-weight">w:${c.weight}</span><div class="score-bar"><div class="score-fill ${cls}" style="width:${pct}%"></div></div><span class="score-value">${c.score.toFixed(1)}</span></div>`;
+    });
+    html += `</div>`;
+
+    if (v.acceptance) {
+      html += `<div class="verdict-section"><h3>Acceptance Criteria</h3>`;
+      v.acceptance.forEach(a => {
+        const cls = a.passed ? "pass" : "fail";
+        html += `<div class="gate-row"><span class="badge ${cls}">${cls.toUpperCase()}</span> ${a.name}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    const opct = Math.round(v.overall * 100);
+    const tpct = Math.round(v.threshold * 100);
+    html += `<div class="verdict-section"><h3>Overall</h3><div class="threshold-container"><div class="threshold-bar"><div class="threshold-fill" style="width:${opct}%"></div><div class="threshold-marker" style="left:${tpct}%"></div></div><div class="threshold-label">Score: ${v.overall.toFixed(2)} / Threshold: ${v.threshold.toFixed(2)}</div></div></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function renderHistory(id) {
+  const el = document.getElementById("tab-history");
+  const hist = HISTORIES[id];
+  if (!hist) { el.innerHTML = `<div class="empty-state">No attempts yet.</div>`; return; }
+
+  let html = "";
+  hist.forEach(h => {
+    const verdictPill = h.verdict ? `<span class="verdict-pill ${h.verdict}">${h.verdict.toUpperCase()}</span>` : "";
+    html += `<div class="attempt-entry"><div class="attempt-header"><span class="attempt-number">#${h.attempt}</span><span class="attempt-role ${h.role}">${h.role}</span>${verdictPill}<span class="attempt-meta">${h.duration} · ${h.tokens} tokens</span></div>`;
+    if (h.detail) html += `<div class="attempt-detail">${h.detail}</div>`;
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+}
+
+function handleApprove() {
+  const loop = LOOPS.find(l => l.id === selectedLoopId);
+  if (!loop) return;
+  loop.status = "passed";
+  renderDagTree();
+  selectLoop(selectedLoopId);
+  updateProgress();
+}
+
+function handleReject() {
+  const loop = LOOPS.find(l => l.id === selectedLoopId);
+  if (!loop) return;
+  loop.status = "running_maker";
+  loop.role = "maker";
+  loop.attempt += 1;
+  renderDagTree();
+  selectLoop(selectedLoopId);
+}
+
+function updateProgress() {
+  const passed = LOOPS.filter(l => l.status === "passed").length;
+  document.getElementById("dag-progress").textContent = `${passed}/${LOOPS.length} passed`;
+}
+
+function togglePresence() {
+  const pop = document.getElementById("presence-popover");
+  pop.classList.toggle("open");
+}
+
+function toggleSettings() { /* placeholder */ }
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".presence-trigger")) {
+    document.getElementById("presence-popover").classList.remove("open");
+  }
+});
+
+// ---- INIT ----
+document.addEventListener("DOMContentLoaded", () => {
+  renderDagTree();
+  selectLoop("loop-3");
+});
+</script>
+</body>
+</html>

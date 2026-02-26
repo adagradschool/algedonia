@@ -71,4 +71,26 @@ defmodule Algedonia.DaemonsTest do
       assert Daemons.get_daemon_by_name("nope") == nil
     end
   end
+
+  describe "find_online/0" do
+    test "returns first online daemon" do
+      Factory.insert_daemon!(%{name: "offline-1", status: :offline})
+      Factory.insert_daemon!(%{name: "online-1", status: :online})
+
+      assert {:ok, daemon} = Daemons.find_online()
+      assert daemon.name == "online-1"
+      assert daemon.status == :online
+    end
+
+    test "returns error when no daemons are online" do
+      Factory.insert_daemon!(%{name: "offline-1", status: :offline})
+      Factory.insert_daemon!(%{name: "unhealthy-1", status: :unhealthy})
+
+      assert {:error, :no_online_daemon} = Daemons.find_online()
+    end
+
+    test "returns error when no daemons exist" do
+      assert {:error, :no_online_daemon} = Daemons.find_online()
+    end
+  end
 end

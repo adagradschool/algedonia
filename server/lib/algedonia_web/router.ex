@@ -14,6 +14,11 @@ defmodule AlgedoniaWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :api_auth do
+    plug :accepts, ["json"]
+    plug AlgedoniaWeb.Plugs.ApiAuth
+  end
+
   scope "/", AlgedoniaWeb do
     pipe_through :browser
 
@@ -54,6 +59,21 @@ defmodule AlgedoniaWeb.Router do
 
     post "/auth/device/code", AuthController, :device_code
     post "/auth/device/poll", AuthController, :device_poll
+  end
+
+  scope "/api", AlgedoniaWeb.Api do
+    pipe_through :api_auth
+
+    get "/workspaces", WorkspaceController, :index
+
+    scope "/w/:workspace" do
+      pipe_through AlgedoniaWeb.Plugs.ApiWorkspace
+
+      resources "/tickets", TicketController, except: [:new, :edit]
+
+      resources "/tickets/:ticket_id/comments", CommentController,
+        only: [:index, :create, :update, :delete]
+    end
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

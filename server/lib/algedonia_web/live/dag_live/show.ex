@@ -21,6 +21,15 @@ defmodule AlgedoniaWeb.DagLive.Show do
     resolved: "#86EFAC"
   }
 
+  @friendly_statuses %{
+    passed: "Completed",
+    failed: "Failed",
+    running_maker: "Running (Maker)",
+    running_checker: "Running (Checker)",
+    needs_clarification: "Needs Clarification",
+    pending_approval: "Pending Approval"
+  }
+
   @impl true
   def mount(%{"ticket_id" => ticket_id}, _session, socket) do
     ticket = Tickets.get_ticket!(ticket_id)
@@ -66,6 +75,10 @@ defmodule AlgedoniaWeb.DagLive.Show do
   def status_color(status), do: Map.get(@status_colors, status, "#6B7280")
 
   @doc false
+  def friendly_status(status),
+    do: Map.get(@friendly_statuses, status, status |> to_string() |> String.capitalize())
+
+  @doc false
   def build_graph_data(loops, deps) do
     nodes =
       Enum.map(loops, fn loop ->
@@ -73,6 +86,7 @@ defmodule AlgedoniaWeb.DagLive.Show do
           id: loop.id,
           title: loop.title,
           status: to_string(loop.status),
+          status_label: friendly_status(loop.status),
           role: to_string(loop.role),
           color: Map.get(@status_colors, loop.status, "#6B7280")
         }

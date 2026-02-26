@@ -262,3 +262,62 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(115, 120, 135, 0.7);
 }
+
+/* Toast UI Editor (loop rubric) */
+.toastui-editor-defaultUI {
+  border: 1px solid var(--color-border) !important;
+  border-radius: 0.375rem;
+  background: var(--color-surface) !important;
+}
+.toastui-editor-defaultUI-toolbar {
+  background: var(--color-surface-panel) !important;
+  border-bottom: 1px solid var(--color-border-soft) !important;
+}
+.toastui-editor-toolbar-group {
+  border-color: var(--color-border-soft) !important;
+}
+.toastui-editor-defaultUI .toastui-editor-md-container,
+.toastui-editor-defaultUI .toastui-editor-ww-container {
+  background: var(--color-surface) !important;
+}
+.toastui-editor-contents,
+.toastui-editor-contents p,
+.toastui-editor-contents li {
+  color: var(--color-fg-secondary) !important;
+}
+.toastui-editor-md-tab-container {
+  background: var(--color-surface-panel) !important;
+  border-top: 1px solid var(--color-border-soft) !important;
+}
+.toastui-editor-md-tab-container .tab-item {
+  color: var(--color-fg-muted) !important;
+}
+.toastui-editor-md-tab-container .tab-item.active {
+  color: var(--color-fg) !important;
+}
+
+@keyframes indicator-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scaleY(1);
+  }
+}
+
+@keyframes run-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.run-panel-enter {
+  animation: run-panel-enter 220ms ease-out;
+}
