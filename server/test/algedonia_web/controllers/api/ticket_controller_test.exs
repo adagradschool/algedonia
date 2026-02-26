@@ -131,7 +131,7 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
           "ticket" => %{"title" => ""}
         })
 
-      assert %{"errors" => _} = json_response(conn, 422)
+      assert %{"errors" => %{"title" => ["Can't be blank"]}} = json_response(conn, 422)
     end
 
     test "returns 400 when ticket key is missing", %{conn: conn, workspace: workspace} do

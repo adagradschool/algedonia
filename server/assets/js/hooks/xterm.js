@@ -5,6 +5,10 @@ import "@xterm/xterm/css/xterm.css"
 const FIT_DEBOUNCE_MS = 60
 const MIN_RENDERABLE_WIDTH_PX = 24
 const MIN_RENDERABLE_HEIGHT_PX = 24
+const WS_RECONNECT_MS = 1200
+
+const FRAME_INPUT = 0x00
+const FRAME_CONTROL = 0x01
 
 function ensureTerminalMetricsStore() {
   if (!window.__algedoniaTerminalMetrics) {
@@ -13,8 +17,35 @@ function ensureTerminalMetricsStore() {
   return window.__algedoniaTerminalMetrics
 }
 
+function wsUrlWithParams(baseUrl, loopId, token) {
+  if (!baseUrl || !loopId || !token) return null
+
+  try {
+    const normalized =
+      baseUrl.startsWith("/")
+        ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}${baseUrl}`
+        : baseUrl
+    const url = new URL(normalized)
+    url.searchParams.set("loop_id", loopId)
+    url.searchParams.set("token", token)
+    return url.toString()
+  } catch (_) {
+    return null
+  }
+}
+
 const XTerm = {
   mounted() {
+    this.destroying = false
+    this.ws = null
+    this.wsConnected = false
+    this.reconnectTimer = null
+    this.encoder = new TextEncoder()
+
+    this.loopId = this.el.dataset.loopId || ""
+    this.terminalWsUrl = this.el.dataset.terminalWsUrl || ""
+    this.terminalWsToken = this.el.dataset.terminalWsToken || ""
+
     this.metrics = {
       writeErrors: 0,
       decodeErrors: 0,
@@ -23,6 +54,7 @@ const XTerm = {
       fitSkips: 0,
       fitErrors: 0,
       parserHardeningEnabled: false,
+      wsReconnects: 0,
     }
     ensureTerminalMetricsStore()[this.el.id] = this.metrics
 
@@ -42,7 +74,7 @@ const XTerm = {
         background: "#1a1b26",
         foreground: "#a9b1d6",
         cursor: "#c0caf5",
-        selectionBackground: "#33467c"
+        selectionBackground: "#33467c",
       },
       convertEol: true,
       scrollback: 10000,
@@ -54,18 +86,17 @@ const XTerm = {
     this.setupParserHardening()
     this.scheduleFit()
 
+    this.connectTerminalSocket()
+
     this.term.onData((data) => {
-      this.pushEvent("terminal_input", { data: btoa(data) })
+      const bytes = this.encoder.encode(data)
+      this.sendInputFrame(bytes)
     })
 
     this.resizeObserver = new ResizeObserver(() => {
       this.scheduleFit()
     })
     this.resizeObserver.observe(this.el)
-
-    this.handleEvent("terminal_data", ({ data }) => {
-      this.enqueueBase64Data(data)
-    })
 
     this.handleEvent("terminal_scrollback", ({ data }) => {
       this.enqueueBase64Data(data)
@@ -74,6 +105,83 @@ const XTerm = {
     this.handleEvent("terminal_ended", ({ exit_code }) => {
       this.flushWriteQueueNow()
       this.term.write(`\r\n\x1b[1;33m--- Process exited with code ${exit_code} ---\x1b[0m\r\n`)
+    })
+  },
+
+  connectTerminalSocket() {
+    const url = wsUrlWithParams(this.terminalWsUrl, this.loopId, this.terminalWsToken)
+    if (!url) {
+      return
+    }
+
+    try {
+      this.ws = new WebSocket(url)
+      this.ws.binaryType = "arraybuffer"
+    } catch (_) {
+      this.scheduleReconnect()
+      return
+    }
+
+    this.ws.onopen = () => {
+      this.wsConnected = true
+      this.sendResizeFrame()
+    }
+
+    this.ws.onmessage = (event) => {
+      const data = event.data
+      if (!(data instanceof ArrayBuffer)) return
+      const bytes = new Uint8Array(data)
+      if (bytes.length <= 1 || bytes[0] !== FRAME_INPUT) return
+      this.enqueueBytes(bytes.subarray(1))
+    }
+
+    this.ws.onclose = () => {
+      this.wsConnected = false
+      this.scheduleReconnect()
+    }
+
+    this.ws.onerror = () => {
+      this.wsConnected = false
+    }
+  },
+
+  scheduleReconnect() {
+    if (this.destroying) return
+    if (this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.metrics.wsReconnects += 1
+      this.connectTerminalSocket()
+    }, WS_RECONNECT_MS)
+  },
+
+  sendInputFrame(bytes) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !(bytes instanceof Uint8Array)) {
+      return false
+    }
+    const framed = new Uint8Array(bytes.length + 1)
+    framed[0] = FRAME_INPUT
+    framed.set(bytes, 1)
+    this.ws.send(framed)
+    return true
+  },
+
+  sendControlFrame(payload) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false
+    const controlBytes = this.encoder.encode(JSON.stringify(payload))
+    const framed = new Uint8Array(controlBytes.length + 1)
+    framed[0] = FRAME_CONTROL
+    framed.set(controlBytes, 1)
+    this.ws.send(framed)
+    return true
+  },
+
+  sendResizeFrame() {
+    if (!this.term) return
+    this.sendControlFrame({
+      type: "resize",
+      cols: this.term.cols,
+      rows: this.term.rows,
     })
   },
 
@@ -88,7 +196,7 @@ const XTerm = {
         { intermediates: "$", final: "p" },
         (params) => {
           const mode = (params && params[0]) || 0
-          this.pushEvent("terminal_input", { data: btoa(`\x1b[${mode};0$y`) })
+          this.sendInputFrame(this.encoder.encode(`\x1b[${mode};0$y`))
           return true
         }
       )
@@ -97,7 +205,7 @@ const XTerm = {
         { prefix: "?", intermediates: "$", final: "p" },
         (params) => {
           const mode = (params && params[0]) || 0
-          this.pushEvent("terminal_input", { data: btoa(`\x1b[?${mode};0$y`) })
+          this.sendInputFrame(this.encoder.encode(`\x1b[?${mode};0$y`))
           return true
         }
       )
@@ -132,9 +240,8 @@ const XTerm = {
     return buffer.baseY - buffer.viewportY <= 2
   },
 
-  enqueueBase64Data(data) {
-    const bytes = this.decodeBase64Bytes(data)
-    if (!bytes || bytes.length === 0) return
+  enqueueBytes(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) return
 
     this.writeQueue.push(bytes)
     this.queuedBytes += bytes.length
@@ -146,6 +253,12 @@ const XTerm = {
         this.flushWriteQueue()
       })
     }
+  },
+
+  enqueueBase64Data(data) {
+    const bytes = this.decodeBase64Bytes(data)
+    if (!bytes || bytes.length === 0) return
+    this.enqueueBytes(bytes)
   },
 
   flushWriteQueueNow() {
@@ -213,6 +326,7 @@ const XTerm = {
 
     try {
       this.fitAddon.fit()
+      this.sendResizeFrame()
     } catch (error) {
       this.metrics.fitErrors += 1
       console.warn("XTerm fit error", error)
@@ -220,7 +334,20 @@ const XTerm = {
   },
 
   destroyed() {
+    this.destroying = true
     this.flushWriteQueueNow()
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (_) {}
+      this.ws = null
+    }
 
     if (this.fitDebounceTimer) {
       clearTimeout(this.fitDebounceTimer)
@@ -252,7 +379,7 @@ const XTerm = {
     if (window.__algedoniaTerminalMetrics) {
       delete window.__algedoniaTerminalMetrics[this.el.id]
     }
-  }
+  },
 }
 
 export default XTerm

@@ -33,8 +33,9 @@ defmodule AlgedoniaWeb.TicketLiveTest do
     test "creates a ticket via modal", %{conn: conn, workspace: workspace} do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert view |> element("#new-issue-button") |> render_click() =~
-               "Title"
+      modal_html = view |> element("#new-issue-button") |> render_click()
+      assert modal_html =~ "Title"
+      refute modal_html =~ "Keep it tight and actionable."
 
       view
       |> form("#ticket-form", ticket: %{title: "Created ticket", type: :bug, priority: 2})
@@ -42,6 +43,19 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_patch(view, ~p"/w/#{workspace.slug}/tickets")
       assert render(view) =~ "Created ticket"
+    end
+
+    test "shows capitalized form errors", %{conn: conn, workspace: workspace} do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      view |> element("#new-issue-button") |> render_click()
+
+      html =
+        view
+        |> form("#ticket-form", ticket: %{title: "", type: :bug, priority: 2})
+        |> render_change()
+
+      assert html =~ ~r/Can(?:'|&#39;|&apos;)t be blank/
     end
 
     test "edits a ticket", %{conn: conn, workspace: workspace} do

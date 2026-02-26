@@ -597,4 +597,26 @@ defmodule Algedonia.OrchestratorTest do
       assert_receive {:push, _, _, %{"role" => "checker"}}
     end
   end
+
+  describe "step terminal ids" do
+    test "returns current and latest step ids from loop history", %{orchestrator: pid} do
+      loop_id = "loop-#{System.unique_integer([:positive])}"
+
+      maker_step = %{id: "maker-step-1", role: "maker", attempt: 1, status: "completed"}
+      checker_step = %{id: "checker-step-1", role: "checker", attempt: 1, status: "running"}
+
+      :sys.replace_state(pid, fn state ->
+        put_in(state, [:task_history, loop_id], [maker_step, checker_step])
+      end)
+
+      assert Orchestrator.current_step_terminal_id(loop_id, name: pid) == checker_step.id
+      assert Orchestrator.latest_step_terminal_id(loop_id, name: pid) == checker_step.id
+    end
+
+    test "returns nil ids when loop has no history", %{orchestrator: pid} do
+      loop_id = "empty-#{System.unique_integer([:positive])}"
+      assert Orchestrator.current_step_terminal_id(loop_id, name: pid) == nil
+      assert Orchestrator.latest_step_terminal_id(loop_id, name: pid) == nil
+    end
+  end
 end

@@ -76,7 +76,7 @@ const KeyboardShortcuts = {
       return
     }
 
-    // 1/2/3 — switch tabs
+    // 1/2 — switch sidebar tabs
     if (key === "1") {
       event.preventDefault()
       this.pushEvent("switch_tab", { tab: "overview" })
@@ -89,7 +89,7 @@ const KeyboardShortcuts = {
     }
     if (key === "3") {
       event.preventDefault()
-      this.pushEvent("switch_tab", { tab: "history" })
+      this.pushEvent("toggle_steps", {})
       return
     }
 

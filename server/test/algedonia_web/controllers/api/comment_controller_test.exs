@@ -52,7 +52,8 @@ defmodule AlgedoniaWeb.Api.CommentControllerTest do
           "comment" => %{}
         })
 
-      assert %{"errors" => _} = json_response(conn, 422)
+      assert %{"errors" => %{"author" => ["Can't be blank"], "body" => ["Can't be blank"]}} =
+               json_response(conn, 422)
     end
   end
 

@@ -2,6 +2,7 @@ defmodule Algedonia.Daemons do
   @moduledoc """
   Context for daemon registration and health tracking.
   """
+  import Ecto.Query, only: [from: 2]
   alias Algedonia.Daemons.DaemonRegistration
   alias Algedonia.Repo
 
@@ -15,6 +16,10 @@ defmodule Algedonia.Daemons do
     Repo.get!(DaemonRegistration, id)
   end
 
+  def get_daemon(id) do
+    Repo.get(DaemonRegistration, id)
+  end
+
   def get_daemon_by_name(name) do
     Repo.get_by(DaemonRegistration, name: name)
   end
@@ -24,7 +29,15 @@ defmodule Algedonia.Daemons do
   """
   @spec find_online() :: {:ok, DaemonRegistration.t()} | {:error, :no_online_daemon}
   def find_online do
-    case list_daemons() |> Enum.find(&(&1.status == :online)) do
+    online_daemon =
+      from(d in DaemonRegistration,
+        where: d.status == :online,
+        order_by: [desc: d.last_heartbeat_at, desc: d.connected_at],
+        limit: 1
+      )
+      |> Repo.one()
+
+    case online_daemon do
       nil -> {:error, :no_online_daemon}
       daemon -> {:ok, daemon}
     end

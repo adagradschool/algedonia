@@ -51,6 +51,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
     case Base.decode64(data) do
       {:ok, decoded} ->
         Terminals.append(loop_id, decoded)
+        maybe_append_step_output(loop_id, decoded)
         {:noreply, socket}
 
       :error ->
@@ -78,6 +79,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
   def handle_in("loop_exited", %{"loop_id" => loop_id, "exit_code" => exit_code}, socket) do
     Terminals.terminal_ended(loop_id)
+    maybe_end_step_terminal(loop_id, exit_code)
 
     Phoenix.PubSub.broadcast(
       Algedonia.PubSub,
@@ -131,5 +133,28 @@ defmodule AlgedoniaWeb.DaemonChannel do
     end
 
     :ok
+  end
+
+  defp maybe_append_step_output(loop_id, decoded) do
+    case Orchestrator.current_step_terminal_id(loop_id) do
+      step_id when is_binary(step_id) -> Terminals.append(step_id, decoded)
+      _ -> :ok
+    end
+  end
+
+  defp maybe_end_step_terminal(loop_id, exit_code) do
+    case Orchestrator.latest_step_terminal_id(loop_id) do
+      step_id when is_binary(step_id) ->
+        Terminals.terminal_ended(step_id)
+
+        Phoenix.PubSub.broadcast(
+          Algedonia.PubSub,
+          "terminal:#{step_id}",
+          {:terminal_ended, step_id, exit_code}
+        )
+
+      _ ->
+        :ok
+    end
   end
 end

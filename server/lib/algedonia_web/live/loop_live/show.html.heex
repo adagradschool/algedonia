@@ -57,6 +57,12 @@
             ]}>
               {if @active, do: "Active", else: "Inactive"}
             </span>
+            <span
+              id="loop-index-badge"
+              class="px-2 py-0.5 rounded text-[11px] border bg-surface-panel text-fg-muted border-border"
+            >
+              Loop #{@attempt}
+            </span>
           </div>
 
           <button
@@ -81,8 +87,68 @@
           </button>
         </div>
 
-        <div class="h-10 border-b border-border-soft px-4 flex items-center text-[14px] tracking-wide text-fg-muted uppercase">
-          {@terminal_run_label}
+        <div class="border-b border-border-soft bg-[#0d1017]">
+          <button
+            type="button"
+            phx-click="toggle_steps"
+            class="w-full px-4 h-10 flex items-center justify-between text-xs uppercase tracking-wide text-fg-muted hover:text-fg transition-colors"
+          >
+            <span class="flex items-center gap-2">
+              <span>Steps</span>
+              <span class="text-[10px] text-fg-subtle">({length(@step_history)})</span>
+            </span>
+            <span class={[
+              "transition-transform duration-200",
+              if(@show_steps, do: "rotate-180", else: "")
+            ]}>
+              <.icon name="hero-chevron-down-mini" class="size-4" />
+            </span>
+          </button>
+
+          <div class={[
+            "overflow-hidden transition-all duration-200",
+            if(@show_steps, do: "max-h-44 opacity-100", else: "max-h-0 opacity-0")
+          ]}>
+            <div class="px-3 pb-3">
+              <div :if={Enum.empty?(@step_history)} class="px-2 py-2 text-xs text-fg-muted">
+                No maker/checker runs yet.
+              </div>
+              <div
+                :if={!Enum.empty?(@step_history)}
+                class="flex items-center gap-2 overflow-x-auto pb-1"
+              >
+                <button
+                  :for={entry <- @step_history}
+                  type="button"
+                  phx-click="select_step"
+                  phx-value-step_id={entry.id}
+                  class={[
+                    "step-chip-enter shrink-0 px-3 py-1.5 rounded-md border text-[11px] font-medium transition-colors flex items-center gap-2",
+                    if(@selected_step_id == entry.id,
+                      do: "bg-accent-indigo/20 text-fg border-accent-indigo/60",
+                      else: "bg-surface-panel text-fg-muted border-border hover:text-fg-secondary"
+                    )
+                  ]}
+                >
+                  <span class={[
+                    "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] uppercase",
+                    if(entry.role == "maker",
+                      do: "bg-accent-indigo/20 text-accent-indigo",
+                      else: "bg-status-yellow/20 text-status-yellow"
+                    )
+                  ]}>
+                    {entry.role}
+                  </span>
+                  <span>{String.capitalize(entry.role)} #{entry.attempt}</span>
+                  <span
+                    :if={@current_step_id == entry.id}
+                    class="animate-spin inline-block size-3 border border-status-blue border-t-transparent rounded-full"
+                    title="Current step"
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="relative flex-1 min-h-0 p-2">
@@ -90,27 +156,14 @@
             id={@terminal_run_key}
             class="run-panel-enter absolute inset-2 border border-border-soft bg-[#13172a] overflow-hidden"
           >
-            <%= if @agent_type == "claude_code" do %>
-              <.claude_terminal_panel terminal_run_key={@terminal_run_key} />
-            <% else %>
-              <.codex_chat_panel
-                terminal_run_key={@terminal_run_key}
-                chat_messages={@chat_messages}
-              />
-            <% end %>
+            <.claude_terminal_panel
+              terminal_run_key={@terminal_run_key}
+              loop_id={@terminal_stream_loop_id || ""}
+              terminal_ws_url={@terminal_ws_url}
+              terminal_ws_token={@terminal_ws_token}
+            />
           </div>
         </div>
-
-        <.codex_composer
-          :if={@agent_type != "claude_code"}
-          terminal_run_key={@terminal_run_key}
-          history={@history}
-          active={@active}
-          supported_models={@supported_models}
-          selected_model={@selected_model}
-          supported_efforts={@supported_efforts}
-          selected_effort={@selected_effort}
-        />
       </section>
 
       <section class="bg-surface-panel border-l border-border flex flex-col overflow-hidden">
@@ -144,21 +197,6 @@
           >
             Rubric
             <.kbd>2</.kbd>
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="history"
-            class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
-              if(@active_tab == "history",
-                do: "text-fg border-accent-indigo",
-                else: "text-fg-muted border-transparent hover:text-fg-secondary"
-              )
-            ]}
-            title="History (3)"
-          >
-            History
-            <.kbd>3</.kbd>
           </button>
         </div>
 
@@ -227,48 +265,6 @@
             <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">Preview</div>
             <div class="markdown text-xs text-fg-secondary">
               {render_markdown(@rubric)}
-            </div>
-          </div>
-        </div>
-
-        <div :if={@active_tab == "history"} class="p-3 overflow-y-auto">
-          <div :if={Enum.empty?(@visible_history)} class="text-xs text-fg-muted">
-            No maker/checker runs yet.
-          </div>
-          <div
-            :for={entry <- Enum.reverse(@visible_history)}
-            class="py-2 border-b border-border-soft last:border-b-0"
-          >
-            <div class="flex items-center gap-2 text-xs">
-              <span class="font-semibold text-fg">#{entry.attempt}</span>
-              <span class={[
-                "px-1.5 py-0.5 rounded text-[10px] uppercase",
-                if(entry.role == "maker",
-                  do: "bg-accent-indigo/20 text-accent-indigo",
-                  else: "bg-status-yellow/20 text-status-yellow"
-                )
-              ]}>
-                {entry.role}
-              </span>
-              <span
-                :if={Map.get(entry, :verdict)}
-                class={[
-                  "px-1.5 py-0.5 rounded text-[10px] uppercase",
-                  if(entry.verdict == "pass",
-                    do: "bg-status-green/20 text-status-green",
-                    else: "bg-status-red/20 text-status-red"
-                  )
-                ]}
-              >
-                {entry.verdict}
-              </span>
-              <span class="ml-auto text-[10px] text-fg-muted">{entry.status}</span>
-            </div>
-            <div
-              :if={Map.get(entry, :feedback, "") != ""}
-              class="mt-1 markdown text-[11px] text-fg-secondary"
-            >
-              {render_markdown(entry.feedback)}
             </div>
           </div>
         </div>

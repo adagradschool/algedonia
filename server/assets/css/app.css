@@ -321,3 +321,18 @@ body {
 .run-panel-enter {
   animation: run-panel-enter 220ms ease-out;
 }
+
+@keyframes step-chip-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.step-chip-enter {
+  animation: step-chip-enter 180ms ease-out;
+}

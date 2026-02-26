@@ -45,6 +45,11 @@ func (s *Session) Write(data []byte) (int, error) {
 	return s.master.Write(data)
 }
 
+// SetSize updates the PTY window size.
+func (s *Session) SetSize(rows, cols uint16) error {
+	return pty.Setsize(s.master, &pty.Winsize{Rows: rows, Cols: cols})
+}
+
 // Close closes the master PTY fd.
 func (s *Session) Close() error {
 	return s.master.Close()

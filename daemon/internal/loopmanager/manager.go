@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -43,6 +42,8 @@ type LoopProcess struct {
 type Manager struct {
 	mu         sync.Mutex
 	loops      map[string]*LoopProcess
+	termSubs   map[string]map[uint64]chan []byte
+	nextSubID  uint64
 	sendFunc   func(event string, payload map[string]interface{}) error
 	adapterReg *adapter.Registry
 	repoRoot   string
@@ -59,6 +60,7 @@ const (
 func NewManager(sendFunc func(event string, payload map[string]interface{}) error, registry *adapter.Registry, repoRoot string) *Manager {
 	return &Manager{
 		loops:      make(map[string]*LoopProcess),
+		termSubs:   make(map[string]map[uint64]chan []byte),
 		sendFunc:   sendFunc,
 		adapterReg: registry,
 		repoRoot:   repoRoot,
@@ -69,6 +71,67 @@ func (m *Manager) sendEvent(event string, payload map[string]interface{}) {
 	if err := m.sendFunc(event, payload); err != nil {
 		loopID, _ := payload["loop_id"].(string)
 		log.Printf("Failed to send %s event for loop %s: %v", event, loopID, err)
+	}
+}
+
+func (m *Manager) broadcastTerminal(loopID string, data []byte) {
+	m.mu.Lock()
+	subs := m.termSubs[loopID]
+	if len(subs) == 0 {
+		m.mu.Unlock()
+		return
+	}
+	chans := make([]chan []byte, 0, len(subs))
+	for _, ch := range subs {
+		chans = append(chans, ch)
+	}
+	m.mu.Unlock()
+
+	payload := append([]byte(nil), data...)
+	for _, ch := range chans {
+		select {
+		case ch <- payload:
+		default:
+			// Drop when slow consumer backpressure builds up.
+		}
+	}
+}
+
+func (m *Manager) unsubscribeTerminal(loopID string, id uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	subs, ok := m.termSubs[loopID]
+	if !ok {
+		return
+	}
+	ch, ok := subs[id]
+	if !ok {
+		return
+	}
+	delete(subs, id)
+	close(ch)
+	if len(subs) == 0 {
+		delete(m.termSubs, loopID)
+	}
+}
+
+// SubscribeTerminal streams raw PTY bytes for a loop to a dedicated subscriber.
+func (m *Manager) SubscribeTerminal(loopID string) (<-chan []byte, func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.termSubs[loopID]; !ok {
+		m.termSubs[loopID] = make(map[uint64]chan []byte)
+	}
+	id := m.nextSubID
+	m.nextSubID++
+
+	ch := make(chan []byte, 128)
+	m.termSubs[loopID][id] = ch
+
+	return ch, func() {
+		m.unsubscribeTerminal(loopID, id)
 	}
 }
 
@@ -130,53 +193,46 @@ func (m *Manager) newTerminalChunker(loopID string) *Chunker {
 	})
 }
 
-// typePromptToTUI waits for the TUI to become idle, then types the prompt
-// and submits with carriage return. writeFn writes bytes to the PTY.
-func typePromptToTUI(done <-chan struct{}, lastOutput *atomic.Int64, loopID, prompt string, writeFn func([]byte) error) {
-	const idleThreshold = 1500 * time.Millisecond
-	const pollInterval = 100 * time.Millisecond
-	const maxWait = 30 * time.Second
+// sendPromptToTUI waits a short warmup, types prompt text, then presses Enter.
+func sendPromptToTUI(
+	done <-chan struct{},
+	loopID, prompt string,
+	preEnterDelay time.Duration,
+	writeFn func([]byte) error,
+) {
+	const warmup = 1 * time.Second
 
-	deadline := time.After(maxWait)
-	// Wait at least 2 seconds before even checking for idle
-	time.Sleep(2 * time.Second)
+	timer := time.NewTimer(warmup)
+	defer timer.Stop()
 
-	for {
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+	}
+
+	if err := writeFn([]byte(prompt)); err != nil {
+		log.Printf("Failed to send prompt text to loop %s: %v", loopID, err)
+		return
+	}
+
+	if preEnterDelay > 0 {
+		enterDelay := time.NewTimer(preEnterDelay)
+		defer enterDelay.Stop()
+
 		select {
 		case <-done:
 			return
-		case <-deadline:
-			log.Printf("Timed out waiting for idle on loop %s, sending prompt anyway", loopID)
-			goto send
-		case <-time.After(pollInterval):
-			elapsedMs := time.Now().UnixMilli() - lastOutput.Load()
-			if elapsedMs >= idleThreshold.Milliseconds() {
-				log.Printf("TUI idle for %dms on loop %s, sending prompt", elapsedMs, loopID)
-				goto send
-			}
+		case <-enterDelay.C:
 		}
 	}
 
-send:
-	log.Printf("Typing prompt into loop %s (%d bytes)", loopID, len(prompt))
-
-	for _, ch := range []byte(prompt) {
-		if err := writeFn([]byte{ch}); err != nil {
-			log.Printf("Failed to type char to loop %s: %v", loopID, err)
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	// Let the TUI process all the typed text
-	time.Sleep(300 * time.Millisecond)
-
-	// Submit with carriage return
 	if err := writeFn([]byte("\r")); err != nil {
 		log.Printf("Failed to send Enter to loop %s: %v", loopID, err)
+		return
 	}
 
-	log.Printf("Prompt submitted for loop %s", loopID)
+	log.Printf("Prompt submitted for loop %s (%d bytes)", loopID, len(prompt))
 }
 
 // StartLoop spawns a process in a PTY and streams output to the server.
@@ -203,8 +259,6 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 	}
 
 	done := make(chan struct{})
-	var lastOutput atomic.Int64
-	lastOutput.Store(time.Now().UnixMilli())
 
 	chunker := m.newTerminalChunker(loopID)
 
@@ -226,7 +280,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 		for {
 			n, err := sess.Reader().Read(buf)
 			if n > 0 {
-				lastOutput.Store(time.Now().UnixMilli())
+				m.broadcastTerminal(loopID, buf[:n])
 				chunker.Write(buf[:n])
 			}
 			if err != nil {
@@ -271,7 +325,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 			_, err := sess.Write(data)
 			return err
 		}
-		go typePromptToTUI(done, &lastOutput, loopID, prompt, writeFn)
+		go sendPromptToTUI(done, loopID, prompt, 0, writeFn)
 	}
 
 	log.Printf("Started loop %s: %s %v", loopID, command, args)
@@ -332,8 +386,6 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 
 	_, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	var lastOutput atomic.Int64
-	lastOutput.Store(time.Now().UnixMilli())
 
 	chunker := m.newTerminalChunker(loopID)
 
@@ -362,7 +414,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		for {
 			n, err := tee.Read(buf)
 			if n > 0 {
-				lastOutput.Store(time.Now().UnixMilli())
+				m.broadcastTerminal(loopID, buf[:n])
 				chunker.Write(buf[:n])
 			}
 			if err != nil {
@@ -470,7 +522,13 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		writeFn := func(data []byte) error {
 			return ag.SendInput(proc, data)
 		}
-		go typePromptToTUI(done, &lastOutput, loopID, proc.InitialPrompt, writeFn)
+		preEnterDelay := time.Duration(0)
+		if strings.EqualFold(agentType, "codex") {
+			// Codex TUI suppresses Enter as newline during active paste bursts.
+			// A short settle delay ensures Enter is interpreted as submit.
+			preEnterDelay = 80 * time.Millisecond
+		}
+		go sendPromptToTUI(done, loopID, proc.InitialPrompt, preEnterDelay, writeFn)
 	}
 
 	log.Printf("Started adapter loop %s: %s (role=%s)", loopID, agentType, role)
@@ -780,12 +838,7 @@ func (m *Manager) closeAdapterProcess(lp *LoopProcess) error {
 	if lp == nil || lp.adapter == nil || lp.process == nil {
 		return nil
 	}
-
-	// Codex app-server stays alive after turn completion; close it to avoid leaked processes.
-	if _, ok := lp.adapter.(*adapter.CodexAdapter); ok {
-		return lp.adapter.Kill(lp.process)
-	}
-
+	// Adapter process cleanup hook. TUI adapters exit with Wait() and need no extra cleanup.
 	return nil
 }
 
@@ -807,6 +860,34 @@ func (m *Manager) SendInput(loopID string, data []byte) error {
 	_, err := lp.Session.Write(data)
 	if err != nil {
 		return fmt.Errorf("writing stdin to loop %s: %w", loopID, err)
+	}
+	return nil
+}
+
+// ResizeLoop updates PTY dimensions for a running loop.
+func (m *Manager) ResizeLoop(loopID string, cols, rows uint16) error {
+	if cols == 0 || rows == 0 {
+		return nil
+	}
+
+	m.mu.Lock()
+	lp, exists := m.loops[loopID]
+	m.mu.Unlock()
+	if !exists {
+		return fmt.Errorf("loop %s not found", loopID)
+	}
+
+	// Adapter-managed process
+	if lp.adapter != nil {
+		return lp.adapter.Resize(lp.process, cols, rows)
+	}
+
+	// Raw PTY process
+	if lp.Session == nil {
+		return fmt.Errorf("loop %s has no PTY session", loopID)
+	}
+	if err := lp.Session.SetSize(rows, cols); err != nil {
+		return fmt.Errorf("resizing loop %s: %w", loopID, err)
 	}
 	return nil
 }
