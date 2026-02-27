@@ -32,6 +32,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
      socket
      |> assign(:statuses, @statuses)
      |> assign(:confirm_delete, false)
+     |> assign(:delete_ticket_id, nil)
+     |> assign(:save_state, :idle)
      |> assign(:show_shortcut_help, false)
      |> assign(:current_user_id, session["user_id"])
      |> assign(:current_workspace_id, session["current_workspace_id"])
@@ -42,29 +44,9 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   @impl true
   def handle_params(params, _url, socket) do
-    view_mode = if params["view"] == "list", do: :list, else: :board
-    filter_status = parse_status(params["status"])
-    filter_assignee = params["assignee"]
-    sort_by = parse_sort_by(params["sort_by"])
-    sort_order = parse_sort_order(params["sort_order"])
-
-    filters_changed? =
-      !Map.has_key?(socket.assigns, :filter_status) ||
-        socket.assigns.filter_status != filter_status ||
-        socket.assigns.filter_assignee != filter_assignee ||
-        socket.assigns.view_mode != view_mode ||
-        Map.get(socket.assigns, :sort_by) != sort_by ||
-        Map.get(socket.assigns, :sort_order) != sort_order
-
-    socket =
-      socket
-      |> assign(
-        view_mode: view_mode,
-        filter_status: filter_status,
-        filter_assignee: filter_assignee,
-        sort_by: sort_by,
-        sort_order: sort_order
-      )
+    filter_state = filter_state_from_params(params)
+    filters_changed? = filters_changed?(socket.assigns, filter_state)
+    socket = assign(socket, filter_state)
 
     prior_action = socket.assigns[:last_live_action]
 
@@ -83,6 +65,27 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, socket}
   end
 
+  defp filter_state_from_params(params) do
+    %{
+      view_mode: if(params["view"] == "list", do: :list, else: :board),
+      filter_status: parse_status(params["status"]),
+      filter_assignee: params["assignee"],
+      filter_query: normalize_filter_query(params["q"]),
+      sort_by: parse_sort_by(params["sort_by"]),
+      sort_order: parse_sort_order(params["sort_order"])
+    }
+  end
+
+  defp filters_changed?(assigns, filter_state) do
+    !Map.has_key?(assigns, :filter_status) ||
+      assigns.filter_status != filter_state.filter_status ||
+      assigns.filter_assignee != filter_state.filter_assignee ||
+      Map.get(assigns, :filter_query) != filter_state.filter_query ||
+      assigns.view_mode != filter_state.view_mode ||
+      Map.get(assigns, :sort_by) != filter_state.sort_by ||
+      Map.get(assigns, :sort_order) != filter_state.sort_order
+  end
+
   defp apply_action(socket, :index, _params) do
     assign(socket, page_title: "Tickets", ticket: nil)
   end
@@ -96,22 +99,22 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     )
   end
 
-  defp apply_action(socket, :show, %{"id" => id}) do
-    ticket = Tickets.get_ticket!(id)
+  defp apply_action(socket, :show, %{"ticket_ref" => ticket_ref}) do
+    ticket = Tickets.get_ticket_by_ref!(socket.assigns.current_workspace.id, ticket_ref)
 
     if connected?(socket) do
       # Unsubscribe from previous ticket's comments if any
       old_ticket = socket.assigns[:ticket]
 
-      if old_ticket && old_ticket.id != id do
+      if old_ticket && old_ticket.id != ticket.id do
         Phoenix.PubSub.unsubscribe(Algedonia.PubSub, "ticket:#{old_ticket.id}")
       end
 
-      Tickets.subscribe_comments(id)
+      Tickets.subscribe_comments(ticket.id)
     end
 
-    comments = Tickets.list_comments(id)
-    comment_changeset = Tickets.change_comment(%Comment{ticket_id: id})
+    comments = Tickets.list_comments(ticket.id)
+    comment_changeset = Tickets.change_comment(%Comment{ticket_id: ticket.id})
     ticket_changeset = Tickets.change_ticket(ticket)
 
     loop_id = first_loop_id(ticket)
@@ -124,6 +127,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       comment_form: to_form(comment_changeset),
       comment_form_id: "new_comment_0",
       confirm_delete: false,
+      delete_ticket_id: nil,
       reply_to: nil,
       reply_form: nil,
       editing_comment_id: nil,
@@ -132,8 +136,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     )
   end
 
-  defp apply_action(socket, :edit, %{"id" => id}) do
-    ticket = Tickets.get_ticket!(id)
+  defp apply_action(socket, :edit, %{"ticket_ref" => ticket_ref}) do
+    ticket = Tickets.get_ticket_by_ref!(socket.assigns.current_workspace.id, ticket_ref)
     assign(socket, page_title: "Edit Ticket", ticket: ticket)
   end
 
@@ -148,22 +152,54 @@ defmodule AlgedoniaWeb.TicketLive.Index do
      |> push_patch(to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
   end
 
-  def handle_event("confirm_delete", _params, socket) do
-    {:noreply, assign(socket, :confirm_delete, true)}
+  def handle_event("duplicate_ticket", %{"id" => id}, socket) do
+    ticket = Tickets.get_ticket!(id)
+    workspace = socket.assigns.current_workspace || Workspaces.get_workspace!(ticket.workspace_id)
+
+    attrs = %{
+      "title" => duplicate_title(ticket.title),
+      "description" => ticket.description,
+      "status" => :backlog,
+      "type" => ticket.type,
+      "coding_agent" => ticket.coding_agent,
+      "priority" => ticket.priority,
+      "assignee" => ticket.assignee,
+      "acceptance_criteria" => ticket.acceptance_criteria,
+      "rubric" => ticket.rubric,
+      "max_attempts" => ticket.max_attempts
+    }
+
+    case Tickets.create_ticket_for_workspace(workspace, attrs) do
+      {:ok, _copy} ->
+        {:noreply, put_flash(socket, :info, "Issue duplicated")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Unable to duplicate issue")}
+    end
+  end
+
+  def handle_event("confirm_delete", params, socket) do
+    ticket_id =
+      params["id"] || socket.assigns[:delete_ticket_id] ||
+        (socket.assigns[:ticket] && socket.assigns[:ticket].id)
+
+    {:noreply, assign(socket, confirm_delete: true, delete_ticket_id: ticket_id)}
   end
 
   def handle_event("cancel_delete", _params, socket) do
-    {:noreply, assign(socket, :confirm_delete, false)}
+    {:noreply, assign(socket, confirm_delete: false, delete_ticket_id: nil)}
   end
 
-  def handle_event("confirm_delete_now", %{"id" => id}, socket) do
+  def handle_event("confirm_delete_now", params, socket) do
+    id = params["id"] || socket.assigns.delete_ticket_id
     ticket = Tickets.get_ticket!(id)
     {:ok, _} = Tickets.delete_ticket(ticket)
 
     {:noreply,
      socket
      |> assign(:confirm_delete, false)
-     |> put_flash(:info, "Ticket deleted")
+     |> assign(:delete_ticket_id, nil)
+     |> put_flash(:info, "Issue deleted")
      |> push_patch(to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
   end
 
@@ -193,10 +229,6 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, assign(socket, :show_shortcut_help, !socket.assigns.show_shortcut_help)}
   end
 
-  def handle_event("shortcut_new_issue", _params, socket) do
-    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets/new")}
-  end
-
   def handle_event("shortcut_back", _params, socket) do
     if socket.assigns.live_action == :show do
       {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
@@ -222,13 +254,18 @@ defmodule AlgedoniaWeb.TicketLive.Index do
      push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{%{view: view}}")}
   end
 
+  def handle_event("search", %{"q" => query}, socket) do
+    params = build_query_params(socket.assigns, q: query)
+    {:noreply, push_patch(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{params}")}
+  end
+
   def handle_event("start_work", %{"id" => ticket_id}, socket) do
     ticket = Tickets.get_ticket!(ticket_id)
 
     case ensure_single_loop(ticket) do
       {:ok, loop_id} ->
         path =
-          ~p"/w/#{socket.assigns.workspace_slug}/loops/#{loop_id}?#{%{autostart: 1, agent_type: ticket_agent_type(ticket)}}"
+          ~p"/w/#{socket.assigns.workspace_slug}/tickets/#{ticket_ref(ticket)}/loops/#{loop_ref(loop_id)}?#{%{autostart: 1, agent_type: ticket_agent_type(ticket)}}"
 
         {:noreply, push_navigate(socket, to: path)}
 
@@ -274,10 +311,14 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         {:noreply,
          socket
          |> assign(:ticket, updated)
-         |> assign(:ticket_form, to_form(changeset))}
+         |> assign(:ticket_form, to_form(changeset))
+         |> assign(:save_state, :saved)}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :ticket_form, to_form(changeset))}
+        {:noreply,
+         socket
+         |> assign(:ticket_form, to_form(changeset))
+         |> assign(:save_state, :error)}
     end
   end
 
@@ -354,7 +395,13 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   defp stream_tickets(socket) do
-    %{filter_status: status, filter_assignee: assignee, sort_by: sort_by, sort_order: sort_order} =
+    %{
+      filter_status: status,
+      filter_assignee: assignee,
+      filter_query: query,
+      sort_by: sort_by,
+      sort_order: sort_order
+    } =
       socket.assigns
 
     opts = [
@@ -365,12 +412,23 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       workspace_id: socket.assigns.current_workspace_id
     ]
 
-    grouped = Tickets.list_tickets_by_status(opts)
-    all_count = grouped |> Map.values() |> List.flatten() |> length()
+    grouped =
+      opts
+      |> Tickets.list_tickets_by_status()
+      |> filter_grouped_by_query(query, socket.assigns.workspace_prefix)
+
+    active_statuses = [:planning, :in_progress]
+
+    all_count =
+      grouped
+      |> Map.take(active_statuses ++ [:backlog, :halted])
+      |> Map.values()
+      |> List.flatten()
+      |> length()
 
     active_ticket_ids =
       grouped
-      |> Map.take([:planning, :in_progress, :completed])
+      |> Map.take(active_statuses)
       |> Map.values()
       |> List.flatten()
       |> Enum.map(& &1.id)
@@ -411,6 +469,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     view = Keyword.get(overrides, :view) || view_string(assigns.view_mode)
     status = Keyword.get(overrides, :status, assigns.filter_status)
     sort_by = Keyword.get(overrides, :sort_by, assigns.sort_by)
+    query = normalize_filter_query(Keyword.get(overrides, :q, assigns.filter_query))
 
     base = %{}
     base = if view != "board", do: Map.put(base, :view, view), else: base
@@ -427,13 +486,69 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         do: Map.put(base, :sort_by, sort_by),
         else: base
 
+    base =
+      if query do
+        Map.put(base, :q, query)
+      else
+        base
+      end
+
     base
   end
 
   defp view_string(:list), do: "list"
   defp view_string(_), do: "board"
 
+  defp normalize_filter_query(nil), do: nil
+
+  defp normalize_filter_query(query) when is_binary(query) do
+    query
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp filter_grouped_by_query(grouped, nil, _prefix), do: grouped
+
+  defp filter_grouped_by_query(grouped, query, prefix) do
+    terms =
+      query
+      |> String.downcase()
+      |> String.split(~r/\s+/, trim: true)
+
+    Enum.into(grouped, %{}, fn {status, tickets} ->
+      filtered = Enum.filter(tickets, &ticket_matches_query?(&1, terms, prefix))
+      {status, filtered}
+    end)
+  end
+
+  defp ticket_matches_query?(ticket, terms, prefix) do
+    haystack =
+      [
+        ticket.title,
+        ticket.description,
+        ticket.assignee,
+        ticket_search_code(ticket, prefix),
+        String.slice(ticket.id, 0, 8)
+      ]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.join(" ")
+      |> String.downcase()
+
+    Enum.all?(terms, &String.contains?(haystack, &1))
+  end
+
   defp ticket_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
+
+  defp ticket_search_code(%{number: number}, prefix) when is_integer(number),
+    do: "#{prefix}-#{number}"
+
+  defp ticket_search_code(%{id: id}, _prefix), do: String.slice(id, 0, 8)
+
+  defp duplicate_title(title) when is_binary(title), do: "#{title} (Copy)"
+  defp duplicate_title(_title), do: "Copied issue"
 
   defp ensure_single_loop(%Ticket{status: status}) when status not in [:backlog, :halted] do
     {:error, :invalid_status}
@@ -466,7 +581,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
                  "title" => ticket.title,
                  "description" => ticket.description || "",
                  "role" => "task",
-                 "max_attempts" => 3,
+                 "max_attempts" => ticket.max_attempts,
                  "rubric" => ticket.rubric || ""
                }
              ],
@@ -488,7 +603,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
            title: ticket.title,
            description: ticket.description || "",
            role: :task,
-           max_attempts: 3,
+           max_attempts: ticket.max_attempts,
            rubric: ticket.rubric || ""
          }) do
       {:ok, loop} ->
@@ -513,6 +628,12 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       _ -> nil
     end
   end
+
+  defp ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
+  defp ticket_ref(%{id: id}), do: id
+
+  defp loop_ref(loop_id) when is_binary(loop_id), do: String.slice(loop_id, 0, 8)
+  defp loop_ref(_), do: nil
 
   defp next_form_counter(current_id) do
     current_id

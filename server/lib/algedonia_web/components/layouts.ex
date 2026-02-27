@@ -28,20 +28,67 @@ defmodule AlgedoniaWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <div class="flex h-screen overflow-hidden bg-surface">
-      <.workspace_sidebar
-        current_workspace={@current_workspace}
-        current_user={@current_user}
-        inbox_active={nav_active?(assigns, :inbox, "/")}
-        issues_active={nav_active?(assigns, :issues, "/tickets")}
-        monitor_active={nav_active?(assigns, :monitor, "/monitor")}
+    <div class="h-screen overflow-hidden bg-surface">
+      <div
+        id="global-command-palette"
+        phx-hook="CommandPalette"
+        data-tickets-path={workspace_path(@current_workspace, "/tickets")}
+        data-monitor-path={workspace_path(@current_workspace, "/monitor")}
+        data-new-issue-path={workspace_path(@current_workspace, "/tickets/new")}
       />
-
-      <main class="flex-1 flex flex-col overflow-hidden bg-surface">
-        <div class="flex-1 overflow-auto">
-          {render_slot(@inner_block)}
+      <div
+        id="workspace-layout"
+        phx-hook="SidebarPanel"
+        data-min-width="224"
+        data-max-width="448"
+        data-default-width="256"
+        data-collapsed-width="52"
+        data-handle-width="16"
+        data-storage-key="workspace-left-sidebar-width"
+        class="h-full grid grid-cols-[var(--left-sidebar-width,16rem)_16px_minmax(0,1fr)] overflow-hidden"
+      >
+        <div id="workspace-left-sidebar-panel" data-sidebar-panel class="min-w-0 overflow-hidden">
+          <.workspace_sidebar
+            current_workspace={@current_workspace}
+            current_user={@current_user}
+            inbox_active={nav_active?(assigns, :inbox, "/")}
+            issues_active={nav_active?(assigns, :issues, "/tickets")}
+            monitor_active={nav_active?(assigns, :monitor, "/monitor")}
+            class="!w-full h-full border-r-0"
+          />
         </div>
-      </main>
+
+        <div class="group relative bg-surface">
+          <button
+            type="button"
+            data-sidebar-handle
+            aria-label="Resize sidebar"
+            aria-controls="workspace-left-sidebar-panel"
+            class="h-full w-full cursor-col-resize touch-none focus:outline-none border-0 bg-transparent p-0 appearance-none"
+          >
+            <span class="pointer-events-none mx-auto block h-full w-px bg-border transition-colors group-hover:bg-accent-indigo/70 group-focus-within:bg-accent-indigo/70" />
+          </button>
+          <button
+            type="button"
+            data-sidebar-toggle
+            aria-controls="workspace-left-sidebar-panel"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            class="group absolute left-1/2 top-2 -translate-x-1/2 inline-flex h-4 w-4 items-center justify-center rounded border border-border bg-surface-panel text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
+          >
+            <.icon
+              name="hero-chevron-left-mini"
+              class="size-3 transition-transform group-data-[state=collapsed]:rotate-180"
+            />
+          </button>
+        </div>
+
+        <main class="flex-1 flex flex-col overflow-hidden bg-surface">
+          <div class="flex-1 overflow-auto">
+            {render_slot(@inner_block)}
+          </div>
+        </main>
+      </div>
     </div>
 
     <.flash_group flash={@flash} />
@@ -53,54 +100,49 @@ defmodule AlgedoniaWeb.Layouts do
   attr :inbox_active, :boolean, default: false
   attr :issues_active, :boolean, default: false
   attr :monitor_active, :boolean, default: false
+  attr :class, :any, default: nil
   slot :inner_block
 
   def workspace_sidebar(assigns) do
     ~H"""
-    <aside class="w-64 flex-shrink-0 bg-surface-sidebar border-r border-border flex flex-col overflow-hidden">
+    <aside
+      data-sidebar-shell
+      class={[
+        "workspace-sidebar",
+        "w-64 flex-shrink-0 bg-surface-sidebar border-r border-border flex flex-col overflow-hidden",
+        @class
+      ]}
+    >
       <div class="px-4 pt-4 pb-3 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 bg-accent-indigo rounded-lg flex items-center justify-center">
             <.icon name="hero-square-3-stack-3d" class="size-4 text-white" />
           </div>
-          <div class="flex flex-col">
+          <div data-sidebar-expanded-only class="flex flex-col">
             <span class="text-xs text-fg-muted">workspace</span>
             <span class="text-sm font-semibold text-fg">
               {@current_workspace.name}
             </span>
           </div>
         </div>
-        <button class="size-7 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors">
-          <.icon name="hero-chevron-down-mini" class="size-4" />
-        </button>
       </div>
 
-      <div class="px-4 pb-3">
+      <div class="workspace-sidebar-create px-4 pb-3">
         <.link
           patch={workspace_path(@current_workspace, "/tickets/new")}
-          class="flex items-center justify-center gap-2 w-full bg-surface-raised border border-border rounded-md text-xs font-medium text-fg hover:bg-surface-panel transition-colors py-1.5"
-          title="New issue (C)"
+          title="New issue"
+          class="workspace-sidebar-new-issue flex items-center justify-center gap-2 w-full bg-surface-raised border border-border rounded-md text-xs font-medium text-fg hover:bg-surface-panel transition-colors min-h-11 px-3"
         >
-          <.icon name="hero-plus-mini" class="size-4" /> New issue
-          <kbd class="inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface-panel border border-border text-[9px] font-mono text-fg-muted">
-            C
-          </kbd>
+          <.icon name="hero-plus-mini" class="size-4" />
+          <span data-sidebar-expanded-only>New issue</span>
         </.link>
       </div>
 
-      <div class="px-4 pb-3">
-        <div class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-surface-panel border border-border-soft">
-          <.icon name="hero-magnifying-glass-mini" class="size-4 text-fg-muted" />
-          <input
-            type="text"
-            placeholder="Search"
-            class="w-full bg-transparent border-0 text-xs text-fg placeholder-fg-muted focus:outline-none"
-          />
-        </div>
-      </div>
-
       <nav class="px-2 pb-2 space-y-0.5 border-b border-border-soft">
-        <div class="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider text-fg-muted">
+        <div
+          data-sidebar-expanded-only
+          class="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider text-fg-muted"
+        >
           Workspace
         </div>
         <.sidebar_link
@@ -123,14 +165,21 @@ defmodule AlgedoniaWeb.Layouts do
         />
       </nav>
 
-      <div :if={@inner_block != []} class="flex-1 min-h-0 p-3 overflow-y-auto">
+      <div
+        :if={@inner_block != []}
+        data-sidebar-slot
+        class="flex-1 min-h-0 p-3 overflow-y-auto"
+      >
         {render_slot(@inner_block)}
       </div>
       <div :if={@inner_block == []} class="flex-1"></div>
 
       <div class="p-3 border-t border-border">
         <div :if={@current_user} class="group relative">
-          <button class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-panel transition-colors">
+          <button
+            title={@current_user.name || @current_user.github_username}
+            class="workspace-sidebar-account flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-panel transition-colors"
+          >
             <img
               :if={@current_user.avatar_url}
               src={@current_user.avatar_url}
@@ -143,10 +192,15 @@ defmodule AlgedoniaWeb.Layouts do
             >
               {String.first(@current_user.name || "?")}
             </div>
-            <span class="text-sm text-fg truncate flex-1 text-left">
+            <span
+              data-sidebar-expanded-only
+              class="text-sm text-fg flex-1 text-left whitespace-normal break-words leading-snug"
+            >
               {@current_user.name || @current_user.github_username}
             </span>
-            <.icon name="hero-chevron-up-down-mini" class="size-4 text-fg-muted" />
+            <span data-sidebar-expanded-only>
+              <.icon name="hero-chevron-up-down-mini" class="size-4 text-fg-muted" />
+            </span>
           </button>
           <div class="absolute bottom-full left-0 right-0 mb-1 bg-surface-panel border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
             <.link
@@ -172,8 +226,9 @@ defmodule AlgedoniaWeb.Layouts do
     ~H"""
     <a
       href={@href}
+      title={@label}
       class={[
-        "group relative flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-all duration-150",
+        "workspace-sidebar-link group relative flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-all duration-150",
         if(@active,
           do: "text-fg bg-surface-raised font-medium",
           else: "text-fg-muted hover:text-fg hover:bg-surface-panel"
@@ -182,10 +237,11 @@ defmodule AlgedoniaWeb.Layouts do
     >
       <span
         :if={@active}
+        data-sidebar-expanded-only
         class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-accent-indigo motion-safe:animate-[indicator-in_200ms_ease-out]"
       />
-      <.icon name={@icon} class="size-4" />
-      <span>{@label}</span>
+      <.icon name={@icon} class="workspace-sidebar-link-icon size-4" />
+      <span data-sidebar-expanded-only>{@label}</span>
     </a>
     """
   end

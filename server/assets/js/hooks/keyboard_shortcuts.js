@@ -12,7 +12,8 @@ const KeyboardShortcuts = {
     this.onKeyDown = (event) => {
       if (this.isEditable(event.target)) return
 
-      const key = event.key
+      const rawKey = event.key
+      const key = rawKey.length === 1 ? rawKey.toLowerCase() : rawKey
       const meta = event.metaKey || event.ctrlKey
       const page = this.el.dataset.page
 
@@ -39,23 +40,23 @@ const KeyboardShortcuts = {
 
   isEditable(target) {
     if (!target) return false
-    if (target.isContentEditable) return true
-    const tag = target.tagName?.toLowerCase()
+    const node = target.nodeType === Node.TEXT_NODE ? target.parentElement : target
+    if (!(node instanceof Element)) return false
+
+    if (node.closest("[data-shortcuts='off']")) return true
+    if (node.closest(".tiptap, .ProseMirror")) return true
+    if (node.isContentEditable) return true
+    if (node.closest("[contenteditable=''], [contenteditable='true'], [contenteditable='plaintext-only']")) return true
+
+    const tag = node.tagName?.toLowerCase()
     return tag === "input" || tag === "textarea" || tag === "select"
   },
 
   handleTicketShortcuts(event, key, meta) {
     // ⌘/⌃ + B or just B — toggle board/list view
-    if ((meta && key.toLowerCase() === "b") || (!meta && key === "b")) {
+    if ((meta && key === "b") || (!meta && key === "b")) {
       event.preventDefault()
       this.pushEvent("toggle_view_shortcut", {})
-      return
-    }
-
-    // C — create new issue
-    if (!meta && key === "c") {
-      event.preventDefault()
-      this.pushEvent("shortcut_new_issue", {})
       return
     }
 
@@ -67,6 +68,12 @@ const KeyboardShortcuts = {
   },
 
   handleLoopShortcuts(event, key, meta) {
+    if (event.ctrlKey && key === "`") {
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent("split-panel:action", { detail: { action: "collapse-right" } }))
+      return
+    }
+
     if (meta) return
 
     // S — start/stop loop

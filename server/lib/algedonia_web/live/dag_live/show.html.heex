@@ -10,8 +10,8 @@
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
       <div class="flex items-center gap-3">
         <.link
-          navigate={~p"/w/#{@workspace_slug}/tickets/#{@ticket}"}
-          class="text-fg-muted hover:text-fg transition-colors"
+          navigate={~p"/w/#{@workspace_slug}/tickets/#{ticket_ref(@ticket)}"}
+          class="text-fg-muted hover:text-fg transition-colors min-w-11 min-h-11 inline-flex items-center justify-center"
         >
           <.icon name="hero-arrow-left" class="size-4" />
         </.link>
@@ -35,8 +35,8 @@
       class="flex-1 flex items-center justify-center"
     >
       <div class="text-center text-fg-muted">
-        <div class="animate-spin inline-block w-6 h-6 border-2 border-fg-muted border-t-transparent rounded-full mb-3">
-        </div>
+        <div class="h-3 w-40 rounded skeleton-block mx-auto mb-2"></div>
+        <div class="h-3 w-28 rounded skeleton-block mx-auto"></div>
         <p class="text-sm">Planning in progress...</p>
       </div>
     </div>
@@ -48,6 +48,8 @@
         phx-hook="DagGraph"
         phx-update="ignore"
         data-graph={Jason.encode!(@graph_data)}
+        data-workspace-slug={@workspace_slug}
+        data-ticket-ref={ticket_ref(@ticket)}
         class="flex-1 min-h-[300px] bg-surface-sunken border-b border-border overflow-auto"
       >
       </div>
@@ -66,7 +68,9 @@
             <tr :for={loop <- @loops} class="border-b border-border/50 hover:bg-surface-raised/50">
               <td class="py-2">
                 <.link
-                  navigate={~p"/w/#{@workspace_slug}/loops/#{loop.id}"}
+                  navigate={
+                    ~p"/w/#{@workspace_slug}/tickets/#{ticket_ref(@ticket)}/loops/#{loop_ref(loop.id)}"
+                  }
                   class="text-fg hover:text-accent-indigo transition-colors"
                 >
                   {loop.title}

@@ -181,7 +181,7 @@ defmodule Algedonia.Factory do
         title: "Loop #{System.unique_integer([:positive])}",
         status: :pending,
         role: :task,
-        max_attempts: 3
+        max_attempts: 10
       },
       overrides
     )

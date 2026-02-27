@@ -32,7 +32,7 @@ defmodule Algedonia.Loops.Loop do
     field :role, Ecto.Enum, values: @roles, default: :task
     field :manual_gate, :boolean, default: false
     field :current_attempt, :integer, default: 0
-    field :max_attempts, :integer, default: 3
+    field :max_attempts, :integer, default: 10
     field :path_prefixes, {:array, :string}
     field :rubric, :string
     field :branch_name, :string

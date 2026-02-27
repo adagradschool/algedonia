@@ -17,7 +17,13 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   }
 
   @impl true
-  def mount(%{"loop_id" => loop_id, "workspace" => workspace_slug}, _session, socket) do
+  def mount(
+        %{"loop_ref" => loop_ref, "workspace" => workspace_slug} = params,
+        _session,
+        socket
+      ) do
+    loop_id = resolve_loop_id(loop_ref)
+
     if connected?(socket) do
       Terminals.subscribe(loop_id)
       maybe_subscribe_loop_updates(loop_id)
@@ -30,6 +36,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket =
       socket
       |> assign(:loop_id, loop_id)
+      |> assign(:loop_ref, loop_ref)
+      |> assign(:route_ticket_ref, params["ticket_ref"])
       |> assign(:workspace_slug, workspace_slug)
       |> assign(:active, Terminals.active?(loop_id))
       |> assign(:role, "maker")
@@ -42,7 +50,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:overview_job_id, nil)
       |> assign(init_agent_ui(agent_type))
       |> assign(:show_shortcut_help, false)
-      |> assign(:page_title, "Loop #{loop_id}")
+      |> assign(:page_title, "Loop #{display_loop_id(loop_id)}")
       |> assign_history(Orchestrator.get_loop_history(loop_id))
       |> assign_terminal_run()
       |> assign_terminal_ws_access()
@@ -83,8 +91,12 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, start_loop_on_daemon(socket)}
   end
 
-  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+  def handle_event("switch_tab", %{"tab" => tab}, socket) when tab in ["overview", "rubric"] do
     {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  def handle_event("switch_tab", _params, socket) do
+    {:noreply, socket}
   end
 
   def handle_event("toggle_steps", _params, socket) do
@@ -207,6 +219,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   def handle_info({:loop_history_updated, history}, socket) do
     previous_terminal_id = socket.assigns.selected_terminal_id
+    was_following_current = following_current_step?(socket)
+
+    socket =
+      if was_following_current do
+        # Auto-advance: clear manual selection so we pick the new current step
+        assign(socket, :selected_step_id, nil)
+      else
+        socket
+      end
 
     socket =
       socket
@@ -237,6 +258,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def render_markdown(text), do: Markdown.render(text)
+
+  def verdict_heading(final_verdict, loop_record) do
+    if final_outcome?(final_verdict, loop_record), do: "Final Verdict", else: "Checker Verdict"
+  end
 
   defp start_loop_on_daemon(socket) do
     case resolve_daemon(socket) do
@@ -364,7 +389,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp default_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
 
   defp assign_loop_context(socket, loop_id) do
-    loop = if uuid?(loop_id), do: Loops.get_loop(loop_id), else: nil
+    loop = Loops.get_loop_by_ref(loop_id)
 
     case loop do
       nil ->
@@ -393,24 +418,37 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   defp maybe_subscribe_loop_updates(loop_id) do
-    if uuid?(loop_id), do: Loops.subscribe(loop_id)
-  end
-
-  defp maybe_subscribe_ticket_updates(loop_id) do
-    if uuid?(loop_id) do
-      with %{} = loop <- Loops.get_loop(loop_id),
-           loop <- Loops.preload_ticket(loop) do
-        Tickets.subscribe()
-        Tickets.subscribe_comments(loop.dag.ticket_id)
-      end
+    case Loops.get_loop_by_ref(loop_id) do
+      nil -> :ok
+      loop -> Loops.subscribe(loop.id)
     end
   end
 
-  defp uuid?(value) when is_binary(value) do
-    String.match?(value, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  defp maybe_subscribe_ticket_updates(loop_id) do
+    with %{} = loop <- Loops.get_loop_by_ref(loop_id),
+         loop <- Loops.preload_ticket(loop) do
+      Tickets.subscribe()
+      Tickets.subscribe_comments(loop.dag.ticket_id)
+    end
   end
 
-  defp uuid?(_), do: false
+  defp resolve_loop_id(loop_ref) do
+    case Loops.get_loop_by_ref(loop_ref) do
+      nil -> loop_ref
+      loop -> loop.id
+    end
+  end
+
+  def loop_show_path(workspace_slug, ticket, route_ticket_ref, loop_id) do
+    ticket_ref = if ticket, do: ticket_ref(ticket), else: route_ticket_ref || "ad-hoc"
+
+    ~p"/w/#{workspace_slug}/tickets/#{ticket_ref}/loops/#{String.slice(loop_id, 0, 8)}"
+  end
+
+  defp ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
+  defp ticket_ref(%{id: id}), do: id
+
+  defp display_loop_id(loop_id), do: String.slice(loop_id, 0, 8)
 
   defp assign_history(socket, history) do
     step_history = step_history(history)
@@ -434,6 +472,23 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       entry.role == "checker" and entry.status == "completed" and Map.has_key?(entry, :verdict)
     end)
   end
+
+  defp final_outcome?(nil, _loop_record), do: false
+
+  defp final_outcome?(%{verdict: "pass"}, _loop_record), do: true
+
+  defp final_outcome?(_final_verdict, %{status: status})
+       when status in [:passed, :failed],
+       do: true
+
+  defp final_outcome?(_final_verdict, %{
+         current_attempt: current_attempt,
+         max_attempts: max_attempts
+       })
+       when is_integer(current_attempt) and is_integer(max_attempts),
+       do: current_attempt >= max_attempts
+
+  defp final_outcome?(_final_verdict, _loop_record), do: false
 
   defp step_history(history) do
     history
@@ -508,6 +563,13 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       _ ->
         Daemons.find_online()
     end
+  end
+
+  defp following_current_step?(socket) do
+    selected = socket.assigns[:selected_step_id]
+    current = socket.assigns[:current_step_id]
+
+    is_nil(selected) or selected == current
   end
 
   defp selected_step(history, selected_step_id) do

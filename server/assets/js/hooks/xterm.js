@@ -99,7 +99,7 @@ const XTerm = {
     this.resizeObserver.observe(this.el)
 
     this.handleEvent("terminal_scrollback", ({ data }) => {
-      this.enqueueBase64Data(data)
+      this.clearAndWriteScrollback(data)
     })
 
     this.handleEvent("terminal_ended", ({ exit_code }) => {
@@ -253,6 +253,14 @@ const XTerm = {
         this.flushWriteQueue()
       })
     }
+  },
+
+  clearAndWriteScrollback(data) {
+    this.flushWriteQueueNow()
+    if (this.term) {
+      this.term.reset()
+    }
+    this.enqueueBase64Data(data)
   },
 
   enqueueBase64Data(data) {

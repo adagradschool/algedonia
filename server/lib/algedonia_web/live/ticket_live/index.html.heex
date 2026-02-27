@@ -20,6 +20,25 @@
           <span class="text-[11px] text-fg-muted">{@ticket_count}</span>
         </div>
 
+        <form
+          :if={@live_action != :show}
+          phx-change="search"
+          class="relative"
+        >
+          <.icon
+            name="hero-magnifying-glass-mini"
+            class="size-3.5 text-fg-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
+          />
+          <input
+            type="text"
+            name="q"
+            value={@filter_query || ""}
+            placeholder="Search issues"
+            phx-debounce="200"
+            class="w-56 pl-7 pr-2 py-1 bg-surface-raised border border-border rounded-md text-xs text-fg placeholder-fg-muted focus:outline-none focus:border-accent-indigo"
+          />
+        </form>
+
         <%!-- Filter dropdown --%>
         <div class="dropdown dropdown-end">
           <label
@@ -114,7 +133,6 @@
               @view_mode == :board && "bg-accent-indigo/20 text-fg",
               @view_mode != :board && "text-fg-muted hover:text-fg"
             ]}
-            title="Board view (B)"
           >
             <.icon name="hero-view-columns" class="size-3.5" />
           </button>
@@ -126,7 +144,6 @@
               @view_mode == :list && "bg-accent-indigo/20 text-fg",
               @view_mode != :list && "text-fg-muted hover:text-fg"
             ]}
-            title="List view (B)"
           >
             <.icon name="hero-bars-3" class="size-3.5" />
           </button>
@@ -137,10 +154,8 @@
           id="new-issue-button"
           patch={~p"/w/#{@workspace_slug}/tickets/new"}
           class="flex items-center gap-1.5 bg-accent-indigo hover:bg-accent-indigo-hover text-white rounded-md overflow-hidden cursor-pointer"
-          title="New issue (C)"
         >
-          <span class="pl-3 py-1 text-sm font-medium">+ Issue</span>
-          <.kbd class="bg-white/15 border-white/20 text-white/70 mr-1.5">C</.kbd>
+          <span class="px-3 py-1 text-sm font-medium">+ Issue</span>
         </.link>
       </div>
     </header>
@@ -210,7 +225,7 @@
                 <div class="flex items-center gap-3">
                   <.link
                     patch={~p"/w/#{@workspace_slug}/tickets"}
-                    class="text-fg-muted hover:text-fg transition-colors"
+                    class="text-fg-muted hover:text-fg transition-colors min-w-11 min-h-11 inline-flex items-center justify-center"
                   >
                     <.icon name="hero-arrow-left" class="size-4" />
                   </.link>
@@ -221,31 +236,71 @@
                   </span>
                 </div>
                 <div class="flex gap-1">
+                  <span class="text-[11px] text-fg-muted px-2 self-center">
+                    <%= case @save_state do %>
+                      <% :saving -> %>
+                        Saving...
+                      <% :saved -> %>
+                        Saved
+                      <% :error -> %>
+                        Save failed
+                      <% _ -> %>
+                    <% end %>
+                  </span>
                   <button
                     :if={@ticket.status in [:backlog, :halted]}
                     phx-click="start_work"
                     phx-value-id={@ticket.id}
                     class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-green border border-status-green/40 bg-status-green/10 rounded-md hover:bg-status-green/20 transition-colors"
-                    title="Start work"
                     type="button"
                   >
                     <.icon name="hero-play-mini" class="size-3.5" /> Start Work
                   </button>
                   <.link
                     :if={@ticket.status in [:planning, :in_progress, :completed] && @loop_id}
-                    navigate={~p"/w/#{@workspace_slug}/loops/#{@loop_id}"}
+                    navigate={
+                      ~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{String.slice(@loop_id, 0, 8)}"
+                    }
                     class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
                   >
                     <.icon name="hero-magnifying-glass" class="size-3" /> Inspect
                   </.link>
-                  <button
-                    phx-click="confirm_delete"
-                    class="size-7 flex items-center justify-center text-fg-muted hover:text-status-red transition-colors rounded-md hover:bg-surface-raised"
-                    title="Delete"
-                    type="button"
-                  >
-                    <.icon name="hero-trash-mini" class="size-4" />
-                  </button>
+                  <div class="dropdown dropdown-end">
+                    <button
+                      id="ticket-settings-button"
+                      class="size-7 flex items-center justify-center text-fg-muted hover:text-fg transition-colors rounded-md hover:bg-surface-raised"
+                      title="Settings"
+                      type="button"
+                    >
+                      <.icon name="hero-cog-6-tooth-mini" class="size-4" />
+                    </button>
+                    <ul
+                      tabindex="0"
+                      class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-40 p-1 shadow-lg mt-1"
+                    >
+                      <li>
+                        <button
+                          id="ticket-duplicate-action"
+                          phx-click="duplicate_ticket"
+                          phx-value-id={@ticket.id}
+                          class="text-xs rounded"
+                          type="button"
+                        >
+                          Duplicate
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          id="ticket-delete-action"
+                          phx-click="confirm_delete"
+                          class="text-xs rounded text-status-red"
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
                 </div>
               </div>
 
@@ -435,8 +490,9 @@
         </button>
         <button
           phx-click="confirm_delete_now"
-          phx-value-id={@ticket.id}
+          phx-value-id={@delete_ticket_id}
           class="px-3 py-1.5 text-xs text-white bg-status-red hover:bg-status-red/80 rounded-md"
+          phx-disable-with="Deleting..."
         >
           Delete
         </button>
