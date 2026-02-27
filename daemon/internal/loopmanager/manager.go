@@ -193,38 +193,47 @@ func (m *Manager) newTerminalChunker(loopID string) *Chunker {
 	})
 }
 
-// sendPromptToTUI waits a short warmup, types prompt text, then presses Enter.
+// sendPromptToTUI waits for warmup, types prompt text character-by-character
+// (simulating keyboard input), then presses Enter.
+//
+// Ink-based TUI agents (Codex, Claude Code) detect rapid bulk writes as paste
+// bursts and treat CR as a newline within the input rather than as submit.
+// Typing one character at a time with inter-character delays avoids paste
+// detection and ensures Enter is interpreted as submit.
 func sendPromptToTUI(
 	done <-chan struct{},
 	loopID, prompt string,
-	preEnterDelay time.Duration,
 	writeFn func([]byte) error,
 ) {
-	const warmup = 1 * time.Second
+	const (
+		warmup      = 1500 * time.Millisecond
+		charDelay   = 5 * time.Millisecond
+		settleDelay = 300 * time.Millisecond
+	)
 
-	timer := time.NewTimer(warmup)
-	defer timer.Stop()
-
-	select {
-	case <-done:
-		return
-	case <-timer.C:
-	}
-
-	if err := writeFn([]byte(prompt)); err != nil {
-		log.Printf("Failed to send prompt text to loop %s: %v", loopID, err)
+	if !waitOrDone(done, warmup) {
 		return
 	}
 
-	if preEnterDelay > 0 {
-		enterDelay := time.NewTimer(preEnterDelay)
-		defer enterDelay.Stop()
-
+	// Type each character individually to avoid paste-burst detection.
+	for _, ch := range []byte(prompt) {
 		select {
 		case <-done:
 			return
-		case <-enterDelay.C:
+		default:
 		}
+		if err := writeFn([]byte{ch}); err != nil {
+			log.Printf("Failed to send prompt char to loop %s: %v", loopID, err)
+			return
+		}
+		if !waitOrDone(done, charDelay) {
+			return
+		}
+	}
+
+	// Let the TUI settle after the last character.
+	if !waitOrDone(done, settleDelay) {
+		return
 	}
 
 	if err := writeFn([]byte("\r")); err != nil {
@@ -233,6 +242,19 @@ func sendPromptToTUI(
 	}
 
 	log.Printf("Prompt submitted for loop %s (%d bytes)", loopID, len(prompt))
+}
+
+// waitOrDone sleeps for d but returns early if done is closed.
+// Returns true if the duration elapsed, false if done was signalled.
+func waitOrDone(done <-chan struct{}, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 // StartLoop spawns a process in a PTY and streams output to the server.
@@ -325,7 +347,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 			_, err := sess.Write(data)
 			return err
 		}
-		go sendPromptToTUI(done, loopID, prompt, 0, writeFn)
+		go sendPromptToTUI(done, loopID, prompt, writeFn)
 	}
 
 	log.Printf("Started loop %s: %s %v", loopID, command, args)
@@ -522,13 +544,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		writeFn := func(data []byte) error {
 			return ag.SendInput(proc, data)
 		}
-		preEnterDelay := time.Duration(0)
-		if strings.EqualFold(agentType, "codex") {
-			// Codex TUI suppresses Enter as newline during active paste bursts.
-			// A short settle delay ensures Enter is interpreted as submit.
-			preEnterDelay = 80 * time.Millisecond
-		}
-		go sendPromptToTUI(done, loopID, proc.InitialPrompt, preEnterDelay, writeFn)
+		go sendPromptToTUI(done, loopID, proc.InitialPrompt, writeFn)
 	}
 
 	log.Printf("Started adapter loop %s: %s (role=%s)", loopID, agentType, role)
