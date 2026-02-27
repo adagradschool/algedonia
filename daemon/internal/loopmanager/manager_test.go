@@ -537,6 +537,96 @@ func TestDecomposeOutputParsing(t *testing.T) {
 	}
 }
 
+func TestSendPromptToTUI(t *testing.T) {
+	t.Run("writes chars then CR", func(t *testing.T) {
+		var mu sync.Mutex
+		var written []byte
+
+		done := make(chan struct{})
+		prompt := "hi"
+
+		writeFn := func(data []byte) error {
+			mu.Lock()
+			written = append(written, data...)
+			mu.Unlock()
+			return nil
+		}
+
+		// Use a goroutine since sendPromptToTUI blocks on warmup.
+		finished := make(chan struct{})
+		go func() {
+			sendPromptToTUI(done, "test-loop", prompt, writeFn)
+			close(finished)
+		}()
+
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+			t.Fatal("sendPromptToTUI did not complete in time")
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Expect: 'h', 'i', CR
+		expected := "hi\r"
+		if string(written) != expected {
+			t.Errorf("written bytes = %q, want %q", string(written), expected)
+		}
+	})
+
+	t.Run("respects done channel cancellation", func(t *testing.T) {
+		done := make(chan struct{})
+		close(done) // Already cancelled
+
+		var mu sync.Mutex
+		var written []byte
+
+		writeFn := func(data []byte) error {
+			mu.Lock()
+			written = append(written, data...)
+			mu.Unlock()
+			return nil
+		}
+
+		finished := make(chan struct{})
+		go func() {
+			sendPromptToTUI(done, "test-loop", "hello", writeFn)
+			close(finished)
+		}()
+
+		select {
+		case <-finished:
+		case <-time.After(3 * time.Second):
+			t.Fatal("sendPromptToTUI did not respect done channel")
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if len(written) != 0 {
+			t.Errorf("expected no writes when done is closed, got %q", string(written))
+		}
+	})
+}
+
+func TestWaitOrDone(t *testing.T) {
+	t.Run("returns true when duration elapses", func(t *testing.T) {
+		done := make(chan struct{})
+		if !waitOrDone(done, time.Millisecond) {
+			t.Error("expected true (duration elapsed)")
+		}
+	})
+
+	t.Run("returns false when done is closed", func(t *testing.T) {
+		done := make(chan struct{})
+		close(done)
+		if waitOrDone(done, time.Hour) {
+			t.Error("expected false (done signalled)")
+		}
+	})
+}
+
 func TestAgentCrashReportsError(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
