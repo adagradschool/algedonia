@@ -29,6 +29,9 @@ import XTerm from "./hooks/xterm"
 import DagGraph from "./hooks/dag_graph"
 import MarkdownEditor from "./hooks/markdown_editor"
 import KeyboardShortcuts from "./hooks/keyboard_shortcuts"
+import CommandPalette from "./hooks/command_palette"
+import SplitPanel from "./hooks/split_panel"
+import SidebarPanel from "./hooks/sidebar_panel"
 
 const Hooks = {
   ...colocatedHooks,
@@ -36,6 +39,9 @@ const Hooks = {
   DagGraph,
   MarkdownEditor,
   KeyboardShortcuts,
+  CommandPalette,
+  SplitPanel,
+  SidebarPanel,
   KanbanBoard: {
     mounted() {
       this.sortables = []

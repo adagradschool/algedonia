@@ -568,6 +568,7 @@ defmodule AlgedoniaWeb.CoreComponents do
           <div>
             <div class="text-[10px] uppercase tracking-wider text-fg-muted mb-2">General</div>
             <div class="space-y-1.5">
+              <.shortcut_row keys="⌘ K" label="Open command palette" />
               <.shortcut_row keys="?" label="Show keyboard shortcuts" />
             </div>
           </div>
@@ -575,7 +576,7 @@ defmodule AlgedoniaWeb.CoreComponents do
           <div :if={@page == "tickets"}>
             <div class="text-[10px] uppercase tracking-wider text-fg-muted mb-2">Issues</div>
             <div class="space-y-1.5">
-              <.shortcut_row keys="C" label="Create new issue" />
+              <.shortcut_row keys="⌘ K" label="Open command palette (new issue)" />
               <.shortcut_row keys="B" label="Toggle board / list view" />
               <.shortcut_row keys="Esc" label="Back to list" />
             </div>
@@ -588,6 +589,7 @@ defmodule AlgedoniaWeb.CoreComponents do
               <.shortcut_row keys="1" label="Overview tab" />
               <.shortcut_row keys="2" label="Rubric tab" />
               <.shortcut_row keys="3" label="Toggle steps list" />
+              <.shortcut_row keys="Ctrl `" label="Toggle inspector panel" />
               <.shortcut_row keys="Esc" label="Back to issues" />
             </div>
           </div>
@@ -595,7 +597,7 @@ defmodule AlgedoniaWeb.CoreComponents do
 
         <div class="px-5 py-3 border-t border-border">
           <p class="text-[10px] text-fg-muted">
-            Shortcuts are disabled when focused on text inputs.
+            Shortcuts pause in text fields.
           </p>
         </div>
       </div>

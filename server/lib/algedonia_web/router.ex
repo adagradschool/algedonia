@@ -43,14 +43,14 @@ defmodule AlgedoniaWeb.Router do
 
     live_session :default, on_mount: [AlgedoniaWeb.PresenceHook] do
       live "/monitor", MonitorLive.Index, :index
-      live "/loops/:loop_id", LoopLive.Show, :show
 
       live "/tickets", TicketLive.Index, :index
       live "/tickets/new", TicketLive.Index, :new
-      live "/tickets/:id", TicketLive.Index, :show
-      live "/tickets/:id/edit", TicketLive.Index, :edit
+      live "/tickets/:ticket_ref", TicketLive.Index, :show
+      live "/tickets/:ticket_ref/edit", TicketLive.Index, :edit
+      live "/tickets/:ticket_ref/loops/:loop_ref", LoopLive.Show, :show
 
-      live "/dags/:ticket_id", DagLive.Show, :show
+      live "/dags/:ticket_ref", DagLive.Show, :show
     end
   end
 

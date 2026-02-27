@@ -72,6 +72,17 @@ defmodule AlgedoniaWeb.LayoutsTest do
   end
 
   describe "nav_active? integration via app component" do
+    test "app layout renders resizable/collapsible sidebar shell" do
+      html = render_app([])
+
+      assert html =~ ~s(id="workspace-layout")
+      assert html =~ ~s(phx-hook="SidebarPanel")
+      assert html =~ ~s(data-storage-key="workspace-left-sidebar-width")
+      assert html =~ ~s(data-sidebar-handle)
+      assert html =~ ~s(data-sidebar-toggle)
+      assert html =~ ~s(data-collapsed-width="52")
+    end
+
     test "nav_section :issues highlights Issues tab" do
       html = render_app(nav_section: :issues)
       links = nav_links(html)
@@ -207,7 +218,7 @@ defmodule AlgedoniaWeb.LayoutsTest do
     Regex.scan(~r/<a\s[^>]*>.*?<\/a>/s, nav_block)
     |> Enum.map(fn [link_html] ->
       # Extract the label text from <span>Label</span>
-      [_, label] = Regex.run(~r/<span>([^<]+)<\/span>\s*\n<\/a>/s, link_html)
+      [_, label] = Regex.run(~r/<span[^>]*>([^<]+)<\/span>\s*\n<\/a>/s, link_html)
       {String.trim(label), link_html}
     end)
     |> Map.new()

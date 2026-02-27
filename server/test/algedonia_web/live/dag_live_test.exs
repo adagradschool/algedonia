@@ -46,7 +46,9 @@ defmodule AlgedoniaWeb.DagLiveTest do
 
       assert html =~ "Test loop"
       assert html =~ "running_maker"
-      assert html =~ "/w/#{workspace.slug}/loops/#{loop.id}"
+
+      assert html =~
+               "/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}"
     end
 
     test "updates on PubSub dag_created", %{conn: conn, workspace: workspace} do
@@ -73,7 +75,7 @@ defmodule AlgedoniaWeb.DagLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/dags/#{dag.ticket_id}")
 
-      assert html =~ "/w/#{workspace.slug}/tickets/#{dag.ticket_id}"
+      assert html =~ "/w/#{workspace.slug}/tickets/#{ticket.number}"
     end
   end
 end

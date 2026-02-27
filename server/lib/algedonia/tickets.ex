@@ -54,6 +54,19 @@ defmodule Algedonia.Tickets do
   def get_ticket!(id), do: Repo.get!(Ticket, id)
 
   @doc """
+  Resolves a ticket by reference inside a workspace.
+
+  Accepts a UUID or a numeric ticket number.
+  """
+  @spec get_ticket_by_ref!(binary(), binary()) :: Ticket.t()
+  def get_ticket_by_ref!(workspace_id, ref) when is_binary(ref) do
+    case Integer.parse(ref) do
+      {number, ""} -> get_ticket_by_number!(workspace_id, number)
+      _ -> get_ticket!(ref)
+    end
+  end
+
+  @doc """
   Gets a ticket by workspace ID and ticket number. Raises if not found.
   """
   @spec get_ticket_by_number!(binary(), integer()) :: Ticket.t()

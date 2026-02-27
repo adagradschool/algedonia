@@ -31,8 +31,9 @@ defmodule AlgedoniaWeb.DagLive.Show do
   }
 
   @impl true
-  def mount(%{"ticket_id" => ticket_id}, _session, socket) do
-    ticket = Tickets.get_ticket!(ticket_id)
+  def mount(%{"ticket_ref" => ticket_ref}, _session, socket) do
+    ticket = Tickets.get_ticket_by_ref!(socket.assigns.current_workspace.id, ticket_ref)
+    ticket_id = ticket.id
 
     if connected?(socket) do
       Dags.subscribe(ticket_id)
@@ -99,4 +100,11 @@ defmodule AlgedoniaWeb.DagLive.Show do
 
     %{nodes: nodes, edges: edges}
   end
+
+  @doc false
+  def ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
+  def ticket_ref(%{id: id}), do: id
+
+  @doc false
+  def loop_ref(loop_id) when is_binary(loop_id), do: String.slice(loop_id, 0, 8)
 end

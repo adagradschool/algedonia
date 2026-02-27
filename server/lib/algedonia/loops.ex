@@ -2,6 +2,8 @@ defmodule Algedonia.Loops do
   @moduledoc """
   Context for loop management — CRUD and status updates with PubSub broadcasts.
   """
+  import Ecto.Query
+
   alias Algedonia.Loops.Loop
   alias Algedonia.Repo
 
@@ -18,11 +20,52 @@ defmodule Algedonia.Loops do
   def get_loop(id), do: Repo.get(Loop, id)
 
   @doc """
+  Gets a loop by URL reference.
+
+  Accepts a UUID or a short ID prefix.
+  """
+  @spec get_loop_by_ref(binary()) :: Loop.t() | nil
+  def get_loop_by_ref(ref) when is_binary(ref) do
+    if uuid?(ref) do
+      get_loop(ref)
+    else
+      ref = String.downcase(ref)
+      len = String.length(ref)
+
+      from(l in Loop,
+        where: fragment("left((?)::text, ?)", l.id, ^len) == ^ref,
+        limit: 2
+      )
+      |> Repo.all()
+      |> case do
+        [loop] -> loop
+        _ -> nil
+      end
+    end
+  end
+
+  @spec get_loop_by_ref!(binary()) :: Loop.t()
+  def get_loop_by_ref!(ref) when is_binary(ref) do
+    case get_loop_by_ref(ref) do
+      nil -> raise Ecto.NoResultsError, queryable: Loop
+      loop -> loop
+    end
+  end
+
+  @doc """
   Gets a loop with its DAG and ticket preloaded. Raises if not found.
   """
   @spec get_loop_with_ticket!(binary()) :: Loop.t()
   def get_loop_with_ticket!(id) do
     get_loop!(id) |> Repo.preload(dag: :ticket)
+  end
+
+  @doc """
+  Gets a loop by reference with DAG and ticket preloaded. Raises if not found.
+  """
+  @spec get_loop_with_ticket_by_ref!(binary()) :: Loop.t()
+  def get_loop_with_ticket_by_ref!(ref) do
+    get_loop_by_ref!(ref) |> Repo.preload(dag: :ticket)
   end
 
   @doc """
@@ -99,4 +142,10 @@ defmodule Algedonia.Loops do
   def subscribe(loop_id) do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, "loop:#{loop_id}")
   end
+
+  defp uuid?(value) when is_binary(value) do
+    String.match?(value, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  end
+
+  defp uuid?(_), do: false
 end

@@ -1263,3 +1263,67 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | Unit | Capacity enforcement: daemon at max, no new loops assigned. |
 | Integration (LiveView) | Monitor view shows daemon column per running loop. Sorting by daemon works. |
 | Integration | Two daemon channels connected, verify scheduling distributes loops. |
+
+---
+
+# Part 3: UX & Design Rubrics
+
+---
+
+## Performance
+
+| # | Criterion |
+|---|-----------|
+| UX1 | Every interaction responds in ≤100ms. If backend work takes longer, show skeleton loading states immediately and resolve in place. |
+
+## Onboarding
+
+| # | Criterion |
+|---|-----------|
+| UX2 | No product tours, no modals on first visit, no coach marks. The UI is self-evident or it's broken. |
+
+## Navigation & URLs
+
+| # | Criterion |
+|---|-----------|
+| UX3 | URL slugs are short, human-readable, no UUIDs. Use short slugs or nanoids if needed. |
+| UX4 | All navigation is reachable in ≤3 steps from anywhere. |
+| UX5 | `Cmd+K` command palette is available globally. |
+
+## State
+
+| # | Criterion |
+|---|-----------|
+| UX6 | All state is persistent and resumable. Closing the browser and reopening lands you exactly where you left off. |
+| UX7 | Reassure users about data loss — confirm destructive actions, show save status, surface undo when possible. |
+
+## Visual Design
+
+| # | Criterion |
+|---|-----------|
+| UX8 | Not more than 3 colors (plus neutral grays). One primary, one accent, one semantic (error/warning). |
+| UX9 | No visible scrollbars. Use `overflow: auto` with hidden scrollbar styling. |
+| UX10 | Optical alignment over geometric alignment. Elements should look aligned, not just be mathematically aligned. |
+| UX11 | Layout optimized for left-to-right reading flow. Primary content and actions on the left, secondary on the right. |
+| UX12 | Skeleton loading states for all async content. No spinners, no blank screens. |
+
+## Interaction
+
+| # | Criterion |
+|---|-----------|
+| UX13 | Larger hit targets — buttons ≥44px, inputs ≥40px height. Touch-friendly even on desktop. |
+| UX14 | Honest one-click cancel. Cancellation is immediate, never "are you sure?" unless data loss is involved. |
+| UX15 | Copy/paste from clipboard works everywhere text is displayed. No un-selectable text. |
+
+## Brand
+
+| # | Criterion |
+|---|-----------|
+| UX16 | Copyable SVG logo + brand kit available as a static asset. |
+
+## Copy & Tooltips
+
+| # | Criterion |
+|---|-----------|
+| UX17 | All UI copy is active voice, max 7 words per sentence. |
+| UX18 | Tooltips are minimal — only on icons without labels. Never on buttons with text. |

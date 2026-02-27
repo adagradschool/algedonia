@@ -101,7 +101,7 @@ defmodule Algedonia.Dags do
       description: attrs["description"],
       role: attrs["role"] || "task",
       manual_gate: attrs["manual_gate"] || false,
-      max_attempts: attrs["max_attempts"] || 3,
+      max_attempts: attrs["max_attempts"] || 10,
       path_prefixes: attrs["path_prefixes"],
       rubric: attrs["rubric"],
       dag_id: attrs["dag_id"]

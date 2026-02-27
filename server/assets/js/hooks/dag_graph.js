@@ -57,8 +57,7 @@ const DagGraph = {
       svg += `<rect x="${pos.x}" y="${pos.y}" width="${NODE_W}" height="${NODE_H}" rx="6" fill="#1F2937" stroke="${node.color}" stroke-width="2" />`
       svg += `<circle cx="${pos.x + 14}" cy="${pos.y + 18}" r="5" fill="${node.color}" />`
 
-      // Truncate title
-      const title = node.title.length > 20 ? node.title.slice(0, 18) + "..." : node.title
+      const title = node.title || ""
       svg += `<text x="${pos.x + 26}" y="${pos.y + 19}" fill="#E5E7EB" font-size="12" dominant-baseline="middle" font-family="ui-monospace, monospace">${this.escapeHtml(title)}</text>`
 
       // Status label
@@ -74,7 +73,9 @@ const DagGraph = {
     this.el.querySelectorAll('.dag-node').forEach(g => {
       g.addEventListener('click', () => {
         const id = g.dataset.id
-        window.location = `/loops/${id}`
+        const workspaceSlug = this.el.dataset.workspaceSlug
+        const ticketRef = this.el.dataset.ticketRef
+        window.location = `/w/${encodeURIComponent(workspaceSlug)}/tickets/${encodeURIComponent(ticketRef)}/loops/${encodeURIComponent(id)}`
       })
     })
   },

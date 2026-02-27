@@ -58,22 +58,38 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :type, :atom, required: true
 
   def type_badge(assigns) do
-    {dot_color, label} = type_meta(assigns.type)
-    assigns = assign(assigns, dot_color: dot_color, label: label)
+    {dot_color, label, badge_class} = type_meta(assigns.type)
+    assigns = assign(assigns, dot_color: dot_color, label: label, badge_class: badge_class)
 
     ~H"""
-    <span class="px-2 py-0.5 bg-surface-raised border border-border rounded-full text-[10px] text-fg-secondary flex items-center gap-1.5">
+    <span class={[
+      "px-2 py-0.5 border rounded-full text-[10px] flex items-center gap-1.5",
+      @badge_class
+    ]}>
       <span class={["w-1.5 h-1.5 rounded-full", @dot_color]} />
       {@label}
     </span>
     """
   end
 
-  defp type_meta(:feature), do: {"bg-accent-indigo", "Feature"}
-  defp type_meta(:bug), do: {"bg-status-red", "Bug"}
-  defp type_meta(:chore), do: {"bg-fg-muted", "Chore"}
-  defp type_meta(:spike), do: {"bg-status-cyan", "Spike"}
-  defp type_meta(type), do: {"bg-fg-muted", type |> to_string() |> String.capitalize()}
+  defp type_meta(:feature),
+    do:
+      {"bg-accent-indigo", "Feature",
+       "bg-accent-indigo/10 border-accent-indigo/35 text-accent-indigo"}
+
+  defp type_meta(:bug),
+    do: {"bg-status-red", "Bug", "bg-status-red/10 border-status-red/35 text-status-red"}
+
+  defp type_meta(:chore),
+    do: {"bg-fg-muted", "Chore", "bg-surface-raised border-border text-fg-muted"}
+
+  defp type_meta(:spike),
+    do: {"bg-status-cyan", "Spike", "bg-status-cyan/10 border-status-cyan/35 text-status-cyan"}
+
+  defp type_meta(type),
+    do:
+      {"bg-fg-muted", type |> to_string() |> String.capitalize(),
+       "bg-surface-raised border-border text-fg-muted"}
 
   @doc """
   Renders a ticket card for board view.
@@ -85,14 +101,18 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :loop_ids, :map, default: %{}
 
   def ticket_card(assigns) do
-    assigns = assign(assigns, :loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+    assigns =
+      assigns
+      |> assign(:loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+      |> assign(:ticket_ref, ticket_ref(assigns.ticket))
+      |> assign(:loop_ref, loop_ref(Map.get(assigns.loop_ids, assigns.ticket.id)))
 
     ~H"""
     <div
       id={@id}
       data-ticket-id={@ticket.id}
       class="rounded-lg border border-border-soft bg-surface-panel p-3.5 space-y-2.5 cursor-pointer transition-all hover:border-border hover:bg-surface-raised"
-      phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket.id}"))}
+      phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}"))}
     >
       <div class="text-sm font-medium leading-snug text-fg">{@ticket.title}</div>
       <div class="flex items-center justify-between gap-2">
@@ -108,27 +128,25 @@ defmodule AlgedoniaWeb.TicketComponents do
             phx-click="start_work"
             phx-value-id={@ticket.id}
             phx-stop-propagation
-            class="px-2 py-0.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[10px] font-medium hover:bg-status-green/20 transition-colors"
-            title="Start work"
+            class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors"
             type="button"
           >
             Start Work
           </button>
           <a
             :if={@ticket.status in [:in_progress, :completed] && @loop_id}
-            href={workspace_path(@workspace_slug, "/loops/#{@loop_id}")}
+            href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
             phx-stop-propagation
             data-phx-link="redirect"
             data-phx-link-state="push"
-            class="px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[10px] font-medium hover:bg-accent-indigo/20 transition-colors"
-            title="Inspect loop"
+            class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
           >
             Inspect
           </a>
           <.type_badge type={@ticket.type} />
           <span
             :if={@ticket.assignee}
-            class="text-[10px] text-fg-muted truncate max-w-16"
+            class="text-[10px] text-fg-muted max-w-36 whitespace-normal break-words text-right"
           >
             {@ticket.assignee}
           </span>
@@ -148,20 +166,24 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :loop_ids, :map, default: %{}
 
   def ticket_row(assigns) do
-    assigns = assign(assigns, :loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+    assigns =
+      assigns
+      |> assign(:loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+      |> assign(:ticket_ref, ticket_ref(assigns.ticket))
+      |> assign(:loop_ref, loop_ref(Map.get(assigns.loop_ids, assigns.ticket.id)))
 
     ~H"""
     <div
       id={@id}
-      class="flex items-center gap-3 py-2.5 px-3.5 rounded-lg border border-transparent hover:border-border hover:bg-surface-raised transition-all cursor-pointer"
-      phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket.id}"))}
+      class="flex items-start gap-3 min-h-11 px-3.5 py-2 rounded-lg border border-transparent hover:border-border hover:bg-surface-raised transition-all cursor-pointer"
+      phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}"))}
     >
       <.priority_icon priority={@ticket.priority} />
       <span class="font-mono text-xs text-fg-muted w-16 shrink-0">
         {ticket_code(@ticket, @prefix)}
       </span>
       <.status_icon status={@ticket.status} />
-      <span class="text-sm font-medium flex-1 truncate text-fg">
+      <span class="text-sm font-medium flex-1 min-w-0 whitespace-normal break-words leading-snug text-fg">
         {@ticket.title}
       </span>
       <.type_badge type={@ticket.type} />
@@ -170,26 +192,68 @@ defmodule AlgedoniaWeb.TicketComponents do
         phx-click="start_work"
         phx-value-id={@ticket.id}
         phx-stop-propagation
-        class="px-2 py-1 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors shrink-0"
-        title="Start work"
+        class="inline-flex items-center px-2 py-1 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors shrink-0"
         type="button"
       >
         Start Work
       </button>
       <a
         :if={@ticket.status in [:in_progress, :completed] && @loop_id}
-        href={workspace_path(@workspace_slug, "/loops/#{@loop_id}")}
+        href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
         phx-stop-propagation
         data-phx-link="redirect"
         data-phx-link-state="push"
-        class="px-2 py-1 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors shrink-0"
-        title="Inspect loop"
+        class="inline-flex items-center px-2 py-1 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors shrink-0"
       >
         Inspect
       </a>
-      <span :if={@ticket.assignee} class="text-[10px] text-fg-muted w-16 text-right truncate">
+      <span
+        :if={@ticket.assignee}
+        class="text-[10px] text-fg-muted max-w-40 text-right whitespace-normal break-words"
+      >
         {@ticket.assignee}
       </span>
+      <div class="dropdown dropdown-end shrink-0" phx-stop-propagation>
+        <button
+          type="button"
+          class="size-7 flex items-center justify-center rounded-md text-fg-muted hover:text-fg hover:bg-surface-panel transition-colors"
+          title="Issue actions"
+          phx-stop-propagation
+        >
+          <.icon name="hero-ellipsis-horizontal-mini" class="size-4" />
+        </button>
+        <ul
+          tabindex="0"
+          class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-40 p-1 shadow-lg mt-1"
+        >
+          <li>
+            <button
+              id={"duplicate_ticket_quick-#{@ticket.id}"}
+              data-testid="duplicate_ticket_quick"
+              phx-click="duplicate_ticket"
+              phx-value-id={@ticket.id}
+              class="text-xs rounded"
+              type="button"
+              phx-stop-propagation
+            >
+              Duplicate
+            </button>
+          </li>
+          <li>
+            <button
+              id={"delete_ticket_quick-#{@ticket.id}"}
+              data-testid="delete_ticket_quick"
+              phx-click="confirm_delete"
+              phx-value-id={@ticket.id}
+              class="text-xs rounded text-status-red"
+              type="button"
+              phx-stop-propagation
+            >
+              Delete
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
     """
   end
@@ -213,7 +277,7 @@ defmodule AlgedoniaWeb.TicketComponents do
       <div class="flex items-center justify-between px-2 py-2 mb-1">
         <div class="flex items-center gap-2">
           <.status_icon status={@status} />
-          <span class="text-xs font-medium text-fg-secondary">{@label}</span>
+          <span class={["text-xs font-medium", status_label_color(@status)]}>{@label}</span>
           <span class="text-[10px] text-fg-muted">{@count}</span>
         </div>
         <div class="flex items-center gap-1">
@@ -264,6 +328,14 @@ defmodule AlgedoniaWeb.TicketComponents do
   def status_label(:archived), do: "Archived"
   def status_label(status), do: status |> to_string() |> String.capitalize()
 
+  defp status_label_color(:backlog), do: "text-fg-muted"
+  defp status_label_color(:planning), do: "text-status-yellow"
+  defp status_label_color(:halted), do: "text-status-red"
+  defp status_label_color(:in_progress), do: "text-status-blue"
+  defp status_label_color(:completed), do: "text-status-green"
+  defp status_label_color(:archived), do: "text-fg-muted"
+  defp status_label_color(_), do: "text-fg-secondary"
+
   defp status_color(:backlog), do: "bg-fg-muted"
   defp status_color(:planning), do: "bg-status-yellow"
   defp status_color(:halted), do: "bg-status-red"
@@ -276,6 +348,12 @@ defmodule AlgedoniaWeb.TicketComponents do
     do: "#{prefix}-#{number}"
 
   defp ticket_code(ticket, _prefix), do: String.slice(ticket.id, 0, 8)
+
+  defp ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
+  defp ticket_ref(%{id: id}), do: id
+
+  defp loop_ref(loop_id) when is_binary(loop_id), do: String.slice(loop_id, 0, 8)
+  defp loop_ref(_), do: nil
 
   defp workspace_path(nil, path), do: path
   defp workspace_path(slug, path), do: "/w/#{slug}#{path}"

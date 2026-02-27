@@ -86,6 +86,34 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute render(view) =~ "Doomed ticket"
     end
 
+    test "duplicates a ticket from detail settings", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{title: "Copy me", workspace_id: workspace.id, status: :backlog})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#ticket-duplicate-action")
+      |> render_click()
+
+      assert Enum.any?(
+               Tickets.list_tickets(workspace_id: workspace.id),
+               &(&1.title == "Copy me (Copy)")
+             )
+    end
+
+    test "opens delete flow from detail settings", %{conn: conn, workspace: workspace} do
+      ticket =
+        insert_ticket!(%{title: "Delete from menu", workspace_id: workspace.id, status: :backlog})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#ticket-delete-action")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Delete issue?"
+    end
+
     test "opens detail panel", %{conn: conn, workspace: workspace} do
       ticket =
         insert_ticket!(%{
@@ -109,6 +137,15 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Progress one"
     end
 
+    test "filters by search query", %{conn: conn, workspace: workspace} do
+      insert_ticket!(%{title: "Alpha migration", status: :backlog, workspace_id: workspace.id})
+      insert_ticket!(%{title: "Beta cleanup", status: :backlog, workspace_id: workspace.id})
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets?q=alpha")
+      assert html =~ "Alpha migration"
+      refute html =~ "Beta cleanup"
+    end
+
     test "start work from list creates loop and navigates to loop screen", %{
       conn: conn,
       workspace: workspace
@@ -125,7 +162,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_redirect(
         view,
-        ~p"/w/#{workspace.slug}/loops/#{loop.id}?#{%{autostart: 1, agent_type: "claude_code"}}"
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{autostart: 1, agent_type: "claude_code"}}"
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
@@ -154,7 +191,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_redirect(
         view,
-        ~p"/w/#{workspace.slug}/loops/#{loop.id}?#{%{autostart: 1, agent_type: "codex"}}"
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{autostart: 1, agent_type: "codex"}}"
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :in_progress

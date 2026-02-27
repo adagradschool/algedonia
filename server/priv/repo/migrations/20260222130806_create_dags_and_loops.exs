@@ -32,7 +32,7 @@ defmodule Algedonia.Repo.Migrations.CreateDagsAndLoops do
           references(:daemon_registrations, type: :binary_id, on_delete: :nilify_all)
 
       add :current_attempt, :integer, default: 0
-      add :max_attempts, :integer, default: 3
+      add :max_attempts, :integer, default: 10
       add :path_prefixes, {:array, :text}
       add :rubric, :text
       add :branch_name, :text
