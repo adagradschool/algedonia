@@ -10,7 +10,7 @@ The name comes from cybernetics (Stafford Beer). Algedonic signals are pain/plea
 
 1. **Verification loops and DAGs are the primitives.** The maker-checker loop is the atomic unit of work. Long work is a DAG of loops, not a monolithic sprint. Plans are hypotheses; loops are reality contact. Hard budgets on time, tokens, and retries. "Admit failure" is a first-class outcome.
 
-2. **Coordination via isolation.** Parallel agents work in isolated worktrees on non-overlapping files. Conflicts become a scheduling problem, not a merge problem. Agents are adapters, not the architecture. The UI is a skin over an event/command API.
+2. **Coordination via isolation.** Parallel agents work on non-overlapping files, enforced by prefix-based file locking. Conflicts become a scheduling problem, not a merge problem. Agents are adapters, not the architecture. The UI is a skin over an event/command API.
 
 3. **Humans collaborate, define goals and rubrics, and spot-check.** Agents do execution. Humans do goal selection, architectural decisions, quality bar, and risk acceptance — not strategy or step-by-step instructions. Translate vague requests into measurable constraints (rubrics), not prose instructions. Attention is the only scarce resource: escalations are queued one at a time, circuit breakers prevent failure floods, focus mode hides noise. Replace dopamine loops with verifier-gated loops. Sustainable, audited, compounding throughput.
 
@@ -97,11 +97,11 @@ Coordination overhead is a major source of waste in parallel development. Algedo
 
 ## Isolation
 
-Each loop gets its own git worktree. All worktrees share `.git` objects but have separate working directories.
+Each loop works in the shared repository directory. Prefix-based file locking ensures parallel loops never touch the same files.
 
-On success, the loop's work is squash/rebased into the parent branch and the worktree is cleaned up.
+On success, the loop's work is squash/rebased into the parent branch.
 
-Runtime isolation is delegated to agent adapters (containers, sandboxes, etc.). Algedonia orchestrates worktrees only.
+Runtime isolation is delegated to agent adapters (containers, sandboxes, etc.).
 
 ---
 
@@ -176,7 +176,7 @@ Collaboration is native to the architecture, not bolted on.
 
 **Server application:** Owns the UI, tickets, DAGs, loop orchestration, state, collaboration, and persistence. The server is the source of truth for all state.
 
-**Local daemon ("algedonia-agent"):** A thin process on the user's machine. Connects to the server via a persistent connection. Receives commands: create worktree, spawn agent, run checker. Streams terminal output back to the server. Reports results. The daemon has no opinions — it is a remote executor. The server decides what to run, when to run it, and whether the result passed.
+**Local daemon ("algedonia-agent"):** A thin process on the user's machine. Connects to the server via a persistent connection. Receives commands: spawn agent, run checker. Streams terminal output back to the server. Reports results. The daemon has no opinions — it is a remote executor. The server decides what to run, when to run it, and whether the result passed.
 
 Network connectivity is assumed (agents require it). Local-first offline mode is not a goal.
 

@@ -195,7 +195,7 @@ If any criterion fails, split further.
 - Claude Code adapter (first adapter): constructs CLI invocation, passes task via appropriate mechanism.
 - Prompt loading: daemon reads from `.algedonia/prompts/` in the repo (starting with `decompose.md`).
 - Daemon `start_loop` handler for `decompose` role: spawns agent with decompose prompt, parses structured output (DAG + rubrics), returns result to server.
-- Agent lifecycle management: worktree creation, PTY attachment, exit detection, result collection.
+- Agent lifecycle management: PTY attachment, exit detection, result collection.
 
 **Layers touched:** Daemon
 
@@ -271,8 +271,7 @@ If any criterion fails, split further.
 - Scheduler (`Algedonia.Scheduler`): identifies unblocked loops after DAG creation, assigns them to daemons (ticket creator's daemon if available, else least-loaded).
 - `loop_attempts` table (id, loop_id, attempt_number, role, status, diff, verdict, scores, feedback, session_id, token_usage, duration_ms, inserted_at).
 - `events` table (id, entity_type, entity_id, event_type, payload, actor, inserted_at).
-- Daemon `start_loop` handler for `maker` role: creates worktree (`git worktree add`), loads prompt from `.algedonia/prompts/maker.md`, spawns agent, streams terminal output.
-- Daemon worktree management: creation, cleanup.
+- Daemon `start_loop` handler for `maker` role: loads prompt from `.algedonia/prompts/maker.md`, spawns agent, streams terminal output.
 - Daemon `attempt_complete` event: sends diff, exit code, files changed, session ID back to server.
 - Server records attempt in `loop_attempts`, appends event to `events` table.
 - Loop Inspector right panel: diff viewer showing the maker's output, attempt history list.
@@ -286,8 +285,7 @@ If any criterion fails, split further.
 
 **Verification criteria:**
 1. After decomposition, root loops (no upstream dependencies) transition to `ready` then `assigned`.
-2. The daemon creates a git worktree for the assigned loop.
-3. The maker agent spawns and its terminal output streams to the Loop Inspector.
+2. The maker agent spawns and its terminal output streams to the Loop Inspector.
 4. When the agent exits, the diff is captured and sent to the server.
 5. The attempt is recorded in `loop_attempts` with diff, exit code, and session ID.
 6. A state transition event is recorded in the `events` table.
@@ -301,7 +299,7 @@ If any criterion fails, split further.
 **User story:** After the maker produces a diff, the checker agent independently verifies it and returns a pass/fail/clarify verdict, enforcing both weighted thresholds and hard gates.
 
 **What's new:**
-- Daemon `start_loop` handler for `checker` role: spawns checker agent in the same worktree with the diff, task description, rubric, and acceptance criteria. No access to maker's conversation.
+- Daemon `start_loop` handler for `checker` role: spawns checker agent in the same working directory with the diff, task description, rubric, and acceptance criteria. No access to maker's conversation.
 - Daemon loads checker system prompt from `.algedonia/prompts/checker.md`.
 - Daemon `loop_result` event: sends verdict, scores (per verification pyramid layer), feedback, hard gate failures, and session ID.
 - Server Orchestrator verdict routing: handles `pass`, `fail`, and `clarify` outcomes.
@@ -320,7 +318,7 @@ If any criterion fails, split further.
 
 **Verification criteria:**
 1. After the maker completes, the server sends a checker `start_loop` to the daemon.
-2. The checker agent runs in the same worktree and its terminal output streams to the Loop Inspector.
+2. The checker agent runs in the same working directory and its terminal output streams to the Loop Inspector.
 3. Daemon loads checker system prompt from `.algedonia/prompts/checker.md`.
 4. Checker scores per pyramid layer are recorded and displayed in the heatmap.
 5. A `pass` verdict with all hard gates passing transitions the loop to `passed`.
@@ -370,7 +368,7 @@ If any criterion fails, split further.
 
 **What's new:**
 - Retry with context: server sends prior attempts (compressed summaries of older iterations, full detail on most recent) in the `start_loop` payload to the maker.
-- Daemon `squash_and_push` command handler: squash-rebases commits onto base branch, pushes to remote, cleans up worktree.
+- Daemon `squash_and_push` command handler: squash-rebases commits onto base branch, pushes to remote.
 - Server sends `squash_and_push` after a loop passes.
 - Scheduler scheduling pass: after a loop passes, check all downstream dependents; unblocked loops become eligible.
 - DAG execution: downstream loops start when all upstream dependencies are satisfied.
@@ -385,7 +383,7 @@ If any criterion fails, split further.
 **Verification criteria:**
 1. When a maker attempt fails, the next attempt receives compressed summaries of all prior attempts plus full detail on the most recent.
 2. Retry increments the attempt counter and records each attempt separately.
-3. On pass, the daemon squash-rebases and pushes to the remote; worktree is cleaned up.
+3. On pass, the daemon squash-rebases and pushes to the remote.
 4. After a loop passes, downstream dependent loops transition from `pending` to `ready`.
 5. Multiple loops in a DAG execute in the correct dependency order.
 6. Parallel loops (no dependency between them) can execute simultaneously on the same or different daemons.
@@ -540,7 +538,7 @@ If any criterion fails, split further.
 **User story:** After a loop passes, a reflection agent extracts lessons learned and appends them to the codebase knowledge file.
 
 **What's new:**
-- Daemon `start_loop` handler for `reflect` role: no worktree needed, spawns agent with loop task, final diff, attempt summaries, checker feedback, and current `.algedonia/knowledge.md`.
+- Daemon `start_loop` handler for `reflect` role: spawns agent with loop task, final diff, attempt summaries, checker feedback, and current `.algedonia/knowledge.md`.
 - Agent returns structured reflection (patterns, gotchas, useful commands, rubric suggestions).
 - Daemon commits reflection to `.algedonia/knowledge.md` on the main branch.
 - Server includes `knowledge_context` (contents of `.algedonia/knowledge.md`) in all future `start_loop` commands.

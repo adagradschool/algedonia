@@ -98,7 +98,7 @@ Two components. Clear boundary.
 |  | (Go)        |  | (Go)        |  | (Go)        |   |
 |  |             |  |             |  |             |   |
 |  | - Agents    |  | - Agents    |  | - Agents    |   |
-|  | - Worktrees |  | - Worktrees |  | - Worktrees |   |
+|  | - Bare repo |  | - Bare repo |  | - Bare repo |   |
 |  | - PTY       |  | - PTY       |  | - PTY       |   |
 |  | - LLM keys  |  | - LLM keys  |  | - LLM keys  |   |
 |  +------+------+  +------+------+  +------+------+   |
@@ -136,7 +136,7 @@ Two components. Clear boundary.
 
 **What lives on the daemon:**
 - Agent processes (Claude Code, Codex, Aider).
-- Git worktrees.
+- Bare repo clone.
 - PTY management (capture and stream).
 - LLM API credentials (environment variables). Never sent to the server.
 - Local compute resources.
@@ -245,7 +245,7 @@ The daemon pushes events to the server:
 
 Go.
 
-Rationale: The daemon is a thin process manager. It spawns subprocesses, manages PTYs, does file operations (git worktrees), and maintains a WebSocket connection. Go's standard library covers all of this without external dependencies. Cross-compilation to Mac and Linux is trivial (`GOOS=darwin/linux`). Single static binary, no runtime dependencies. Goroutines handle concurrent loop execution naturally.
+Rationale: The daemon is a thin process manager. It spawns subprocesses, manages PTYs, does file operations (bare repo clone/fetch), and maintains a WebSocket connection. Go's standard library covers all of this without external dependencies. Cross-compilation to Mac and Linux is trivial (`GOOS=darwin/linux`). Single static binary, no runtime dependencies. Goroutines handle concurrent loop execution naturally.
 
 Rust would also work but adds complexity (borrow checker, longer compile times, steeper contributor onboarding) for a component that does not need Rust's performance characteristics. The daemon is I/O-bound, not CPU-bound. Go is the more boring choice.
 
@@ -259,34 +259,23 @@ The daemon sends a heartbeat every 10 seconds with: number of running loops, max
 
 The daemon receives commands on its channel and dispatches them:
 
-- **`start_loop`**: Create a worktree (unless role is `reflect` or `decompose_checker`), configure the agent adapter, spawn the agent process. The role field determines behavior: `maker`, `checker`, `decompose`, `decompose_checker`, `impact_analysis`, or `reflect`. The `decompose` and `decompose_checker` roles form a maker-checker loop for task decomposition (see Section 8.3). Details in 5.4 and 5.5.
-- **`stop_loop`**: Send SIGTERM to the agent process, wait for graceful exit (5s timeout), then SIGKILL. Clean up worktree.
+- **`start_loop`**: Configure the agent adapter, spawn the agent process. The role field determines behavior: `maker`, `checker`, `decompose`, `decompose_checker`, `impact_analysis`, or `reflect`. The `decompose` and `decompose_checker` roles form a maker-checker loop for task decomposition (see Section 8.3). Details in 5.4.
+- **`stop_loop`**: Send SIGTERM to the agent process, wait for graceful exit (5s timeout), then SIGKILL.
 - **`stdin_input`**: Write data to the agent's PTY master fd. This is how user steering reaches the agent. All interaction (typing, esc to pause, ctrl+c to stop) flows through this single channel -- there are no separate pause/resume commands.
-- **`squash_and_push`**: Squash-rebase the loop's worktree commits onto the specified base branch, push to remote, and clean up the worktree. Reports success or failure back to the server.
+- **`squash_and_push`**: Squash-rebase the loop's commits onto the specified base branch, push to remote. Reports success or failure back to the server.
 
 ### 5.4 Agent Lifecycle
 
 Each loop execution follows this sequence:
 
-1. **Worktree creation**: `git worktree add` from the repo's shared `.git` directory. Base branch is specified by the server. (Skipped for `reflect` role, which needs no worktree.)
-2. **Prompt loading**: The daemon reads prompts from `.algedonia/prompts/` in the repo (see Section 10.2). The appropriate system prompt and task template are selected based on the role.
-3. **Agent spawn**: The daemon selects the configured agent adapter (Claude Code, Codex, or Aider) and spawns it as a child process inside the worktree directory. The agent is given: the task description, rubric, loaded prompts, and any feedback from previous attempts (all provided by the server in the `start_loop` command). LLM credentials come from the daemon's environment variables.
+1. **Prompt loading**: The daemon reads prompts from `.algedonia/prompts/` in the repo (see Section 10.2). The appropriate system prompt and task template are selected based on the role.
+2. **Agent spawn**: The daemon selects the configured agent adapter (Claude Code, Codex, or Aider) and spawns it as a child process inside the working directory. The agent is given: the task description, rubric, loaded prompts, and any feedback from previous attempts (all provided by the server in the `start_loop` command). LLM credentials come from the daemon's environment variables.
 4. **Monitoring**: The daemon watches the child process. It captures stdout/stderr via PTY and streams it to the server. It detects process exit (normal or crash).
 5. **Completion**: When the agent exits, the daemon collects the result: the git diff produced, exit code, agent session ID, and any structured output the agent wrote. It sends `attempt_complete` to the server. The session ID is persisted so the session can later be resumed or replayed via the agent's `--resume` flag.
 
 If the agent crashes, the daemon reports an error to the server. The server decides whether to retry.
 
-### 5.5 Worktree Management
-
-The daemon manages a local clone of the repository. All worktrees branch from this clone.
-
-- **Creation**: `git worktree add /path/to/worktrees/<loop_id> <base_branch>`. Each loop gets a unique directory.
-- **During execution**: The agent works freely inside its worktree. Commits are local.
-- **On success (squash_and_push command)**: `git rebase <base_branch>` then squash and `git push origin <loop_branch>`. The server separately handles any integration (the actual merge into the main branch is a server-coordinated operation that happens after checker pass).
-- **Cleanup**: `git worktree remove <loop_id>`. Pruned on daemon shutdown.
-- **Repo sync**: Standard `git fetch` before creating a new worktree to ensure the base branch is current. No custom sync protocol.
-
-### 5.6 Terminal Bridging
+### 5.5 Terminal Bridging
 
 The daemon allocates a PTY (pseudo-terminal) for each agent process. This gives full terminal emulation: ANSI codes, cursor movement, interactive prompts.
 
@@ -338,14 +327,14 @@ For each loop in the DAG with no unmet dependencies (root nodes):
 ### Step 3: Maker Execution
 
 - **Server:** Sends `start_loop` command to the assigned daemon with role `maker`. Payload includes: task description, rubric, codebase knowledge context (from `.algedonia/knowledge.md`), prompts directory path, and any prior attempt feedback (empty on first attempt).
-- **Daemon:** Loads prompts from `.algedonia/prompts/`, creates worktree, spawns maker agent. Streams terminal output to server.
+- **Daemon:** Loads prompts from `.algedonia/prompts/`, spawns maker agent. Streams terminal output to server.
 - **Server:** Relays terminal output to all `LoopLive` subscribers via PubSub. Loop status: `running_maker`. Users see the agent working in the Loop Inspector.
 - **Daemon:** Agent completes. Daemon sends `attempt_complete` with the diff, exit status, and agent session ID.
 
 ### Step 4: Checker Execution
 
-- **Server (Orchestrator):** Receives maker result. Transitions loop to `running_checker`. Sends `start_loop` command to the same daemon (to reuse the existing worktree) with role `checker`. Payload includes: the diff produced by the maker, the original task description, the quality rubric, and acceptance criteria. Crucially, the checker does NOT receive the maker's conversation history or reasoning.
-- **Daemon:** Spawns checker agent in the same worktree (maker's changes are present). The checker runs the verification pyramid: static checks, tests, generative tests, runtime checks, semantic checks. Each layer produces pass/fail and confidence.
+- **Server (Orchestrator):** Receives maker result. Transitions loop to `running_checker`. Sends `start_loop` command to the same daemon with role `checker`. Payload includes: the diff produced by the maker, the original task description, the quality rubric, and acceptance criteria. Crucially, the checker does NOT receive the maker's conversation history or reasoning.
+- **Daemon:** Spawns checker agent in the same working directory (maker's changes are present). The checker runs the verification pyramid: static checks, tests, generative tests, runtime checks, semantic checks. Each layer produces pass/fail and confidence.
 - **Daemon:** Checker completes. Sends `loop_result` with scores per layer, overall verdict (`pass`, `fail`, or `clarify`), feedback text, and agent session ID.
 
 ### Step 5: Verdict
@@ -363,7 +352,7 @@ For each loop in the DAG with no unmet dependencies (root nodes):
 - Append a `loop_passed` event.
 - Release file locks (Lock Manager).
 - Send `squash_and_push` command to daemon with `{loop_id, base_branch}`.
-- **Daemon:** Squash-rebases commits onto base branch, pushes to remote, cleans up worktree.
+- **Daemon:** Squash-rebases commits onto base branch, pushes to remote.
 - **Server:** Trigger per-loop reflection (see Section 10). Check if all loops in the DAG are passed; if so, transition ticket to `completed`.
 - **Server (Scheduler):** Run a scheduling pass -- newly unblocked downstream loops and waiting loops may now proceed.
 
@@ -564,7 +553,7 @@ The agent returns a list of path prefixes (e.g., `["src/auth/", "test/auth/", "c
 
 **Late binding:** Impact analysis runs against the codebase as it exists at scheduling time, not at ticket creation time. This accounts for files that have been created, moved, or deleted by previously completed loops.
 
-**Accuracy tradeoff:** Impact analysis is a prediction. It may be wrong -- an agent might touch files outside its predicted set. This is acceptable in v1 because: (a) each loop works in an isolated worktree so unexpected file changes don't corrupt other loops, and (b) the squash-rebase step will surface conflicts if two loops touched the same file despite non-overlapping predictions. The risk is a merge conflict at push time, not data corruption. The mitigation is that agents are instructed to stay within scope, and the checker verifies scope adherence.
+**Accuracy tradeoff:** Impact analysis is a prediction. It may be wrong -- an agent might touch files outside its predicted set. This is acceptable in v1 because: (a) prefix-based file locking prevents concurrent modifications to the same files, and (b) the squash-rebase step will surface conflicts if two loops touched the same file despite non-overlapping predictions. The risk is a merge conflict at push time, not data corruption. The mitigation is that agents are instructed to stay within scope, and the checker verifies scope adherence.
 
 ### 8.3 Task Decomposition
 
@@ -699,7 +688,7 @@ Index: `ticket_id` (unique).
 | max_attempts | integer | Default 3 |
 | path_prefixes | text[] | PostgreSQL array, set by impact analysis |
 | rubric | text | Generated by decomposition, may be overridden per-loop |
-| branch_name | text | Git branch for this loop's worktree |
+| branch_name | text | Git branch for this loop |
 | inserted_at | timestamptz | |
 | updated_at | timestamptz | |
 
@@ -805,7 +794,6 @@ Index: `status`.
 
 ### Cleanup Policy
 
-- **Worktrees:** Cleaned up by the daemon after loop completion (via `squash_and_push` response) or on daemon restart (prune orphans).
 - **Events:** Retained indefinitely (they are the audit log). Partition by month if table grows large.
 - **Loop attempts:** Retained for the life of the project. Diffs may be large; consider moving raw diffs to blob storage in a future version.
 - **Daemon registrations:** Rows for `offline` daemons older than 30 days are soft-deleted.
@@ -820,7 +808,7 @@ Index: `status`.
 
 After each loop passes, the server triggers a reflection step.
 
-1. **Server** sends a `start_loop` command to the daemon with role `reflect` (a lightweight variant -- no worktree needed, just an agent call).
+1. **Server** sends a `start_loop` command to the daemon with role `reflect` (a lightweight variant -- just an agent call).
 2. **Daemon** spawns an agent with context: the loop's task, the final diff, all attempt summaries, checker feedback from failed attempts, and the current contents of `.algedonia/knowledge.md`.
 3. **Agent** produces a structured reflection: what patterns worked, what pitfalls were encountered, any useful commands or configurations discovered, and any rubric tightening suggestions.
 4. **Daemon** returns the reflection text.
@@ -852,7 +840,7 @@ Prompts live in `.algedonia/prompts/` in the repository, versioned with the code
 - **Task description templates:** `task_template.md` defines how the task, rubric, prior feedback, and knowledge context are assembled into the final prompt sent to the agent.
 - **Rubric templates:** The default rubric structure (Section 7.4) that the decomposition agent uses as a starting point when generating per-loop rubrics.
 
-Prompts are versioned with the codebase so that prompt changes are tracked, reviewable, and rollback-able. Different branches can have different prompts. The daemon reads the prompts from the worktree's `.algedonia/prompts/` directory at agent spawn time.
+Prompts are versioned with the codebase so that prompt changes are tracked, reviewable, and rollback-able. Different branches can have different prompts. The daemon reads the prompts from the repo's `.algedonia/prompts/` directory at agent spawn time.
 
 ### 10.3 Knowledge File Structure
 
@@ -890,7 +878,7 @@ The file lives in the repo and is version-controlled. Developers can read, edit,
 
 - **Terminal streaming:** < 200ms end-to-end (daemon PTY -> server -> browser render). Target: 100ms. The 50ms flush interval on the daemon is the main knob.
 - **UI updates (loop status, scores):** < 500ms from event occurrence to browser update. LiveView PubSub handles this natively.
-- **Loop start (button press to agent running):** < 10 seconds for the scheduling + worktree creation + agent spawn path. Impact analysis may add 15-30 seconds (it's an agent call).
+- **Loop start (button press to agent running):** < 10 seconds for the scheduling + agent spawn path. Impact analysis may add 15-30 seconds (it's an agent call).
 
 ### Concurrency
 
@@ -924,7 +912,7 @@ Simpler to implement and operate. Downside: no per-user audit trail, no access c
 Simpler state machine. Downside: one bad ticket's repeated failures can halt all work. Mitigation: the human can skip or fix the offending ticket quickly since the Monitor view surfaces what triggered the breaker.
 
 **Impact analysis is a prediction, not a guarantee.**
-Avoids the need for a static analysis tool that understands every language. Downside: predictions can be wrong, leading to unexpected file overlap. Mitigation: worktree isolation prevents corruption; merge conflicts at push time surface the overlap.
+Avoids the need for a static analysis tool that understands every language. Downside: predictions can be wrong, leading to unexpected file overlap. Mitigation: prefix-based file locking prevents concurrent modifications; merge conflicts at push time surface the overlap.
 
 **Session IDs instead of stored transcripts.**
 Agent session IDs are lightweight references (~50 bytes each) instead of full terminal transcripts (potentially megabytes). Replay is delegated to the agent's own `--resume` mechanism. Downside: replay requires the original daemon machine (sessions are stored locally by the agent runtime). Mitigation: the event log and attempt diffs are the durable audit trail; terminal replay is a debugging convenience.
@@ -947,8 +935,8 @@ Dramatically simplifies deployment and PubSub. Downside: single point of failure
 **Go over Rust for the daemon.**
 Faster development, easier contributor onboarding, sufficient performance for an I/O-bound process manager. Downside: no memory safety guarantees from the type system, slightly higher memory footprint per process. Mitigated by the daemon's simple architecture (no complex data structures, no shared mutable state beyond the process table).
 
-**Checker runs in the same worktree as the maker.**
-Avoids duplicating the worktree. Downside: the checker could theoretically be influenced by artifacts the maker left beyond the diff (temp files, build caches). Mitigation: the checker agent is instructed to evaluate only the diff and run the verification pyramid. The checker is a fresh agent session with no access to the maker's conversation.
+**Checker runs in the same working directory as the maker.**
+Downside: the checker could theoretically be influenced by artifacts the maker left beyond the diff (temp files, build caches). Mitigation: the checker agent is instructed to evaluate only the diff and run the verification pyramid. The checker is a fresh agent session with no access to the maker's conversation.
 
 **Rubric edits apply to the next attempt, not the current one.**
 Prevents disrupting a running agent mid-execution. Downside: the user must wait for the current attempt to finish before their rubric change takes effect. This is usually seconds to minutes, acceptable.

@@ -6,10 +6,12 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   alias Algedonia.{Agents, Daemons, Loops, Orchestrator, Terminals, Tickets}
   alias AlgedoniaWeb.DaemonChannel
+  alias AlgedoniaWeb.LoopLive.DiffTab
   alias AlgedoniaWeb.Markdown
   alias AlgedoniaWeb.TerminalAccessToken
   import AlgedoniaWeb.LoopComponents
   import AlgedoniaWeb.CommentComponents, only: [avatar: 1, relative_time: 1]
+  import AlgedoniaWeb.DiffComponents
 
   @status_to_stage %{
     running_checker: "checker",
@@ -73,6 +75,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:show_shortcut_help, false)
       |> assign(:planning_session?, false)
       |> assign(:comments, list_ticket_comments(socket.assigns[:ticket]))
+      |> DiffTab.init_assigns()
       |> assign_history(Orchestrator.get_loop_history(loop_id))
       |> assign_terminal_run()
       |> assign_terminal_ws_access()
@@ -127,8 +130,16 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, start_loop_on_daemon(socket)}
   end
 
-  def handle_event("switch_tab", %{"tab" => tab}, socket) when tab in ["overview", "rubric"] do
+  def handle_event("switch_tab", %{"tab" => tab}, socket)
+      when tab in ["overview", "rubric"] do
+    socket =
+      if socket.assigns.active_tab == "diff", do: DiffTab.on_tab_leave(socket), else: socket
+
     {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  def handle_event("switch_tab", %{"tab" => "diff"}, socket) do
+    {:noreply, DiffTab.on_tab_enter(socket)}
   end
 
   def handle_event("switch_tab", _params, socket) do
@@ -180,6 +191,27 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     end
   end
 
+  def handle_event("refresh_diff", _params, socket) do
+    {:noreply, DiffTab.handle_refresh(socket)}
+  end
+
+  def handle_event("open_inline_comment", params, socket) do
+    {:noreply, assign(socket, :inline_comment_form, params)}
+  end
+
+  def handle_event("close_inline_comment", _params, socket) do
+    {:noreply, assign(socket, :inline_comment_form, nil)}
+  end
+
+  def handle_event("add_inline_comment", params, socket) do
+    socket =
+      socket
+      |> DiffTab.handle_add_inline_comment(params)
+      |> assign(:inline_comment_form, nil)
+
+    {:noreply, socket}
+  end
+
   def handle_event("stop_loop", _params, socket) do
     with {:ok, daemon} <- resolve_daemon(socket) do
       DaemonChannel.push_stop_loop(daemon.name, socket.assigns.loop_id)
@@ -208,6 +240,18 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     scrollback = Terminals.get_scrollback(terminal_id)
     encoded = Base.encode64(scrollback)
     {:noreply, push_event(socket, "terminal_scrollback", %{data: encoded})}
+  end
+
+  def handle_info(:diff_debounce_fire, socket) do
+    {:noreply, DiffTab.handle_debounce_fire(socket)}
+  end
+
+  def handle_info(:poll_diff, socket) do
+    {:noreply, DiffTab.handle_poll_tick(socket)}
+  end
+
+  def handle_info({:diff_result, diff_text, error}, socket) do
+    {:noreply, DiffTab.handle_diff_result(socket, diff_text, error)}
   end
 
   def handle_info({:terminal_data, loop_id, _data}, socket) do

@@ -207,16 +207,16 @@ defmodule AlgedoniaWeb.Layouts do
           active={@issues_active}
         />
         <.sidebar_link
-          href={workspace_path(@current_workspace, "/monitor")}
-          icon="hero-signal"
-          label="Monitor"
-          active={@monitor_active}
-        />
-        <.sidebar_link
           href={workspace_path(@current_workspace, "/settings")}
           icon="hero-cog-6-tooth"
           label="Settings"
           active={@settings_active}
+        />
+        <.sidebar_link
+          href={workspace_path(@current_workspace, "/monitor")}
+          icon="hero-signal"
+          label="Monitor"
+          active={@monitor_active}
         />
       </nav>
 

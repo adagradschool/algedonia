@@ -32,6 +32,7 @@ import KeyboardShortcuts from "./hooks/keyboard_shortcuts"
 import CommandPalette from "./hooks/command_palette"
 import SplitPanel from "./hooks/split_panel"
 import SidebarPanel from "./hooks/sidebar_panel"
+import DiffViewer from "./hooks/diff_viewer"
 
 const Hooks = {
   ...colocatedHooks,
@@ -42,6 +43,7 @@ const Hooks = {
   CommandPalette,
   SplitPanel,
   SidebarPanel,
+  DiffViewer,
   KanbanBoard: {
     mounted() {
       this.sortables = []

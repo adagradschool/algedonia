@@ -9,7 +9,7 @@ Agentic coding orchestration platform using maker-checker verification loops as 
 - Key GenServers: `Orchestrator`, `Scheduler`, `LockManager`, `CircuitBreaker`, `DaemonMonitor`
 
 **Go Daemon** (`daemon/`) — thin remote executor. Runs on user's machine, connects to server via persistent Phoenix channel.
-- PTY management, process spawning, git worktree management, agent adapter dispatch
+- PTY management, process spawning, bare repo management, agent adapter dispatch
 - Pluggable adapters for Claude Code, Codex, Aider
 
 ## Monorepo Layout
@@ -21,7 +21,7 @@ algedonia/
 ├── server/                # Phoenix LiveView app (Elixir)
 ├── daemon/                # Go daemon binary
 │   ├── cmd/algedonia-agent/  # CLI entry point
-│   └── internal/             # connection, pty, worktree, adapter
+│   └── internal/             # connection, pty, repo, adapter
 └── .algedonia/            # Per-repo config and prompts
     ├── prompts/           # maker.md, checker.md, decompose.md, etc.
     └── knowledge.md       # Accumulated codebase knowledge
