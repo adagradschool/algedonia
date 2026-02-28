@@ -28,6 +28,18 @@ defmodule Algedonia.WorkspacesTest do
     end
   end
 
+  describe "get_workspace_by_slug/1" do
+    test "returns workspace when found" do
+      workspace = insert_workspace!(%{slug: "find-me"})
+      found = Workspaces.get_workspace_by_slug("find-me")
+      assert found.id == workspace.id
+    end
+
+    test "returns nil when not found" do
+      assert Workspaces.get_workspace_by_slug("nonexistent") == nil
+    end
+  end
+
   describe "ensure_membership/2" do
     test "creates membership if missing and is idempotent" do
       workspace = default_workspace!()

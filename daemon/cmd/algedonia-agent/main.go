@@ -22,6 +22,7 @@ import (
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
 	"github.com/algedonia/daemon/internal/terminalws"
+	"github.com/algedonia/daemon/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -134,7 +135,8 @@ func newLoginCmd() *cobra.Command {
 			sigCh := make(chan os.Signal, 1)
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-			client := connection.NewClient(serverURL, token, name, capacity)
+			workspace := cfg.Workspace
+			client := connection.NewClient(serverURL, token, name, workspace, capacity)
 
 			registry := adapter.DefaultRegistry()
 			repoRoot, err := os.Getwd()
@@ -146,6 +148,9 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
 			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)
 			client.SetRunningLoopsFn(mgr.RunningCount)
+
+			cloneMgr := worktree.NewCloneManager("", "")
+			client.OnJoin(makeJoinCallback(cloneMgr, client))
 
 			verifyURL := strings.TrimRight(httpBaseURL(serverURL), "/") + "/api/terminal/verify"
 			terminalVerifier := terminalws.NewAPITokenVerifier(verifyURL, token)
@@ -173,6 +178,40 @@ func newLoginCmd() *cobra.Command {
 	cmd.Flags().StringVar(&terminalWSListen, "terminal-ws-listen", "127.0.0.1:8765", "Terminal WebSocket listen address")
 
 	return cmd
+}
+
+func makeJoinCallback(cloneMgr worktree.RepoManager, client *connection.Client) connection.JoinCallback {
+	return func(ctx context.Context, response map[string]interface{}) {
+		repoURL, _ := response["github_repo_url"].(string)
+		slug, _ := response["workspace_slug"].(string)
+
+		if repoURL == "" || slug == "" {
+			sendCloneStatus(client, "not_configured", "", "")
+			return
+		}
+
+		path, err := cloneMgr.EnsureRepo(ctx, slug, repoURL)
+		if err != nil {
+			sendCloneStatus(client, "error", "", err.Error())
+			return
+		}
+
+		log.Printf("Bare repo ready at %s", path)
+		sendCloneStatus(client, "ready", path, "")
+	}
+}
+
+func sendCloneStatus(client *connection.Client, status, path, message string) {
+	payload := map[string]interface{}{"status": status}
+	if path != "" {
+		payload["path"] = path
+	}
+	if message != "" {
+		payload["message"] = message
+	}
+	if err := client.SendEvent("repo_clone_status", payload); err != nil {
+		log.Printf("Failed to send repo_clone_status: %v", err)
+	}
 }
 
 func newLogoutCmd() *cobra.Command {

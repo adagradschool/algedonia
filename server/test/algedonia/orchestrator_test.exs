@@ -671,6 +671,62 @@ defmodule Algedonia.OrchestratorTest do
     end
   end
 
+  describe "dispatch gating on repo readiness" do
+    test "rejects task loop when repo not ready", %{orchestrator: pid} do
+      workspace =
+        insert_workspace!(%{
+          slug: "gated-ws",
+          github_repo_url: "https://github.com/example/repo"
+        })
+
+      ticket =
+        insert_ticket!(%{
+          status: :in_progress,
+          workspace_id: workspace.id
+        })
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      assert {:error, :repo_not_ready} =
+               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+    end
+
+    test "allows task loop when repo is ready", %{orchestrator: pid} do
+      workspace =
+        insert_workspace!(%{
+          slug: "ready-ws",
+          github_repo_url: "https://github.com/example/repo"
+        })
+
+      ticket =
+        insert_ticket!(%{
+          status: :in_progress,
+          workspace_id: workspace.id
+        })
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      Algedonia.Daemons.set_repo_status(daemon.name, %{"status" => "ready"})
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, _, %{"role" => "maker"}}
+    end
+
+    test "allows task loop when workspace has no repo URL", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, _, %{"role" => "maker"}}
+    end
+  end
+
   describe "step terminal ids" do
     test "returns current and latest step ids from loop history", %{orchestrator: pid} do
       loop_id = "loop-#{System.unique_integer([:positive])}"

@@ -3,6 +3,7 @@ defmodule AlgedoniaWeb.DagLive.Show do
   LiveView for visualizing a ticket's DAG of maker-checker loops.
   """
   use AlgedoniaWeb, :live_view
+  use AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal
 
   alias Algedonia.{Dags, Tickets}
 

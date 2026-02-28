@@ -7,25 +7,50 @@ defmodule AlgedoniaWeb.DaemonChannel do
   alias Algedonia.Daemons
   alias Algedonia.Orchestrator
   alias Algedonia.Terminals
+  alias Algedonia.Workspaces
 
   intercept ["start_loop", "stop_loop", "stdin_input"]
 
   @impl true
   def join("daemon:" <> daemon_id, payload, socket) do
     if daemon_id == socket.assigns.daemon_id do
-      name = socket.assigns.daemon_name
-      display_name = Map.get(payload, "display_name")
-
-      case Daemons.register_daemon(%{name: name, display_name: display_name}) do
-        {:ok, daemon} ->
-          socket = assign(socket, :daemon_db_id, daemon.id)
-          {:ok, %{status: "ok"}, socket}
-
-        {:error, changeset} ->
-          {:error, %{reason: "registration_failed", errors: inspect(changeset.errors)}}
-      end
+      register_and_reply(payload, socket)
     else
       {:error, %{reason: "unauthorized"}}
+    end
+  end
+
+  defp register_and_reply(payload, socket) do
+    name = socket.assigns.daemon_name
+    display_name = Map.get(payload, "display_name")
+
+    case Daemons.register_daemon(%{name: name, display_name: display_name}) do
+      {:ok, daemon} ->
+        socket = assign(socket, :daemon_db_id, daemon.id)
+        reply = workspace_reply(Map.get(payload, "workspace_slug"))
+        {:ok, Map.put(reply, :status, "ok"), socket}
+
+      {:error, changeset} ->
+        {:error, %{reason: "registration_failed", errors: inspect(changeset.errors)}}
+    end
+  end
+
+  defp workspace_reply(nil), do: %{}
+  defp workspace_reply(""), do: %{}
+
+  defp workspace_reply(slug) do
+    case Workspaces.get_workspace_by_slug(slug) do
+      nil ->
+        %{}
+
+      workspace ->
+        base = %{workspace_slug: workspace.slug}
+
+        if workspace.github_repo_url do
+          Map.put(base, :github_repo_url, workspace.github_repo_url)
+        else
+          base
+        end
     end
   end
 
@@ -74,6 +99,11 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
   def handle_in("error", %{"loop_id" => loop_id} = payload, socket) do
     Orchestrator.handle_loop_error(loop_id, payload)
+    {:noreply, socket}
+  end
+
+  def handle_in("repo_clone_status", payload, socket) do
+    Daemons.set_repo_status(socket.assigns.daemon_name, payload)
     {:noreply, socket}
   end
 

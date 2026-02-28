@@ -3,6 +3,7 @@ defmodule AlgedoniaWeb.AuthController do
 
   alias Algedonia.Accounts
   alias Algedonia.Auth.{GithubDevice, Supabase}
+  alias Algedonia.Workspaces
 
   def github(conn, _params) do
     {url, code_verifier} = Supabase.authorize_url()
@@ -17,6 +18,7 @@ defmodule AlgedoniaWeb.AuthController do
 
     with {:ok, profile} <- Supabase.exchange_code_for_user(code, code_verifier),
          {:ok, user} <- Accounts.get_or_create_user_from_github(profile) do
+      Workspaces.accept_pending_invitations(user)
       workspaces = Accounts.list_workspaces_for_user(user.id)
 
       conn =
@@ -77,6 +79,8 @@ defmodule AlgedoniaWeb.AuthController do
     with {:ok, access_token} <- GithubDevice.poll_for_token(device_code),
          {:ok, profile} <- GithubDevice.get_user_info(access_token),
          {:ok, user} <- Accounts.get_or_create_user_from_github(profile) do
+      Workspaces.accept_pending_invitations(user)
+
       token =
         Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{
           user_id: user.id,

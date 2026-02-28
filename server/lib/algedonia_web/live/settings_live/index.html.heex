@@ -1,0 +1,123 @@
+<Layouts.app
+  flash={@flash}
+  current_scope={@current_scope}
+  current_workspace={@current_workspace}
+  current_user={@current_user}
+  user_workspaces={@user_workspaces}
+  nav_section={@nav_section}
+  current_path={@current_path}
+>
+  <div class="flex flex-col h-full">
+    <header class="h-12 border-b border-border flex items-center px-6 bg-surface flex-shrink-0">
+      <h1 class="text-sm font-semibold text-fg">Settings</h1>
+    </header>
+
+    <div class="flex-1 overflow-y-auto p-6 space-y-8 max-w-2xl">
+      <%!-- Workspace settings form --%>
+      <section>
+        <h2 class="text-base font-semibold text-fg mb-4">Workspace</h2>
+        <.form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
+          <.input field={@form[:name]} label="Name" />
+          <.input field={@form[:prefix]} label="Prefix" />
+          <.input
+            field={@form[:github_repo_url]}
+            label="GitHub repo URL"
+            placeholder="https://github.com/org/repo"
+          />
+
+          <div class="flex justify-end">
+            <button
+              type="submit"
+              class="px-4 py-2 bg-accent-indigo hover:bg-accent-indigo-hover text-white font-medium rounded-lg transition-colors text-sm"
+            >
+              Save changes
+            </button>
+          </div>
+        </.form>
+      </section>
+
+      <%!-- Members --%>
+      <section>
+        <h2 class="text-base font-semibold text-fg mb-4">Members</h2>
+        <div class="space-y-2">
+          <div
+            :for={member <- @members}
+            class="flex items-center gap-3 px-3 py-2 rounded-md bg-surface-panel"
+          >
+            <img
+              :if={member.avatar_url}
+              src={member.avatar_url}
+              class="size-7 rounded-full"
+              alt=""
+            />
+            <div
+              :if={!member.avatar_url}
+              class="size-7 rounded-full bg-accent-indigo flex items-center justify-center text-white text-xs font-medium"
+            >
+              {String.first(member.name || "?")}
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm text-fg">{member.name || member.github_username}</span>
+              <span :if={member.github_username} class="text-xs text-fg-muted">
+                @{member.github_username}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <%!-- Invitations --%>
+      <section>
+        <h2 class="text-base font-semibold text-fg mb-4">Invite member</h2>
+        <.form for={@invite_form} phx-submit="invite" class="flex gap-2 mb-4">
+          <input
+            type="text"
+            name="invite[github_username]"
+            value={@invite_form[:github_username].value}
+            placeholder="GitHub username"
+            required
+            class="flex-1 px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm placeholder-fg-muted focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
+          />
+          <button
+            type="submit"
+            class="px-4 py-2 bg-accent-indigo hover:bg-accent-indigo-hover text-white font-medium rounded-lg transition-colors text-sm"
+          >
+            Invite
+          </button>
+        </.form>
+
+        <div :if={@invitations != []} class="space-y-2">
+          <h3 class="text-xs uppercase tracking-wider text-fg-muted mb-2">Pending invitations</h3>
+          <div
+            :for={invitation <- @invitations}
+            class="flex items-center justify-between px-3 py-2 rounded-md bg-surface-panel"
+          >
+            <span class="text-sm text-fg">@{invitation.github_username}</span>
+            <button
+              type="button"
+              phx-click="cancel_invitation"
+              phx-value-id={invitation.id}
+              class="text-xs text-fg-muted hover:text-red-400 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <.modal
+    :if={@show_new_workspace_modal}
+    id="new-workspace-modal"
+    show
+    on_cancel={JS.push("close_new_workspace_modal")}
+  >
+    <h2 class="text-lg font-semibold text-fg mb-4">New workspace</h2>
+    <.live_component
+      module={AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent}
+      id="new-workspace-form"
+      form={@new_workspace_form}
+    />
+  </.modal>
+</Layouts.app>

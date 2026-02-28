@@ -3,6 +3,8 @@ defmodule AlgedoniaWeb.OnboardingLive do
 
   alias Algedonia.Workspaces
 
+  import AlgedoniaWeb.Helpers, only: [slugify: 1]
+
   @impl true
   def mount(_params, _session, socket) do
     changeset = Ecto.Changeset.change(%Algedonia.Workspaces.Workspace{})
@@ -70,18 +72,6 @@ defmodule AlgedoniaWeb.OnboardingLive do
 
       {:error, _changeset} ->
         {:noreply, assign(socket, error: "Could not create workspace. Try a different name.")}
-    end
-  end
-
-  defp slugify(name) do
-    name
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9\s-]/, "")
-    |> String.replace(~r/[\s-]+/, "-")
-    |> String.trim("-")
-    |> case do
-      "" -> "workspace"
-      slug -> slug
     end
   end
 end

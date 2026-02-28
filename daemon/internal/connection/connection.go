@@ -22,11 +22,15 @@ type PhoenixMessage struct {
 	JoinRef string      `json:"join_ref,omitempty"`
 }
 
+// JoinCallback is called after a successful channel join with the join reply response.
+type JoinCallback func(ctx context.Context, response map[string]interface{})
+
 // Client manages a persistent connection to the Phoenix server.
 type Client struct {
 	serverURL string
 	token     string
 	name      string
+	workspace string
 	capacity  int
 	ref       atomic.Int64
 	joinRef   string
@@ -37,14 +41,16 @@ type Client struct {
 	handlers map[string]func(ctx context.Context, payload map[string]interface{}) error
 
 	runningLoopsFn func() int
+	onJoin         JoinCallback
 }
 
 // NewClient creates a new connection client.
-func NewClient(serverURL, token, name string, capacity int) *Client {
+func NewClient(serverURL, token, name, workspace string, capacity int) *Client {
 	return &Client{
 		serverURL: serverURL,
 		token:     token,
 		name:      name,
+		workspace: workspace,
 		capacity:  capacity,
 		handlers:  make(map[string]func(ctx context.Context, payload map[string]interface{}) error),
 	}
@@ -58,6 +64,11 @@ func (c *Client) RegisterHandler(event string, handler func(ctx context.Context,
 // SetRunningLoopsFn sets the function used to report running loop count in heartbeats.
 func (c *Client) SetRunningLoopsFn(fn func() int) {
 	c.runningLoopsFn = fn
+}
+
+// OnJoin registers a callback invoked after a successful channel join.
+func (c *Client) OnJoin(cb JoinCallback) {
+	c.onJoin = cb
 }
 
 // SendEvent sends an event to the server on the daemon topic. Thread-safe.
@@ -131,6 +142,9 @@ func (c *Client) run(ctx context.Context) error {
 	joinPayload := map[string]interface{}{
 		"display_name": c.name,
 	}
+	if c.workspace != "" {
+		joinPayload["workspace_slug"] = c.workspace
+	}
 
 	if err := c.send(ctx, conn, c.topic(), "phx_join", joinPayload, c.joinRef); err != nil {
 		return fmt.Errorf("sending join: %w", err)
@@ -146,6 +160,11 @@ func (c *Client) run(ctx context.Context) error {
 		payload, ok := reply.Payload.(map[string]interface{})
 		if ok && payload["status"] != "ok" {
 			return fmt.Errorf("join rejected: %v", payload)
+		}
+		if ok && c.onJoin != nil {
+			if resp, ok := payload["response"].(map[string]interface{}); ok {
+				go c.onJoin(ctx, resp)
+			}
 		}
 	}
 

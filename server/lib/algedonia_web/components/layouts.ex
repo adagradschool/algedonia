@@ -17,10 +17,11 @@ defmodule AlgedoniaWeb.Layouts do
 
   attr :current_workspace, :map, required: true
   attr :current_user, :map, default: nil
+  attr :user_workspaces, :list, default: []
 
   attr :nav_section, :atom,
     default: nil,
-    doc: "active navigation section (:inbox, :issues, :monitor)"
+    doc: "active navigation section (:inbox, :issues, :monitor, :settings)"
 
   attr :current_path, :string, default: nil, doc: "current request path for nav fallback"
 
@@ -51,9 +52,11 @@ defmodule AlgedoniaWeb.Layouts do
           <.workspace_sidebar
             current_workspace={@current_workspace}
             current_user={@current_user}
+            user_workspaces={@user_workspaces}
             inbox_active={nav_active?(assigns, :inbox, "/")}
             issues_active={nav_active?(assigns, :issues, "/tickets")}
             monitor_active={nav_active?(assigns, :monitor, "/monitor")}
+            settings_active={nav_active?(assigns, :settings, "/settings")}
             class="!w-full h-full border-r-0"
           />
         </div>
@@ -97,9 +100,11 @@ defmodule AlgedoniaWeb.Layouts do
 
   attr :current_workspace, :map, required: true
   attr :current_user, :map, default: nil
+  attr :user_workspaces, :list, default: []
   attr :inbox_active, :boolean, default: false
   attr :issues_active, :boolean, default: false
   attr :monitor_active, :boolean, default: false
+  attr :settings_active, :boolean, default: false
   attr :class, :any, default: nil
   slot :inner_block
 
@@ -113,16 +118,60 @@ defmodule AlgedoniaWeb.Layouts do
         @class
       ]}
     >
-      <div class="px-4 pt-4 pb-3 flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-7 h-7 bg-accent-indigo rounded-lg flex items-center justify-center">
+      <div class="px-4 pt-4 pb-3 relative">
+        <button
+          type="button"
+          phx-click={JS.toggle(to: "#workspace-switcher-dropdown")}
+          class="flex items-center gap-2 w-full hover:bg-surface-panel rounded-md p-1 -m-1 transition-colors"
+        >
+          <div class="w-7 h-7 bg-accent-indigo rounded-lg flex items-center justify-center flex-shrink-0">
             <.icon name="hero-square-3-stack-3d" class="size-4 text-white" />
           </div>
-          <div data-sidebar-expanded-only class="flex flex-col">
+          <div data-sidebar-expanded-only class="flex flex-col flex-1 text-left">
             <span class="text-xs text-fg-muted">workspace</span>
             <span class="text-sm font-semibold text-fg">
               {@current_workspace.name}
             </span>
+          </div>
+          <span data-sidebar-expanded-only>
+            <.icon name="hero-chevron-up-down-mini" class="size-4 text-fg-muted" />
+          </span>
+        </button>
+
+        <div
+          id="workspace-switcher-dropdown"
+          class="hidden absolute left-2 right-2 top-full mt-1 bg-surface-panel border border-border rounded-lg shadow-lg z-50 py-1"
+          phx-click-away={JS.hide(to: "#workspace-switcher-dropdown")}
+        >
+          <div class="max-h-48 overflow-y-auto">
+            <a
+              :for={ws <- @user_workspaces}
+              href={workspace_path(ws, "/tickets")}
+              class={[
+                "flex items-center gap-2 px-3 py-2 text-sm transition-colors",
+                if(ws.id == @current_workspace.id,
+                  do: "text-fg bg-surface-raised font-medium",
+                  else: "text-fg-muted hover:text-fg hover:bg-surface-raised"
+                )
+              ]}
+            >
+              <div class="w-5 h-5 bg-accent-indigo rounded flex items-center justify-center flex-shrink-0">
+                <.icon name="hero-square-3-stack-3d" class="size-3 text-white" />
+              </div>
+              {ws.name}
+            </a>
+          </div>
+          <div class="border-t border-border mt-1 pt-1">
+            <button
+              type="button"
+              phx-click={
+                JS.hide(to: "#workspace-switcher-dropdown")
+                |> JS.push("open_new_workspace_modal")
+              }
+              class="flex items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:text-fg hover:bg-surface-raised w-full transition-colors"
+            >
+              <.icon name="hero-plus-mini" class="size-4" /> New workspace
+            </button>
           </div>
         </div>
       </div>
@@ -162,6 +211,12 @@ defmodule AlgedoniaWeb.Layouts do
           icon="hero-signal"
           label="Monitor"
           active={@monitor_active}
+        />
+        <.sidebar_link
+          href={workspace_path(@current_workspace, "/settings")}
+          icon="hero-cog-6-tooth"
+          label="Settings"
+          active={@settings_active}
         />
       </nav>
 

@@ -5,6 +5,8 @@ defmodule Algedonia.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "users" do
     field :name, :string
     field :email, :string

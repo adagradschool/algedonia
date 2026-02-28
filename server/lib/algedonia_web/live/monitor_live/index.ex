@@ -3,6 +3,7 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
   LiveView for monitoring daemon health and status.
   """
   use AlgedoniaWeb, :live_view
+  use AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal
 
   alias Algedonia.Daemons
 

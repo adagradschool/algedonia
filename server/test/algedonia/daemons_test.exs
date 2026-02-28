@@ -72,6 +72,38 @@ defmodule Algedonia.DaemonsTest do
     end
   end
 
+  describe "repo status" do
+    test "set_repo_status/2 stores and retrieves status" do
+      Daemons.set_repo_status("daemon-a", %{"status" => "ready", "path" => "/tmp/repo"})
+      status = Daemons.get_repo_status("daemon-a")
+      assert status["status"] == "ready"
+      assert status["path"] == "/tmp/repo"
+    end
+
+    test "get_repo_status/1 returns nil for unknown daemon" do
+      assert Daemons.get_repo_status("unknown-daemon") == nil
+    end
+
+    test "repo_ready?/1 returns true for ready status" do
+      Daemons.set_repo_status("daemon-b", %{"status" => "ready"})
+      assert Daemons.repo_ready?("daemon-b")
+    end
+
+    test "repo_ready?/1 returns true for not_configured status" do
+      Daemons.set_repo_status("daemon-c", %{"status" => "not_configured"})
+      assert Daemons.repo_ready?("daemon-c")
+    end
+
+    test "repo_ready?/1 returns false for error status" do
+      Daemons.set_repo_status("daemon-d", %{"status" => "error"})
+      refute Daemons.repo_ready?("daemon-d")
+    end
+
+    test "repo_ready?/1 returns false for unknown daemon" do
+      refute Daemons.repo_ready?("no-such-daemon")
+    end
+  end
+
   describe "find_online/0" do
     test "returns first online daemon" do
       Factory.insert_daemon!(%{name: "offline-1", status: :offline})
