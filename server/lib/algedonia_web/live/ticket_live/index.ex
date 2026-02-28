@@ -13,7 +13,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   import AlgedoniaWeb.CommentComponents
   import AlgedoniaWeb.PresenceComponents
 
-  @statuses [:backlog, :planning, :halted, :in_progress, :completed, :archived]
+  @ticket_detail_fields [:description, :acceptance_criteria, :rubric]
+  @statuses Tickets.display_statuses()
 
   @impl true
   def mount(params, session, socket) do
@@ -262,18 +263,54 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   def handle_event("start_work", %{"id" => ticket_id}, socket) do
     ticket = Tickets.get_ticket!(ticket_id)
 
-    case ensure_single_loop(ticket) do
+    case resolve_work_loop(ticket) do
       {:ok, loop_id} ->
+        maybe_mark_in_progress(ticket)
+
         path =
           ~p"/w/#{socket.assigns.workspace_slug}/tickets/#{ticket_ref(ticket)}/loops/#{loop_ref(loop_id)}?#{%{autostart: 1, agent_type: ticket_agent_type(ticket)}}"
 
         {:noreply, push_navigate(socket, to: path)}
 
       {:error, :invalid_status} ->
-        {:noreply, put_flash(socket, :error, "Only backlog or halted tickets can start work")}
+        {:noreply, put_flash(socket, :error, "Only planning or halted tickets can start work")}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Unable to start work")}
+    end
+  end
+
+  def handle_event("plan_ticket", %{"id" => ticket_id}, socket) do
+    ticket = Tickets.get_ticket!(ticket_id)
+
+    case move_to_planning(ticket) do
+      {:ok, planned_ticket} ->
+        path =
+          ~p"/w/#{socket.assigns.workspace_slug}/tickets/#{ticket_ref(planned_ticket)}/loops/#{planning_loop_ref(planned_ticket)}?#{%{autostart: 1, role: "planning", agent_type: ticket_agent_type(planned_ticket)}}"
+
+        {:noreply, push_navigate(socket, to: path)}
+
+      {:error, :invalid_status} ->
+        {:noreply, put_flash(socket, :error, "Only backlog tickets can start planning")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Unable to start planning")}
+    end
+  end
+
+  def handle_event("open_planning_session", %{"id" => ticket_id}, socket) do
+    ticket = Tickets.get_ticket!(ticket_id)
+
+    case ticket.status do
+      :planning ->
+        path =
+          ~p"/w/#{socket.assigns.workspace_slug}/tickets/#{ticket_ref(ticket)}/loops/#{planning_loop_ref(ticket)}?#{%{autostart: 1, role: "planning", agent_type: ticket_agent_type(ticket)}}"
+
+        {:noreply, push_navigate(socket, to: path)}
+
+      _ ->
+        {:noreply,
+         put_flash(socket, :error, "Planning session is only available in planning stage")}
     end
   end
 
@@ -319,6 +356,30 @@ defmodule AlgedoniaWeb.TicketLive.Index do
          socket
          |> assign(:ticket_form, to_form(changeset))
          |> assign(:save_state, :error)}
+    end
+  end
+
+  def handle_event("autosave_ticket_markdown", %{"field" => field, "body" => body}, socket) do
+    ticket = socket.assigns.ticket
+
+    with {:ok, detail_field} <- parse_ticket_detail_field(field),
+         {:ok, updated} <- Tickets.update_ticket(ticket, %{detail_field => body || ""}) do
+      changeset = Tickets.change_ticket(updated)
+
+      {:noreply,
+       socket
+       |> assign(:ticket, updated)
+       |> assign(:ticket_form, to_form(changeset))
+       |> assign(:save_state, :saved)}
+    else
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(:ticket_form, to_form(changeset))
+         |> assign(:save_state, :error)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -550,11 +611,11 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   defp duplicate_title(title) when is_binary(title), do: "#{title} (Copy)"
   defp duplicate_title(_title), do: "Copied issue"
 
-  defp ensure_single_loop(%Ticket{status: status}) when status not in [:backlog, :halted] do
+  defp resolve_work_loop(%Ticket{status: status}) when status not in [:planning, :halted] do
     {:error, :invalid_status}
   end
 
-  defp ensure_single_loop(%Ticket{} = ticket) do
+  defp resolve_work_loop(%Ticket{} = ticket) do
     case Dags.get_dag_by_ticket(ticket.id) do
       nil ->
         create_single_loop(ticket)
@@ -622,6 +683,12 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     :ok
   end
 
+  defp move_to_planning(%Ticket{status: :backlog} = ticket) do
+    Tickets.update_ticket(ticket, %{status: :planning})
+  end
+
+  defp move_to_planning(%Ticket{}), do: {:error, :invalid_status}
+
   defp first_loop_id(%Ticket{} = ticket) do
     case Dags.get_dag_by_ticket(ticket.id) do
       %{loops: [loop | _]} -> loop.id
@@ -635,6 +702,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   defp loop_ref(loop_id) when is_binary(loop_id), do: String.slice(loop_id, 0, 8)
   defp loop_ref(_), do: nil
 
+  defp planning_loop_ref(%Ticket{id: id}), do: "plan-" <> String.slice(id, 0, 8)
+
   defp next_form_counter(current_id) do
     current_id
     |> String.split("_")
@@ -647,4 +716,39 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   def stream_for(streams, status) do
     Map.get(streams, stream_name(status), [])
   end
+
+  attr :id, :string, required: true
+  attr :field_key, :atom, required: true
+  attr :label, :string, required: true
+  attr :value, :string, default: ""
+  attr :placeholder, :string, required: true
+
+  def ticket_detail_markdown_field(assigns) do
+    ~H"""
+    <div id={@id} data-shortcuts="off">
+      <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
+        {@label}
+      </div>
+      <div
+        id={"#{@id}-editor"}
+        phx-hook="MarkdownEditor"
+        phx-update="ignore"
+        data-push-event="autosave_ticket_markdown"
+        data-field={@field_key}
+        data-markdown={@value}
+        data-placeholder={@placeholder}
+        class="ticket-markdown-editor"
+      />
+    </div>
+    """
+  end
+
+  defp parse_ticket_detail_field(field) when is_binary(field) do
+    case Enum.find(@ticket_detail_fields, &(Atom.to_string(&1) == field)) do
+      nil -> :error
+      detail_field -> {:ok, detail_field}
+    end
+  end
+
+  defp parse_ticket_detail_field(_field), do: :error
 end

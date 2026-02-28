@@ -26,6 +26,7 @@ defmodule Algedonia.Tickets.Ticket do
     field :acceptance_criteria, :string
     field :rubric, :string
     field :max_attempts, :integer, default: 10
+    field :overview, :string
 
     has_many :comments, Algedonia.Tickets.Comment
 
@@ -52,7 +53,8 @@ defmodule Algedonia.Tickets.Ticket do
       :assignee,
       :acceptance_criteria,
       :rubric,
-      :max_attempts
+      :max_attempts,
+      :overview
     ])
     |> maybe_put_default_coding_agent()
     |> validate_required([:workspace_id, :title, :type, :priority])

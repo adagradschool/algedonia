@@ -248,7 +248,26 @@
                     <% end %>
                   </span>
                   <button
-                    :if={@ticket.status in [:backlog, :halted]}
+                    :if={@ticket.status == :backlog}
+                    phx-click="plan_ticket"
+                    phx-value-id={@ticket.id}
+                    class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-yellow border border-status-yellow/40 bg-status-yellow/10 rounded-md hover:bg-status-yellow/20 transition-colors"
+                    type="button"
+                  >
+                    <.icon name="hero-light-bulb-mini" class="size-3.5" /> Plan
+                  </button>
+                  <button
+                    :if={@ticket.status == :planning}
+                    phx-click="open_planning_session"
+                    phx-value-id={@ticket.id}
+                    class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-yellow border border-status-yellow/40 bg-status-yellow/10 rounded-md hover:bg-status-yellow/20 transition-colors"
+                    type="button"
+                  >
+                    <.icon name="hero-chat-bubble-left-right-mini" class="size-3.5" />
+                    Plan Session
+                  </button>
+                  <button
+                    :if={@ticket.status in [:planning, :halted]}
                     phx-click="start_work"
                     phx-value-id={@ticket.id}
                     class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-green border border-status-green/40 bg-status-green/10 rounded-md hover:bg-status-green/20 transition-colors"
@@ -315,47 +334,29 @@
               </div>
 
               <div class="mt-6 border-t border-border pt-4 space-y-4">
-                <div>
-                  <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
-                    Description
-                  </div>
-                  <.input
-                    field={@ticket_form[:description]}
-                    type="textarea"
-                    rows="4"
-                    placeholder="Add description"
-                    class="w-full bg-transparent border border-transparent text-sm text-fg-secondary placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
-                    phx-debounce="700"
-                  />
-                </div>
+                <.ticket_detail_markdown_field
+                  id="ticket-description-field"
+                  field_key={:description}
+                  label="Description"
+                  value={@ticket.description || ""}
+                  placeholder="Add description"
+                />
 
-                <div>
-                  <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
-                    Acceptance Criteria
-                  </div>
-                  <.input
-                    field={@ticket_form[:acceptance_criteria]}
-                    type="textarea"
-                    rows="3"
-                    placeholder="Add acceptance criteria"
-                    class="w-full bg-transparent border border-transparent text-sm text-fg-secondary placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
-                    phx-debounce="700"
-                  />
-                </div>
+                <.ticket_detail_markdown_field
+                  id="ticket-acceptance-criteria-field"
+                  field_key={:acceptance_criteria}
+                  label="Acceptance Criteria"
+                  value={@ticket.acceptance_criteria || ""}
+                  placeholder="Add acceptance criteria"
+                />
 
-                <div>
-                  <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-2">
-                    Rubric
-                  </div>
-                  <.input
-                    field={@ticket_form[:rubric]}
-                    type="textarea"
-                    rows="3"
-                    placeholder="Add rubric"
-                    class="w-full bg-transparent border border-transparent text-sm text-fg-secondary placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
-                    phx-debounce="700"
-                  />
-                </div>
+                <.ticket_detail_markdown_field
+                  id="ticket-rubric-field"
+                  field_key={:rubric}
+                  label="Rubric"
+                  value={@ticket.rubric || ""}
+                  placeholder="Add rubric"
+                />
               </div>
             </.form>
 

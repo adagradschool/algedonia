@@ -83,8 +83,12 @@ const XTerm = {
     this.fitAddon = new FitAddon()
     this.term.loadAddon(this.fitAddon)
     this.term.open(this.el)
+    requestAnimationFrame(() => this.term?.focus())
     this.setupParserHardening()
     this.scheduleFit()
+
+    this.onPointerFocus = () => this.term?.focus()
+    this.el.addEventListener("pointerdown", this.onPointerFocus)
 
     this.connectTerminalSocket()
 
@@ -383,6 +387,9 @@ const XTerm = {
     }
     if (this.term) {
       this.term.dispose()
+    }
+    if (this.onPointerFocus) {
+      this.el.removeEventListener("pointerdown", this.onPointerFocus)
     }
     if (window.__algedoniaTerminalMetrics) {
       delete window.__algedoniaTerminalMetrics[this.el.id]

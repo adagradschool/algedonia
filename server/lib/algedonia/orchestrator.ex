@@ -458,11 +458,17 @@ defmodule Algedonia.Orchestrator do
 
   defp maker_task(loop, ticket, feedback) do
     task_desc = loop.description || loop.title
+    ticket_ref = ticket_reference(ticket)
+    plan_lookup = "ag ticket comments #{ticket_ref} --json"
 
     sections = [
       "Ticket: #{ticket.title}",
       optional_section("Acceptance criteria", ticket.acceptance_criteria),
       format_comments(Tickets.list_comments(ticket.id)),
+      """
+      Fetch approved planning notes before implementation:
+      #{plan_lookup}
+      """,
       "Task:\n#{task_desc}",
       optional_section("Rubric", loop.rubric || ticket.rubric),
       optional_section("Previous checker feedback", non_empty(feedback)),
@@ -479,7 +485,6 @@ defmodule Algedonia.Orchestrator do
     sections = [
       "Ticket: #{ticket.title}",
       optional_section("Acceptance criteria", ticket.acceptance_criteria),
-      format_comments(Tickets.list_comments(ticket.id)),
       "Task:\n#{task_desc}",
       optional_section("Rubric", loop.rubric || ticket.rubric),
       """
@@ -920,6 +925,9 @@ defmodule Algedonia.Orchestrator do
   end
 
   defp ticket_agent_type(ticket), do: Agents.ticket_agent_type(ticket)
+
+  defp ticket_reference(%{number: number}) when is_integer(number), do: Integer.to_string(number)
+  defp ticket_reference(%{id: id}), do: id
 
   defp find_decomposition_by_loop(state, loop_id) do
     Enum.find_value(state.decompositions, fn {ticket_id, decomp} ->

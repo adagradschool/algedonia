@@ -8,6 +8,13 @@ defmodule Algedonia.Tickets do
   alias Algedonia.Tickets.{Comment, Ticket}
 
   @topic "tickets"
+  @display_statuses [:backlog, :planning, :in_progress, :halted, :completed, :archived]
+
+  @doc """
+  Returns ticket statuses in UI display order.
+  """
+  @spec display_statuses() :: [atom()]
+  def display_statuses, do: @display_statuses
 
   @doc """
   Lists tickets with optional filtering and sorting.
@@ -116,6 +123,17 @@ defmodule Algedonia.Tickets do
   def delete_ticket(%Ticket{} = ticket) do
     Repo.delete(ticket)
     |> broadcast(:ticket_deleted)
+  end
+
+  @doc """
+  Persists overview content for a ticket.
+  """
+  @spec update_overview(Ticket.t(), String.t()) ::
+          {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
+  def update_overview(%Ticket{} = ticket, content) do
+    ticket
+    |> Ticket.changeset(%{overview: content})
+    |> Repo.update()
   end
 
   @doc """

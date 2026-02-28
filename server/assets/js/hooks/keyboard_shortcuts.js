@@ -10,6 +10,7 @@
 const KeyboardShortcuts = {
   mounted() {
     this.onKeyDown = (event) => {
+      if (event.defaultPrevented) return
       if (this.isEditable(event.target)) return
 
       const rawKey = event.key
@@ -43,6 +44,7 @@ const KeyboardShortcuts = {
     const node = target.nodeType === Node.TEXT_NODE ? target.parentElement : target
     if (!(node instanceof Element)) return false
 
+    if (node.closest(".xterm")) return true
     if (node.closest("[data-shortcuts='off']")) return true
     if (node.closest(".tiptap, .ProseMirror")) return true
     if (node.isContentEditable) return true

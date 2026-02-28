@@ -239,6 +239,36 @@ body {
   margin: 0.35em 0;
 }
 .markdown strong { font-weight: 600; color: var(--color-fg); }
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  display: block;
+  overflow-x: auto;
+}
+.markdown thead tr {
+  background: rgba(17, 20, 26, 0.9);
+}
+.markdown th, .markdown td {
+  border: 1px solid var(--color-border-soft);
+  padding: 0.4rem 0.55rem;
+  vertical-align: top;
+  text-align: left;
+  white-space: nowrap;
+}
+.markdown td {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.markdown li > input[type="checkbox"] {
+  margin-right: 0.45rem;
+  accent-color: var(--color-accent-indigo);
+}
+.markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.2em;
+}
 
 /* Kanban drag styles */
 .kanban-ghost {
@@ -462,6 +492,67 @@ body {
   float: left;
   pointer-events: none;
   height: 0;
+}
+
+.ticket-markdown-editor {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.5rem;
+  background: rgba(17, 20, 26, 0.6);
+  padding: 0.65rem 0.8rem;
+  min-height: 9rem;
+}
+.ticket-markdown-editor .tiptap {
+  color: var(--color-fg-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 7.5rem;
+  outline: none;
+}
+.ticket-markdown-editor .tiptap p {
+  margin: 0.22rem 0;
+}
+.ticket-markdown-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-fg-subtle);
+  float: left;
+  pointer-events: none;
+  height: 0;
+}
+.ticket-markdown-editor .tiptap ul,
+.ticket-markdown-editor .tiptap ol {
+  padding-left: 1.2rem;
+  margin: 0.25rem 0;
+}
+.ticket-markdown-editor .tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.2rem;
+}
+.ticket-markdown-editor .tiptap ul[data-type="taskList"] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0.2rem 0;
+}
+.ticket-markdown-editor .tiptap ul[data-type="taskList"] > li > label > input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--color-accent-indigo);
+  cursor: pointer;
+}
+.ticket-markdown-editor .tiptap ul[data-type="taskList"] > li > label > span {
+  display: none;
+}
+.ticket-markdown-editor .tiptap table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+.ticket-markdown-editor .tiptap th,
+.ticket-markdown-editor .tiptap td {
+  border: 1px solid var(--color-border-soft);
+  padding: 0.35rem 0.45rem;
+  text-align: left;
+  vertical-align: top;
 }
 
 @keyframes indicator-in {

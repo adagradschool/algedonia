@@ -273,6 +273,9 @@ func writeAttemptCompleteMarker(
 	if strings.TrimSpace(workdir) == "" || strings.TrimSpace(loopID) == "" {
 		return nil
 	}
+	if strings.EqualFold(strings.TrimSpace(role), "planning") {
+		return nil
+	}
 
 	markerPath := filepath.Join(workdir, ".algedonia", "runtime", loopID, "attempt_complete.json")
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {

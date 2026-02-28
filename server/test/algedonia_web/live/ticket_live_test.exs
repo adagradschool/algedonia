@@ -2,6 +2,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
   use AlgedoniaWeb.ConnCase, async: true
 
   alias Algedonia.{Dags, Tickets}
+  alias AlgedoniaWeb.TicketLive.TicketFormComponent
 
   import Phoenix.LiveViewTest
   import Algedonia.Factory
@@ -128,6 +129,56 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert html =~ "Detail desc"
     end
 
+    test "detail markdown fields use tiptap editors", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{title: "TipTap detail", workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert has_element?(view, "#ticket-description-field-editor[phx-hook='MarkdownEditor']")
+
+      assert has_element?(
+               view,
+               "#ticket-acceptance-criteria-field-editor[phx-hook='MarkdownEditor']"
+             )
+
+      assert has_element?(view, "#ticket-rubric-field-editor[phx-hook='MarkdownEditor']")
+    end
+
+    test "ticket detail autosaves markdown fields via tiptap hook", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{
+          title: "Autosave fields",
+          workspace_id: workspace.id,
+          description: "before",
+          acceptance_criteria: "before",
+          rubric: "before"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      render_hook(view, "autosave_ticket_markdown", %{
+        "field" => "description",
+        "body" => "updated description\n\n- [x] shipped"
+      })
+
+      render_hook(view, "autosave_ticket_markdown", %{
+        "field" => "acceptance_criteria",
+        "body" => "| Criterion | Result |\n|---|---|\n| Title | Pass |"
+      })
+
+      render_hook(view, "autosave_ticket_markdown", %{
+        "field" => "rubric",
+        "body" => "- [ ] add tests"
+      })
+
+      updated_ticket = Tickets.get_ticket!(ticket.id)
+      assert updated_ticket.description =~ "updated description"
+      assert updated_ticket.acceptance_criteria =~ "| Criterion | Result |"
+      assert updated_ticket.rubric =~ "- [ ] add tests"
+    end
+
     test "filters by status", %{conn: conn, workspace: workspace} do
       insert_ticket!(%{title: "Backlog one", status: :backlog, workspace_id: workspace.id})
       insert_ticket!(%{title: "Progress one", status: :in_progress, workspace_id: workspace.id})
@@ -146,11 +197,30 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Beta cleanup"
     end
 
-    test "start work from list creates loop and navigates to loop screen", %{
+    test "plan from list moves ticket to planning and opens planning session", %{
       conn: conn,
       workspace: workspace
     } do
-      ticket = insert_ticket!(%{title: "Loop me", status: :backlog, workspace_id: workspace.id})
+      ticket = insert_ticket!(%{title: "Plan me", status: :backlog, workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets?view=list")
+
+      view
+      |> element(~s{button[phx-click="plan_ticket"][phx-value-id="#{ticket.id}"]})
+      |> render_click()
+
+      assert_redirect(
+        view,
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{"plan-" <> String.slice(ticket.id, 0, 8)}?#{%{autostart: 1, role: "planning", agent_type: "claude_code"}}"
+      )
+
+      assert Tickets.get_ticket!(ticket.id).status == :planning
+    end
+
+    test "start work from planning list creates loop and navigates to loop screen", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{title: "Loop me", status: :planning, workspace_id: workspace.id})
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets?view=list")
 
       view
@@ -168,14 +238,14 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
     end
 
-    test "start work with codex ticket navigates with codex agent_type", %{
+    test "start work with planning codex ticket navigates with codex agent_type", %{
       conn: conn,
       workspace: workspace
     } do
       ticket =
         insert_ticket!(%{
           title: "Loop me with Codex",
-          status: :backlog,
+          status: :planning,
           coding_agent: :codex,
           workspace_id: workspace.id
         })
@@ -195,6 +265,38 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
+    end
+
+    test "planning detail shows plan session and start work controls only", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{title: "Plan done", status: :planning, workspace_id: workspace.id})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert has_element?(view, ~s{button[phx-click="open_planning_session"]})
+      assert has_element?(view, ~s{button[phx-click="start_work"]})
+      refute has_element?(view, ~s{button[phx-click="mark_planning_complete"]})
+    end
+
+    test "status display order places halted after in progress", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      insert_ticket!(%{title: "Backlog", status: :backlog, workspace_id: workspace.id})
+      insert_ticket!(%{title: "Planning", status: :planning, workspace_id: workspace.id})
+      insert_ticket!(%{title: "In progress", status: :in_progress, workspace_id: workspace.id})
+      insert_ticket!(%{title: "Halted", status: :halted, workspace_id: workspace.id})
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+      {in_progress_idx, _} = :binary.match(html, "In Progress")
+      {halted_idx, _} = :binary.match(html, "Halted")
+
+      assert in_progress_idx < halted_idx
+
+      form_options = TicketFormComponent.status_options()
+      assert Enum.map(form_options, &elem(&1, 1)) == Tickets.display_statuses()
     end
   end
 

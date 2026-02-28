@@ -3,6 +3,7 @@ import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import TaskItem from "@tiptap/extension-task-item"
 import TaskList from "@tiptap/extension-task-list"
+import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table"
 import { Markdown } from "tiptap-markdown"
 
 const MarkdownEditor = {
@@ -12,10 +13,16 @@ const MarkdownEditor = {
     this.localEditAt = 0
     this.pendingTimer = null
     this.incomingCooldownMs = 700
+    this.pushEventName = this.el.dataset.pushEvent || "rubric_change"
+    this.field = this.el.dataset.field || null
+    this.placeholderText =
+      this.el.dataset.placeholder || "Define pass/fail criteria, edge cases, and required evidence..."
 
-    this.pushRubric = this.debounce(() => {
+    this.pushMarkdown = this.debounce(() => {
       if (this.suppressPush) return
-      this.pushEvent("rubric_change", { body: this.getMarkdown() })
+      const body = this.getMarkdown()
+      const payload = this.field ? { field: this.field, body } : { body }
+      this.pushEvent(this.pushEventName, payload)
     }, 300)
 
     this.editor = new Editor({
@@ -27,8 +34,14 @@ const MarkdownEditor = {
         TaskItem.configure({
           nested: true
         }),
+        Table.configure({
+          resizable: false
+        }),
+        TableRow,
+        TableHeader,
+        TableCell,
         Placeholder.configure({
-          placeholder: "Define pass/fail criteria, edge cases, and required evidence..."
+          placeholder: this.placeholderText
         }),
         Markdown.configure({
           transformPastedText: true,
@@ -43,7 +56,7 @@ const MarkdownEditor = {
       },
       onUpdate: () => {
         this.localEditAt = Date.now()
-        this.pushRubric()
+        this.pushMarkdown()
       }
     })
 
