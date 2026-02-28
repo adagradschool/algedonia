@@ -265,4 +265,13 @@ defmodule Algedonia.Tickets do
   defp filter_by_assignee(query, nil), do: query
   defp filter_by_assignee(query, ""), do: query
   defp filter_by_assignee(query, assignee), do: where(query, [t], t.assignee == ^assignee)
+
+  # -- Planning workflow (delegated) --
+
+  defdelegate start_work(ticket), to: Algedonia.Tickets.Planning
+  defdelegate start_planning(ticket), to: Algedonia.Tickets.Planning
+
+  # -- Search (delegated) --
+
+  defdelegate search_tickets_grouped(opts), to: Algedonia.Tickets.Search
 end

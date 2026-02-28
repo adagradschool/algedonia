@@ -109,6 +109,24 @@ defmodule Algedonia.Dags do
   end
 
   @doc """
+  Creates a single DAG from the given attributes.
+  """
+  @spec create_dag(map()) :: {:ok, Dag.t()} | {:error, Ecto.Changeset.t()}
+  def create_dag(attrs) do
+    %Dag{}
+    |> Dag.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Deletes a DAG.
+  """
+  @spec delete_dag(Dag.t()) :: {:ok, Dag.t()} | {:error, Ecto.Changeset.t()}
+  def delete_dag(%Dag{} = dag) do
+    Repo.delete(dag)
+  end
+
+  @doc """
   Returns a map of ticket_id => first loop_id for the given ticket IDs.
   """
   @spec first_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}

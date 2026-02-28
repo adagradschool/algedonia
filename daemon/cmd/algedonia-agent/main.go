@@ -21,8 +21,8 @@ import (
 	"github.com/algedonia/daemon/internal/config"
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
-	"github.com/algedonia/daemon/internal/terminalws"
 	"github.com/algedonia/daemon/internal/repo"
+	"github.com/algedonia/daemon/internal/terminalws"
 	"github.com/spf13/cobra"
 )
 

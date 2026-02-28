@@ -101,11 +101,4 @@ defmodule AlgedoniaWeb.DagLive.Show do
 
     %{nodes: nodes, edges: edges}
   end
-
-  @doc false
-  def ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
-  def ticket_ref(%{id: id}), do: id
-
-  @doc false
-  def loop_ref(loop_id) when is_binary(loop_id), do: String.slice(loop_id, 0, 8)
 end

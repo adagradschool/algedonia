@@ -8,7 +8,7 @@ defmodule Algedonia.Workspaces.WorkspaceMembership do
   @type t :: %__MODULE__{}
 
   schema "workspace_memberships" do
-    field :role, :string, default: "member"
+    field :role, Ecto.Enum, values: [:member], default: :member
 
     belongs_to :workspace, Algedonia.Workspaces.Workspace
     belongs_to :user, Algedonia.Accounts.User

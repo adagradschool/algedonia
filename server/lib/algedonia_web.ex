@@ -86,6 +86,8 @@ defmodule AlgedoniaWeb do
       import Phoenix.HTML
       # Core UI components
       import AlgedoniaWeb.CoreComponents
+      # Shared web-layer utilities
+      import AlgedoniaWeb.Helpers
 
       # Common modules used in templates
       alias AlgedoniaWeb.Layouts

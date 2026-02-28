@@ -5,6 +5,7 @@ defmodule AlgedoniaWeb.LoopLive.DiffTab do
   """
 
   import Phoenix.Component, only: [assign: 3]
+  import AlgedoniaWeb.Helpers, only: [resolve_daemon: 1]
 
   alias Algedonia.{DiffParser, InlineReviews}
   alias AlgedoniaWeb.DaemonChannel
@@ -189,19 +190,6 @@ defmodule AlgedoniaWeb.LoopLive.DiffTab do
   defp maker_running?(socket) do
     socket.assigns[:active] == true &&
       socket.assigns[:stage] == "maker"
-  end
-
-  defp resolve_daemon(socket) do
-    case socket.assigns[:loop_record] do
-      %{assigned_daemon_id: daemon_id} when is_binary(daemon_id) ->
-        case Algedonia.Daemons.get_daemon(daemon_id) do
-          %{status: :online} = daemon -> {:ok, daemon}
-          _ -> Algedonia.Daemons.find_online()
-        end
-
-      _ ->
-        Algedonia.Daemons.find_online()
-    end
   end
 
   defp current_author(socket) do
