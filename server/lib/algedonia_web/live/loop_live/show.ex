@@ -44,14 +44,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       ) do
     loop_id = resolve_loop_id(loop_ref)
 
+    socket = assign(socket, :route_ticket_ref, params["ticket_ref"])
+    socket = assign_loop_context(socket, loop_id)
+
     if connected?(socket) do
       Terminals.subscribe(loop_id)
       maybe_subscribe_loop_updates(loop_id)
-      maybe_subscribe_ticket_updates(socket, loop_id)
+      maybe_subscribe_ticket_updates(socket)
     end
 
-    socket = assign(socket, :route_ticket_ref, params["ticket_ref"])
-    socket = assign_loop_context(socket, loop_id)
     agent_type = default_agent_type(socket.assigns[:ticket])
 
     socket =
@@ -503,23 +504,14 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     end
   end
 
-  defp maybe_subscribe_ticket_updates(socket, loop_id) do
-    ticket_id =
-      case Loops.get_loop_by_ref(loop_id) do
-        %{} = loop ->
-          loop = Loops.preload_ticket(loop)
-          loop.dag.ticket_id
+  defp maybe_subscribe_ticket_updates(socket) do
+    case socket.assigns.ticket do
+      %{id: ticket_id} ->
+        Tickets.subscribe()
+        Tickets.subscribe_comments(ticket_id)
 
-        nil ->
-          case ticket_for_route(socket) do
-            %{id: id} -> id
-            _ -> nil
-          end
-      end
-
-    if ticket_id do
-      Tickets.subscribe()
-      Tickets.subscribe_comments(ticket_id)
+      _ ->
+        :ok
     end
   end
 
