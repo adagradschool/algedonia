@@ -73,14 +73,8 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   end
 
   def status_options do
-    [
-      Backlog: :backlog,
-      Planning: :planning,
-      Halted: :halted,
-      "In Progress": :in_progress,
-      Completed: :completed,
-      Archived: :archived
-    ]
+    Algedonia.Tickets.display_statuses()
+    |> Enum.map(&{status_label(&1), &1})
   end
 
   def priority_options do
@@ -100,4 +94,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   def coding_agent_options do
     [Codex: :codex, Claude: :claude_code]
   end
+
+  defp status_label(:in_progress), do: "In Progress"
+  defp status_label(status), do: status |> to_string() |> String.capitalize()
 end

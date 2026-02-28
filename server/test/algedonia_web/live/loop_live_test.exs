@@ -23,6 +23,45 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert has_element?(view, "#loop-index-badge")
     end
 
+    test "ad hoc planning session loads ticket context", %{conn: conn, workspace: workspace} do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "Plan this"
+        })
+
+      {:ok, _view, html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/plan-#{String.slice(ticket.id, 0, 8)}"
+        )
+
+      assert html =~ "Planning: Plan this"
+    end
+
+    test "planning role shows sidebar but hides top-bar maker/index indicators", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "Plan this"
+        })
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/plan-#{String.slice(ticket.id, 0, 8)}?#{%{role: "planning"}}"
+        )
+
+      assert has_element?(view, "#loop-left-sidebar-panel")
+      refute has_element?(view, "#loop-index-badge")
+      refute has_element?(view, "#loop-terminal-panel .h-12 span", "maker")
+    end
+
     test "renders split panel shell with resize handle and persistence wiring", %{
       conn: conn,
       workspace: workspace

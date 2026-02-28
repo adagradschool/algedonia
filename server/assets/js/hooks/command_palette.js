@@ -6,10 +6,11 @@ const CommandPalette = {
     this.render()
 
     this.onKeyDown = (event) => {
+      if (event.defaultPrevented) return
       const key = event.key
       const meta = event.metaKey || event.ctrlKey
 
-      if (meta && key.toLowerCase() === "k") {
+      if (meta && key.toLowerCase() === "k" && !this.isEditable(event.target)) {
         event.preventDefault()
         this.toggle()
         return
@@ -131,6 +132,21 @@ const CommandPalette = {
     })
 
     this.el.appendChild(overlay)
+  },
+
+  isEditable(target) {
+    if (!target) return false
+    const node = target.nodeType === Node.TEXT_NODE ? target.parentElement : target
+    if (!(node instanceof Element)) return false
+
+    if (node.closest(".xterm")) return true
+    if (node.closest("[data-shortcuts='off']")) return true
+    if (node.closest(".tiptap, .ProseMirror")) return true
+    if (node.isContentEditable) return true
+    if (node.closest("[contenteditable=''], [contenteditable='true'], [contenteditable='plaintext-only']")) return true
+
+    const tag = node.tagName?.toLowerCase()
+    return tag === "input" || tag === "textarea" || tag === "select"
   }
 }
 

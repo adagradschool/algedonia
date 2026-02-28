@@ -124,7 +124,27 @@ defmodule AlgedoniaWeb.TicketComponents do
         </div>
         <div class="flex items-center gap-2">
           <button
-            :if={@ticket.status in [:backlog, :halted]}
+            :if={@ticket.status == :backlog}
+            phx-click="plan_ticket"
+            phx-value-id={@ticket.id}
+            phx-stop-propagation
+            class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors"
+            type="button"
+          >
+            Plan
+          </button>
+          <button
+            :if={@ticket.status == :planning}
+            phx-click="open_planning_session"
+            phx-value-id={@ticket.id}
+            phx-stop-propagation
+            class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors"
+            type="button"
+          >
+            Plan Session
+          </button>
+          <button
+            :if={@ticket.status in [:planning, :halted]}
             phx-click="start_work"
             phx-value-id={@ticket.id}
             phx-stop-propagation
@@ -188,7 +208,27 @@ defmodule AlgedoniaWeb.TicketComponents do
       </span>
       <.type_badge type={@ticket.type} />
       <button
-        :if={@ticket.status in [:backlog, :halted]}
+        :if={@ticket.status == :backlog}
+        phx-click="plan_ticket"
+        phx-value-id={@ticket.id}
+        phx-stop-propagation
+        class="inline-flex items-center px-2 py-1 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors shrink-0"
+        type="button"
+      >
+        Plan
+      </button>
+      <button
+        :if={@ticket.status == :planning}
+        phx-click="open_planning_session"
+        phx-value-id={@ticket.id}
+        phx-stop-propagation
+        class="inline-flex items-center px-2 py-1 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors shrink-0"
+        type="button"
+      >
+        Plan Session
+      </button>
+      <button
+        :if={@ticket.status in [:planning, :halted]}
         phx-click="start_work"
         phx-value-id={@ticket.id}
         phx-stop-propagation

@@ -319,6 +319,79 @@ defmodule Algedonia.OrchestratorTest do
     end
   end
 
+  describe "task context isolation" do
+    test "maker task includes planning comment lookup command", %{orchestrator: pid} do
+      ticket =
+        insert_ticket!(%{
+          status: :in_progress,
+          title: "Context ticket",
+          acceptance_criteria: "- must pass",
+          rubric: "- quality"
+        })
+
+      {:ok, _comment} =
+        Tickets.create_comment(%{
+          ticket_id: ticket.id,
+          author: "planner",
+          body: "approved plan"
+        })
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+      loop_id = loop.id
+
+      ticket_ref =
+        if is_integer(ticket.number), do: Integer.to_string(ticket.number), else: ticket.id
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
+      assert task =~ "ag ticket comments #{ticket_ref} --json"
+      assert task =~ "Fetch approved planning notes before implementation:"
+    end
+
+    test "checker task excludes planning notes and ticket comments", %{orchestrator: pid} do
+      ticket =
+        insert_ticket!(%{
+          status: :in_progress,
+          title: "Checker context ticket",
+          acceptance_criteria: "- satisfy acceptance criteria",
+          rubric: "- satisfy rubric"
+        })
+
+      {:ok, _comment} =
+        Tickets.create_comment(%{
+          ticket_id: ticket.id,
+          author: "planner",
+          body: "approved plan"
+        })
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+      loop_id = loop.id
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop.id,
+                 %{"session_id" => "maker-1", "exit_code" => 0},
+                 daemon.name
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "checker", "task" => checker_task}}
+      assert checker_task =~ "Acceptance criteria:\n- satisfy acceptance criteria"
+      assert checker_task =~ "Rubric:\n- satisfy rubric"
+      refute checker_task =~ "ag ticket comments"
+      refute checker_task =~ "Ticket comments:"
+      refute checker_task =~ "approved plan"
+    end
+  end
+
   # -- Task loop lifecycle tests --
 
   defp setup_task_loop(pid, opts \\ []) do

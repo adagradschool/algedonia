@@ -23,7 +23,11 @@
     data-storage-key="loop-left-sidebar-width"
     class="grid grid-cols-[var(--left-sidebar-width,16rem)_16px_minmax(0,1fr)] overflow-hidden"
   >
-    <div id="loop-left-sidebar-panel" data-sidebar-panel class="min-w-0 overflow-hidden">
+    <div
+      id="loop-left-sidebar-panel"
+      data-sidebar-panel
+      class="min-w-0 overflow-hidden"
+    >
       <Layouts.workspace_sidebar
         current_workspace={@current_workspace}
         current_user={@current_user}
@@ -106,18 +110,21 @@
       >
         <div class="h-12 border-b border-border-soft px-4 flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
-            <h1 class="text-2xl font-medium text-fg whitespace-normal break-words leading-tight">
+            <h1 class="text-base font-medium text-fg whitespace-normal break-words leading-tight">
               {@loop_title}
             </h1>
-            <span class={[
-              "px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide",
-              cond do
-                @stage == "completed" -> "bg-status-green/20 text-status-green"
-                @stage == "failed" -> "bg-status-red/20 text-status-red"
-                @stage == "checker" -> "bg-status-yellow/20 text-status-yellow"
-                true -> "bg-accent-indigo/20 text-accent-indigo"
-              end
-            ]}>
+            <span
+              :if={!@planning_session?}
+              class={[
+                "px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide",
+                cond do
+                  @stage == "completed" -> "bg-status-green/20 text-status-green"
+                  @stage == "failed" -> "bg-status-red/20 text-status-red"
+                  @stage == "checker" -> "bg-status-yellow/20 text-status-yellow"
+                  true -> "bg-accent-indigo/20 text-accent-indigo"
+                end
+              ]}
+            >
               {@stage}
             </span>
             <span class={[
@@ -130,6 +137,7 @@
               {if @active, do: "Active", else: "Inactive"}
             </span>
             <span
+              :if={!@planning_session?}
               id="loop-index-badge"
               class="px-2 py-0.5 rounded text-[11px] border bg-surface-panel text-fg-muted border-border"
             >
@@ -147,7 +155,15 @@
             <.kbd class="bg-white/15 border-white/20 text-white/70">S</.kbd>
           </button>
           <button
-            :if={@active}
+            :if={@active && @planning_session?}
+            phx-click="finish_planning"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
+            type="button"
+          >
+            Done
+          </button>
+          <button
+            :if={@active && !@planning_session?}
             phx-click="stop_loop"
             aria-label="Stop loop (S)"
             title="Stop loop (S)"
@@ -159,7 +175,7 @@
           </button>
         </div>
 
-        <div class="border-b border-border-soft bg-[#0d1017]">
+        <div :if={!@planning_session?} class="border-b border-border-soft bg-[#0d1017]">
           <button
             type="button"
             phx-click="toggle_steps"
@@ -256,7 +272,10 @@
         data-split-right
         class="bg-surface-panel flex flex-col overflow-hidden"
       >
-        <div class="h-11 border-b border-border bg-surface px-2 flex items-center gap-1">
+        <div
+          :if={!@planning_session?}
+          class="h-11 border-b border-border bg-surface px-2 flex items-center gap-1"
+        >
           <button
             phx-click="switch_tab"
             phx-value-tab="overview"
@@ -287,7 +306,10 @@
           </button>
         </div>
 
-        <div :if={@active_tab == "overview"} class="p-3 overflow-y-auto space-y-4">
+        <div
+          :if={!@planning_session? and @active_tab == "overview"}
+          class="p-3 overflow-y-auto space-y-4"
+        >
           <div
             :if={@final_verdict}
             class={[
@@ -338,7 +360,10 @@
           </div>
         </div>
 
-        <div :if={@active_tab == "rubric"} class="p-3 overflow-y-auto space-y-3">
+        <div
+          :if={!@planning_session? and @active_tab == "rubric"}
+          class="p-3 overflow-y-auto space-y-3"
+        >
           <div class="rubric-editor-shell" data-shortcuts="off">
             <div class="rubric-editor-head">
               <h2 class="text-sm font-semibold text-fg">Rubric</h2>
@@ -350,6 +375,104 @@
               data-markdown={@rubric}
               class="rubric-editor"
             />
+          </div>
+        </div>
+
+        <div :if={@planning_session?} class="p-3 overflow-y-auto space-y-3">
+          <div class="rounded-md border border-border bg-surface px-3 py-3">
+            <div class="text-[11px] uppercase tracking-wide text-fg-muted">Ticket</div>
+            <div class="mt-1 text-sm font-semibold text-fg break-words">
+              {if @ticket, do: @ticket.title, else: "Planning ticket"}
+            </div>
+            <div :if={@ticket} class="mt-2 flex flex-wrap gap-1.5">
+              <span class="px-2 py-0.5 rounded text-[11px] border bg-surface-panel text-fg-muted border-border">
+                Status: {@ticket.status}
+              </span>
+              <span class="px-2 py-0.5 rounded text-[11px] border bg-surface-panel text-fg-muted border-border">
+                Priority: {@ticket.priority}
+              </span>
+              <span class="px-2 py-0.5 rounded text-[11px] border bg-surface-panel text-fg-muted border-border">
+                Type: {@ticket.type}
+              </span>
+              <span class="px-2 py-0.5 rounded text-[11px] border bg-surface-panel text-fg-muted border-border">
+                Max loops: {@ticket.max_attempts}
+              </span>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-border bg-surface px-3 py-3">
+            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">Description</div>
+            <div
+              :if={@ticket && @ticket.description && String.trim(@ticket.description) != ""}
+              class="markdown text-xs text-fg-secondary"
+            >
+              {render_markdown(@ticket.description)}
+            </div>
+            <div
+              :if={!@ticket || !@ticket.description || String.trim(@ticket.description) == ""}
+              class="text-xs text-fg-muted"
+            >
+              No description yet.
+            </div>
+          </div>
+
+          <div class="rounded-md border border-border bg-surface px-3 py-3">
+            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">
+              Acceptance Criteria
+            </div>
+            <div
+              :if={
+                @ticket && @ticket.acceptance_criteria &&
+                  String.trim(@ticket.acceptance_criteria) != ""
+              }
+              class="markdown text-xs text-fg-secondary"
+            >
+              {render_markdown(@ticket.acceptance_criteria)}
+            </div>
+            <div
+              :if={
+                !@ticket || !@ticket.acceptance_criteria ||
+                  String.trim(@ticket.acceptance_criteria) == ""
+              }
+              class="text-xs text-fg-muted"
+            >
+              No acceptance criteria yet.
+            </div>
+          </div>
+
+          <div class="rounded-md border border-border bg-surface px-3 py-3">
+            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">Rubric</div>
+            <div
+              :if={@ticket && @ticket.rubric && String.trim(@ticket.rubric) != ""}
+              class="markdown text-xs text-fg-secondary"
+            >
+              {render_markdown(@ticket.rubric)}
+            </div>
+            <div
+              :if={!@ticket || !@ticket.rubric || String.trim(@ticket.rubric) == ""}
+              class="text-xs text-fg-muted"
+            >
+              No rubric yet.
+            </div>
+          </div>
+
+          <div class="rounded-md border border-border bg-surface px-3 py-3">
+            <div class="text-[11px] uppercase tracking-wide text-fg-muted mb-2">Comments</div>
+            <div :if={@comments == []} class="text-xs text-fg-muted">
+              No comments yet.
+            </div>
+            <div :for={comment <- @comments} class="mb-3 last:mb-0">
+              <div class="flex items-center gap-2 mb-1">
+                <.avatar name={comment.author} />
+                <span class="text-xs font-medium text-fg">{comment.author}</span>
+                <span class="text-xs text-fg-muted">
+                  <.relative_time datetime={comment.inserted_at} />
+                </span>
+              </div>
+              <div class="pl-7 text-xs text-fg-secondary markdown break-words">
+                {render_markdown(comment.body)}
+              </div>
+            </div>
           </div>
         </div>
       </section>

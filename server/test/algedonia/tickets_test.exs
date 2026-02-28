@@ -161,4 +161,22 @@ defmodule Algedonia.TicketsTest do
       end
     end
   end
+
+  describe "update_overview/2" do
+    test "persists overview content" do
+      ticket = insert_ticket!()
+      assert {:ok, updated} = Tickets.update_overview(ticket, "# Overview\nSome content")
+      assert updated.overview == "# Overview\nSome content"
+      assert Tickets.get_ticket!(ticket.id).overview == "# Overview\nSome content"
+    end
+
+    test "returns error on stale ticket" do
+      ticket = insert_ticket!()
+      Tickets.delete_ticket(ticket)
+
+      assert_raise Ecto.StaleEntryError, fn ->
+        Tickets.update_overview(ticket, "content")
+      end
+    end
+  end
 end
