@@ -22,7 +22,7 @@ import (
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
 	"github.com/algedonia/daemon/internal/terminalws"
-	"github.com/algedonia/daemon/internal/worktree"
+	"github.com/algedonia/daemon/internal/repo"
 	"github.com/spf13/cobra"
 )
 
@@ -147,9 +147,10 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
 			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)
+			client.RegisterHandler("get_diff", mgr.HandleGetDiff)
 			client.SetRunningLoopsFn(mgr.RunningCount)
 
-			cloneMgr := worktree.NewCloneManager("", "")
+			cloneMgr := repo.NewCloneManager("", "")
 			client.OnJoin(makeJoinCallback(cloneMgr, client))
 
 			verifyURL := strings.TrimRight(httpBaseURL(serverURL), "/") + "/api/terminal/verify"
@@ -180,7 +181,7 @@ func newLoginCmd() *cobra.Command {
 	return cmd
 }
 
-func makeJoinCallback(cloneMgr worktree.RepoManager, client *connection.Client) connection.JoinCallback {
+func makeJoinCallback(cloneMgr repo.RepoManager, client *connection.Client) connection.JoinCallback {
 	return func(ctx context.Context, response map[string]interface{}) {
 		repoURL, _ := response["github_repo_url"].(string)
 		slug, _ := response["workspace_slug"].(string)

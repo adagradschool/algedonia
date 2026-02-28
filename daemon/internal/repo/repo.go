@@ -1,5 +1,5 @@
-// Package worktree manages git worktree creation and cleanup for isolated agent execution.
-package worktree
+// Package repo manages git bare-repo clone and fetch operations.
+package repo
 
 import (
 	"bytes"

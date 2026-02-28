@@ -283,7 +283,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | # | Criterion |
 |---|-----------|
 | GO1 | Functions are <=40 lines. Exception: switch statements with many cases may exceed this. |
-| GO2 | Files are <=500 lines. Split by concern (e.g., `pty.go`, `worktree.go`, `adapter.go`). |
+| GO2 | Files are <=500 lines. Split by concern (e.g., `pty.go`, `repo.go`, `adapter.go`). |
 | GO3 | Exported functions and types have godoc comments starting with the name. |
 | GO4 | Error handling: every error is either handled, wrapped with `fmt.Errorf("context: %w", err)`, or returned. No ignored errors (no blank `_` for error returns except in tests or deferred Close calls). |
 | GO5 | Formatting: all code passes `gofmt`. No exceptions. |
@@ -318,7 +318,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |---|-----------|
 | GOC1 | Line coverage target: >=80% for daemon code overall. |
 | GOC2 | Every command handler (`start_loop`, `stop_loop`, `pause_agent`, `resume_agent`, `stdin_input`, `squash_and_push`) has unit tests. |
-| GOC3 | Error paths (agent crash, worktree creation failure, push failure) have tests. |
+| GOC3 | Error paths (agent crash, push failure) have tests. |
 | GOC4 | Reconnection with exponential backoff has a test verifying backoff intervals. |
 
 ### Tech Debt / Code Smells
@@ -428,23 +428,19 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | # | Smell |
 |---|-------|
 | PTYD1 | Hardcoded PTY window size instead of configurable (or negotiated with the terminal widget). |
-| PTYD2 | Missing cleanup of PTY resources in error paths (e.g., fd leak when worktree creation fails after PTY allocation). |
+| PTYD2 | Missing cleanup of PTY resources in error paths (e.g., fd leak when process spawn fails after PTY allocation). |
 | PTYD3 | Process table (loop_id -> process) without a cleanup sweep for orphaned entries. |
 
 ---
 
-## Go Git Operations (Worktree Management)
+## Go Git Operations (Repo Management)
 
 ### Quality
 
 | # | Criterion |
 |---|-----------|
-| GIT1 | All git operations shell out to the `git` CLI (not a Go git library). Rationale: worktree and rebase behavior must match the user's git exactly. |
+| GIT1 | All git operations shell out to the `git` CLI (not a Go git library). Rationale: rebase behavior must match the user's git exactly. |
 | GIT2 | Every git command captures both stdout and stderr. Errors include the stderr output in the error message. |
-| GIT3 | Worktree paths follow the pattern: `<worktree_root>/<loop_id>`. No nested or overlapping paths. |
-| GIT4 | `git fetch` runs before every `git worktree add` to ensure the base branch is current. |
-| GIT5 | Worktree cleanup (`git worktree remove`) runs in a `defer` or cleanup function that executes even on error paths. |
-| GIT6 | `squash_and_push` is atomic from the caller's perspective: if push fails, the caller gets an error. The worktree is not cleaned up on push failure (to allow retry or manual inspection). |
 
 ### Idioms
 
@@ -452,7 +448,6 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |---|--------|-------|
 | GITI1 | Use `exec.CommandContext` so git operations respect cancellation. | Long-running git operations without timeout (e.g., a clone that hangs). |
 | GITI2 | Parse git output minimally. Use exit codes for success/failure. Parse stdout only when specific data is needed (e.g., branch name). | Parsing `git status --porcelain` output with regexes when a simpler check suffices. |
-| GITI3 | Lock the worktree directory during squash/push to prevent concurrent operations on the same worktree. | Assuming only one goroutine operates on a worktree at a time without enforcement. |
 
 ### Testability
 
@@ -460,26 +455,22 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |---|-----------|
 | GITT1 | Tests use a temporary git repository (created with `git init` in a temp dir). No reliance on an external repo. |
 | GITT2 | The git binary path is configurable (injectable) so tests can substitute a wrapper that records calls. |
-| GITT3 | Worktree creation and cleanup are tested end-to-end with real git commands in a temp repo. |
 
 ### Test Coverage
 
 | # | Criterion |
 |---|-----------|
-| GITC1 | Worktree add (creation from base branch) tested. |
-| GITC2 | Worktree remove (cleanup) tested. |
+| GITC1 | Bare repo clone tested. |
+| GITC2 | Fetch on existing repo tested. |
 | GITC3 | Squash-rebase onto base branch tested (verify single commit on base branch after squash). |
 | GITC4 | Push success and push failure (e.g., conflicting remote changes) tested. |
-| GITC5 | Fetch before worktree creation tested (verify worktree is based on latest remote state). |
-| GITC6 | Orphan worktree cleanup on daemon startup tested. |
 
 ### Tech Debt / Code Smells
 
 | # | Smell |
 |---|-------|
 | GITD1 | Hardcoded branch naming conventions instead of using the server-provided `branch_name`. |
-| GITD2 | Missing error handling on `git worktree remove` (removal failure leaves orphan worktrees). |
-| GITD3 | No timeout on git operations (a slow network can hang the daemon). All git operations should have a context timeout of 120s max. |
+| GITD2 | No timeout on git operations (a slow network can hang the daemon). All git operations should have a context timeout of 120s max. |
 
 ---
 
@@ -803,7 +794,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |---|-----------|
 | S7-Q1 | `AgentAdapter` Go interface has exactly: `Start`, `AttachPTY`, `SendInput`, `Wait`, `Kill`, `SessionID`. |
 | S7-Q2 | Claude Code adapter is in its own file (`adapter_claude.go` or similar). |
-| S7-Q3 | Prompt loading reads from the worktree's `.algedonia/prompts/` directory, not a hardcoded system path. |
+| S7-Q3 | Prompt loading reads from the repo's `.algedonia/prompts/` directory, not a hardcoded system path. |
 | S7-Q4 | Structured output parsing has clear error handling: if the agent output is malformed, return an error event (don't panic or silently drop). |
 | S7-Q5 | Agent session ID is captured and included in the `attempt_complete` event. |
 | S7-Q6 | Agent environment variables (LLM API keys) are inherited from the daemon process environment. Never logged or sent to the server. |
@@ -861,8 +852,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 ### Verification Criteria (from slices doc)
 
 1. After decomposition, root loops (no upstream dependencies) transition to `ready` then `assigned`.
-2. The daemon creates a git worktree for the assigned loop.
-3. The maker agent spawns and its terminal output streams to the Loop Inspector.
+2. The maker agent spawns and its terminal output streams to the Loop Inspector.
 4. When the agent exits, the diff is captured and sent to the server.
 5. The attempt is recorded in `loop_attempts` with diff, exit code, and session ID.
 6. A state transition event is recorded in the `events` table.
@@ -876,7 +866,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | S9-Q1 | `Algedonia.Scheduler` GenServer identifies root loops (no incoming edges in `loop_dependencies`) after DAG creation. |
 | S9-Q2 | Loop state transitions are persisted to the `events` table before the next action (write-ahead pattern). |
 | S9-Q3 | `loop_attempts` records include `duration_ms` calculated from attempt start to completion. |
-| S9-Q4 | Worktree creation uses the server-provided `base_branch`. Daemon runs `git fetch` before `git worktree add`. |
+| S9-Q4 | Daemon runs `git fetch` before spawning the agent to ensure the base branch is current. |
 | S9-Q5 | Diff viewer in Loop Inspector sanitizes the diff (no XSS via crafted file contents). |
 | S9-Q6 | Attempt history component is a reusable function component (reused in slices 10, 12, 14). |
 
@@ -886,8 +876,8 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |-----------|-------------|
 | Unit (Elixir) | Scheduler: after DAG creation, root loops are identified and transition to `ready`. Daemon assignment: prefers ticket creator's daemon. |
 | Unit (Elixir) | Event recording: each state transition produces an event row. |
-| Unit (Go) | Worktree creation: `git fetch` + `git worktree add` sequence. Attempt result collection: diff, exit code, session ID. |
-| Integration (Channel) | Server sends `start_loop` with role `maker` -> daemon creates worktree, spawns agent -> `attempt_complete` event returns diff. |
+| Unit (Go) | Attempt result collection: diff, exit code, session ID. |
+| Integration (Channel) | Server sends `start_loop` with role `maker` -> daemon spawns agent -> `attempt_complete` event returns diff. |
 | Integration (LiveView) | Loop Inspector shows diff viewer after maker completes. DAG view shows `running_maker` color. |
 
 ---
@@ -897,7 +887,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 ### Verification Criteria (from slices doc)
 
 1. After the maker completes, the server sends a checker `start_loop` to the daemon.
-2. The checker agent runs in the same worktree and its terminal output streams to the Loop Inspector.
+2. The checker agent runs in the same working directory and its terminal output streams to the Loop Inspector.
 3. Daemon loads checker system prompt from `.algedonia/prompts/checker.md`.
 4. Checker scores per pyramid layer are recorded and displayed in the heatmap.
 5. A `pass` verdict with all hard gates passing transitions the loop to `passed`.
@@ -970,7 +960,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 
 1. When a maker attempt fails, the next attempt receives compressed summaries of all prior attempts plus full detail on the most recent.
 2. Retry increments the attempt counter and records each attempt separately.
-3. On pass, the daemon squash-rebases and pushes to the remote; worktree is cleaned up.
+3. On pass, the daemon squash-rebases and pushes to the remote.
 4. After a loop passes, downstream dependent loops transition from `pending` to `ready`.
 5. Multiple loops in a DAG execute in the correct dependency order.
 6. Parallel loops (no dependency between them) can execute simultaneously on the same or different daemons.
@@ -983,7 +973,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |---|-----------|
 | S12-Q1 | Prior attempt compression: attempts older than the most recent 2 are summarized (attempt number, verdict, one-line summary). The 2 most recent attempts include full feedback. |
 | S12-Q2 | `squash_and_push` is a separate daemon command (not bundled into `attempt_complete`). The server sends it explicitly after confirming pass. |
-| S12-Q3 | If `squash_and_push` fails (e.g., merge conflict), the server receives an error and the loop enters `escalated`. The worktree is not cleaned up. |
+| S12-Q3 | If `squash_and_push` fails (e.g., merge conflict), the server receives an error and the loop enters `escalated`. |
 | S12-Q4 | DAG completion check uses a single query: `SELECT count(*) FROM loops WHERE dag_id = ? AND status NOT IN ('passed', 'skipped')`. |
 | S12-Q5 | Downstream loop unblocking is triggered by the Scheduler after a loop passes, not by the Orchestrator directly (separation of concerns). |
 | S12-Q6 | Attempt history displays: attempt number, role (maker/checker), verdict, duration, token usage, session ID (clickable). |
@@ -1188,7 +1178,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | # | Criterion |
 |---|-----------|
 | S18-Q1 | Reflection is triggered AFTER `squash_and_push` succeeds (the loop's work is already merged). Reflection failure must never block or revert a passed loop. |
-| S18-Q2 | Reflection runs with role `reflect` and no worktree (as specified in SDD). |
+| S18-Q2 | Reflection runs with role `reflect` (as specified in SDD). |
 | S18-Q3 | The daemon commits the knowledge file update directly to the main branch (separate from the loop's branch). |
 | S18-Q4 | Knowledge file entries are appended, not overwritten. Each entry is tagged with the loop ID and timestamp. |
 | S18-Q5 | The server reads `.algedonia/knowledge.md` at `start_loop` time (not cached indefinitely). |
@@ -1199,7 +1189,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | Test Type | What to Test |
 |-----------|-------------|
 | Unit (Elixir) | Orchestrator triggers reflection after loop passes. Reflection failure is logged and skipped (loop stays passed). |
-| Unit (Go) | Reflect role handler: spawns agent without worktree, parses structured output, commits to knowledge file. |
+| Unit (Go) | Reflect role handler: spawns agent, parses structured output, commits to knowledge file. |
 | Unit (Go) | Knowledge file append: verify existing content is preserved, new entry is appended with correct tags. |
 | Integration | Full flow: loop passes -> reflection runs -> knowledge file updated -> next loop receives updated context. |
 

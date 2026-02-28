@@ -9,7 +9,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   alias Algedonia.Terminals
   alias Algedonia.Workspaces
 
-  intercept ["start_loop", "stop_loop", "stdin_input"]
+  intercept ["start_loop", "stop_loop", "stdin_input", "get_diff"]
 
   @impl true
   def join("daemon:" <> daemon_id, payload, socket) do
@@ -107,6 +107,16 @@ defmodule AlgedoniaWeb.DaemonChannel do
     {:noreply, socket}
   end
 
+  def handle_in("diff_result", %{"loop_id" => loop_id} = payload, socket) do
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      "loop:#{loop_id}",
+      {:diff_result, Map.get(payload, "diff", ""), Map.get(payload, "error")}
+    )
+
+    {:noreply, socket}
+  end
+
   def handle_in("loop_exited", %{"loop_id" => loop_id, "exit_code" => exit_code}, socket) do
     Terminals.terminal_ended(loop_id)
     maybe_end_step_terminal(loop_id, exit_code)
@@ -141,6 +151,15 @@ defmodule AlgedoniaWeb.DaemonChannel do
     AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "stop_loop", %{
       "loop_id" => loop_id,
       "reason" => reason
+    })
+  end
+
+  @doc """
+  Pushes a get_diff command to the daemon to fetch the current git diff for a loop.
+  """
+  def push_get_diff(daemon_name, loop_id) do
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "get_diff", %{
+      "loop_id" => loop_id
     })
   end
 

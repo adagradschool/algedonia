@@ -12,7 +12,7 @@ defmodule Algedonia.Orchestrator do
   """
   use GenServer
 
-  alias Algedonia.{Agents, CheckerHandoff, Daemons, Dags, Loops, Repo, Tickets}
+  alias Algedonia.{Agents, CheckerHandoff, Daemons, Dags, InlineReviews, Loops, Repo, Tickets}
   alias Algedonia.Dags.Dag
 
   @max_decompose_attempts 3
@@ -462,6 +462,11 @@ defmodule Algedonia.Orchestrator do
     ticket_ref = ticket_reference(ticket)
     plan_lookup = "ag ticket comments #{ticket_ref} --json"
 
+    inline_reviews =
+      loop.id
+      |> InlineReviews.list_pending_by_loop()
+      |> InlineReviews.serialize_for_prompt()
+
     sections = [
       "Ticket: #{ticket.title}",
       optional_section("Acceptance criteria", ticket.acceptance_criteria),
@@ -473,6 +478,7 @@ defmodule Algedonia.Orchestrator do
       "Task:\n#{task_desc}",
       optional_section("Rubric", loop.rubric || ticket.rubric),
       optional_section("Previous checker feedback", non_empty(feedback)),
+      inline_reviews,
       "Implement the task and run relevant checks before finishing."
     ]
 

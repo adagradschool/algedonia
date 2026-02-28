@@ -939,3 +939,40 @@ func (m *Manager) HandleStopLoop(_ context.Context, payload map[string]interface
 
 	return m.StopLoop(loopID, reason)
 }
+
+// HandleGetDiff runs `git diff HEAD` in the loop's working directory and sends the
+// result back to the server as a diff_result event.
+func (m *Manager) HandleGetDiff(_ context.Context, payload map[string]interface{}) error {
+	loopID := payloadStr(payload, "loop_id")
+	if loopID == "" {
+		return fmt.Errorf("missing loop_id in get_diff payload")
+	}
+
+	workdir := m.repoRoot
+	m.mu.Lock()
+	if lp, ok := m.loops[loopID]; ok && lp.workdir != "" {
+		workdir = lp.workdir
+	}
+	m.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "diff", "HEAD")
+	cmd.Dir = workdir
+	out, err := cmd.Output()
+
+	result := map[string]interface{}{
+		"loop_id": loopID,
+	}
+
+	if err != nil {
+		result["error"] = fmt.Sprintf("git diff failed: %v", err)
+		result["diff"] = ""
+	} else {
+		result["diff"] = string(out)
+	}
+
+	m.sendEvent("diff_result", result)
+	return nil
+}

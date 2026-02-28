@@ -436,6 +436,228 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     ]
   end
 
+  describe "Diff tab" do
+    test "switches to diff tab and renders diff content area", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      html = render(view)
+
+      assert html =~ "Changes"
+      assert html =~ "Refresh"
+      assert has_element?(view, "#diff-tab-content")
+    end
+
+    test "shows empty state when no daemon connected", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+
+      # Trigger the debounce so fetch_diff runs and finds no daemon
+      send(view.pid, :diff_debounce_fire)
+      html = render(view)
+
+      assert html =~ "No daemon connected" or html =~ "Loop has not started yet" or
+               html =~ "No diff available"
+    end
+
+    test "renders diff content when diff_result arrives", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{status: :running_maker, current_attempt: 1})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+
+      diff_text = """
+      diff --git a/lib/app.ex b/lib/app.ex
+      index abc1234..def5678 100644
+      --- a/lib/app.ex
+      +++ b/lib/app.ex
+      @@ -10,3 +10,4 @@ defmodule App do
+         def start do
+      +    Logger.info("starting")
+           :ok
+         end
+      """
+
+      send(view.pid, {:diff_result, diff_text, nil})
+      html = render(view)
+
+      assert html =~ "lib/app.ex"
+      assert html =~ "Logger.info"
+    end
+
+    test "renders diff error state", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      send(view.pid, {:diff_result, nil, "Daemon timed out"})
+
+      html = render(view)
+      assert html =~ "Daemon timed out"
+    end
+
+    test "opens inline comment form on gutter click", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+
+      diff_text = """
+      diff --git a/lib/app.ex b/lib/app.ex
+      index abc1234..def5678 100644
+      --- a/lib/app.ex
+      +++ b/lib/app.ex
+      @@ -10,3 +10,4 @@ defmodule App do
+         def start do
+      +    Logger.info("starting")
+           :ok
+         end
+      """
+
+      send(view.pid, {:diff_result, diff_text, nil})
+      render(view)
+
+      render_click(view, "open_inline_comment", %{
+        "file_path" => "lib/app.ex",
+        "line_number" => "11",
+        "line_type" => "addition"
+      })
+
+      html = render(view)
+      assert html =~ "Write your review comment"
+      assert has_element?(view, "form[phx-submit='add_inline_comment']")
+    end
+
+    test "closes inline comment form", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      send(view.pid, {:diff_result, sample_diff(), nil})
+      render(view)
+
+      render_click(view, "open_inline_comment", %{
+        "file_path" => "lib/app.ex",
+        "line_number" => "11",
+        "line_type" => "addition"
+      })
+
+      assert render(view) =~ "Write your review comment"
+
+      render_click(view, "close_inline_comment")
+      refute render(view) =~ "Write your review comment"
+    end
+
+    test "submits inline comment and creates review", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      send(view.pid, {:diff_result, sample_diff(), nil})
+      render(view)
+
+      render_click(view, "open_inline_comment", %{
+        "file_path" => "lib/app.ex",
+        "line_number" => "11",
+        "line_type" => "addition"
+      })
+
+      render_submit(view, "add_inline_comment", %{
+        "file_path" => "lib/app.ex",
+        "line_number" => "11",
+        "body" => "This needs error handling."
+      })
+
+      reviews = Algedonia.InlineReviews.list_by_loop(loop.id)
+      assert length(reviews) == 1
+      assert hd(reviews).body == "This needs error handling."
+      assert hd(reviews).file_path == "lib/app.ex"
+      assert hd(reviews).line_number == 11
+    end
+
+    test "displays existing inline reviews on diff lines", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+
+      {:ok, _review} =
+        Algedonia.InlineReviews.create(%{
+          loop_id: loop.id,
+          author: "ada",
+          file_path: "lib/app.ex",
+          line_number: 11,
+          diff_hunk: "+    Logger.info(\"starting\")",
+          body: "Good addition."
+        })
+
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      send(view.pid, {:diff_result, sample_diff(), nil})
+      html = render(view)
+
+      assert html =~ "Good addition."
+      assert html =~ "ada"
+    end
+
+    test "poll_diff is a no-op when tab is not diff", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      # Stay on overview tab, send poll_diff — should be a no-op, no crash
+      send(view.pid, :poll_diff)
+      assert render(view) =~ "Overview"
+    end
+
+    test "poll_diff handles diff tab without crashing", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      send(view.pid, {:diff_result, sample_diff(), nil})
+      render(view)
+
+      # Send poll_diff while on diff tab — should not crash
+      send(view.pid, :poll_diff)
+      assert render(view) =~ "lib/app.ex"
+    end
+
+    test "switching away from diff tab cancels timers", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{})
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      render_click(element(view, "button[phx-value-tab='diff']"))
+      send(view.pid, {:diff_result, sample_diff(), nil})
+      render(view)
+
+      # Switch away from diff tab
+      render_click(element(view, "button[phx-value-tab='overview']"))
+
+      # poll_diff should be a no-op now (doesn't crash, doesn't fetch)
+      send(view.pid, :poll_diff)
+      html = render(view)
+      refute html =~ "Changes"
+    end
+  end
+
+  defp sample_diff do
+    """
+    diff --git a/lib/app.ex b/lib/app.ex
+    index abc1234..def5678 100644
+    --- a/lib/app.ex
+    +++ b/lib/app.ex
+    @@ -10,3 +10,4 @@ defmodule App do
+       def start do
+    +    Logger.info("starting")
+         :ok
+       end
+    """
+  end
+
   defp build_task_loop!(workspace, overrides) do
     ticket = Factory.insert_ticket!(%{workspace_id: workspace.id})
     dag = Factory.insert_dag!(%{ticket_id: ticket.id})

@@ -392,6 +392,61 @@ defmodule Algedonia.OrchestratorTest do
     end
   end
 
+  describe "inline review inclusion in maker prompt" do
+    test "pending inline reviews appear in maker task on retry", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress, title: "Review ticket"})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+      loop_id = loop.id
+
+      # Create a pending inline review
+      {:ok, _review} =
+        Algedonia.InlineReviews.create(%{
+          loop_id: loop.id,
+          author: "ada",
+          file_path: "lib/orchestrator.ex",
+          line_number: 42,
+          diff_hunk: "-    old_code()\n+    new_code()",
+          body: "Add error handling here."
+        })
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
+
+      assert task =~ "Inline review comments:"
+      assert task =~ "--- lib/orchestrator.ex:42"
+      assert task =~ "Add error handling here."
+      assert task =~ "ada"
+    end
+
+    test "resolved inline reviews are excluded from maker task", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress, title: "Resolved review ticket"})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+      loop_id = loop.id
+
+      {:ok, review} =
+        Algedonia.InlineReviews.create(%{
+          loop_id: loop.id,
+          author: "ada",
+          file_path: "lib/app.ex",
+          line_number: 10,
+          diff_hunk: "+    code()",
+          body: "Already resolved."
+        })
+
+      {:ok, _} = Algedonia.InlineReviews.update_status(review, :resolved)
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
+
+      refute task =~ "Inline review comments:"
+      refute task =~ "Already resolved."
+    end
+  end
+
   # -- Task loop lifecycle tests --
 
   defp setup_task_loop(pid, opts \\ []) do
