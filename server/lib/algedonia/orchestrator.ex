@@ -245,6 +245,7 @@ defmodule Algedonia.Orchestrator do
     with %{} = loop <- Loops.get_loop(loop_id),
          true <- loop.role == :task,
          {:ok, daemon} <- fetch_daemon(daemon_name),
+         :ok <- check_repo_ready(daemon.name, loop),
          {:ok, loop} <-
            Loops.update_loop(loop, %{
              status: :running_maker,
@@ -828,6 +829,17 @@ defmodule Algedonia.Orchestrator do
     end
   rescue
     Ecto.NoResultsError -> {:error, :not_found}
+  end
+
+  defp check_repo_ready(daemon_name, loop) do
+    loop = Repo.preload(loop, dag: [ticket: :workspace])
+    workspace = loop.dag.ticket.workspace
+
+    if workspace && workspace.github_repo_url do
+      if Daemons.repo_ready?(daemon_name), do: :ok, else: {:error, :repo_not_ready}
+    else
+      :ok
+    end
   end
 
   defp find_online_daemon, do: Daemons.find_online()

@@ -3,6 +3,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   LiveView for ticket listing — board and list views with CRUD modals.
   """
   use AlgedoniaWeb, :live_view
+  use AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal
 
   alias Algedonia.{Agents, Dags, Tickets}
   alias Algedonia.Loops

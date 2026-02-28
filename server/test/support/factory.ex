@@ -107,9 +107,20 @@ defmodule Algedonia.Factory do
   end
 
   def insert_user!(overrides \\ %{}) do
-    %User{}
-    |> User.changeset(user_attrs(overrides))
-    |> Repo.insert!()
+    if Map.has_key?(overrides, :github_username) || Map.has_key?(overrides, :github_id) do
+      attrs =
+        overrides
+        |> Map.put_new(:github_id, System.unique_integer([:positive]))
+        |> Map.put_new(:name, "user-#{System.unique_integer([:positive])}")
+
+      %User{}
+      |> User.github_changeset(attrs)
+      |> Repo.insert!()
+    else
+      %User{}
+      |> User.changeset(user_attrs(overrides))
+      |> Repo.insert!()
+    end
   end
 
   def insert_membership!(workspace, user, overrides \\ %{}) do

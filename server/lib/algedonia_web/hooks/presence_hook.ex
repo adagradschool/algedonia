@@ -20,10 +20,15 @@ defmodule AlgedoniaWeb.PresenceHook do
         nil
       end
 
-    current_user =
+    {current_user, user_workspaces} =
       case session["user_id"] do
-        nil -> nil
-        id -> Accounts.get_user(id)
+        nil ->
+          {nil, []}
+
+        id ->
+          user = Accounts.get_user(id)
+          workspaces = if user, do: Accounts.list_workspaces_for_user(id), else: []
+          {user, workspaces}
       end
 
     topic = topic_for(socket.view, workspace_slug)
@@ -38,6 +43,8 @@ defmodule AlgedoniaWeb.PresenceHook do
       |> assign(:nav_section, nav_section_for(socket.view))
       |> assign(:workspace_slug, workspace_slug)
       |> assign(:current_workspace, workspace)
+      |> assign(:user_workspaces, user_workspaces)
+      |> assign(:show_new_workspace_modal, false)
       |> attach_hook(:current_path, :handle_params, fn _params, uri, socket ->
         {:cont, assign(socket, :current_path, URI.parse(uri).path)}
       end)
@@ -93,5 +100,6 @@ defmodule AlgedoniaWeb.PresenceHook do
   defp nav_section_for(AlgedoniaWeb.MonitorLive.Index), do: :monitor
   defp nav_section_for(AlgedoniaWeb.LoopLive.Show), do: :issues
   defp nav_section_for(AlgedoniaWeb.DagLive.Show), do: :issues
+  defp nav_section_for(AlgedoniaWeb.SettingsLive.Index), do: :settings
   defp nav_section_for(_), do: nil
 end

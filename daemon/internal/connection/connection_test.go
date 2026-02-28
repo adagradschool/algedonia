@@ -100,7 +100,7 @@ func TestFormatAppHeartbeat(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	c := NewClient("ws://localhost:4000/daemon/websocket", "tok", "host1", 5)
+	c := NewClient("ws://localhost:4000/daemon/websocket", "tok", "host1", "my-workspace", 5)
 	if c.serverURL != "ws://localhost:4000/daemon/websocket" {
 		t.Errorf("serverURL = %q", c.serverURL)
 	}
@@ -116,7 +116,7 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestNextRef(t *testing.T) {
-	c := NewClient("", "", "", 0)
+	c := NewClient("", "", "", "", 0)
 	r1 := c.nextRef()
 	r2 := c.nextRef()
 	if r1 == r2 {
@@ -125,7 +125,7 @@ func TestNextRef(t *testing.T) {
 }
 
 func TestTopic(t *testing.T) {
-	c := NewClient("", "", "myhost", 0)
+	c := NewClient("", "", "myhost", "", 0)
 	if c.topic() != "daemon:myhost" {
 		t.Errorf("topic() = %q, want %q", c.topic(), "daemon:myhost")
 	}

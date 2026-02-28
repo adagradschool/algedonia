@@ -7,6 +7,7 @@ defmodule Algedonia.Daemons do
   alias Algedonia.Repo
 
   @topic "monitor"
+  @repo_status_table :daemon_repo_status
 
   def list_daemons do
     Repo.all(DaemonRegistration)
@@ -98,11 +99,55 @@ defmodule Algedonia.Daemons do
     end)
   end
 
+  @doc """
+  Stores the repo clone status for a daemon.
+  """
+  @spec set_repo_status(binary(), map()) :: :ok
+  def set_repo_status(daemon_name, status_payload) do
+    ensure_repo_status_table()
+    :ets.insert(@repo_status_table, {daemon_name, status_payload})
+    broadcast({:repo_clone_status, daemon_name, status_payload})
+    :ok
+  end
+
+  @doc """
+  Returns the repo clone status for a daemon, or nil.
+  """
+  @spec get_repo_status(binary()) :: map() | nil
+  def get_repo_status(daemon_name) do
+    ensure_repo_status_table()
+
+    case :ets.lookup(@repo_status_table, daemon_name) do
+      [{^daemon_name, status}] -> status
+      [] -> nil
+    end
+  end
+
+  @doc """
+  Returns true if the daemon's repo is ready or not required.
+  """
+  @spec repo_ready?(binary()) :: boolean()
+  def repo_ready?(daemon_name) do
+    case get_repo_status(daemon_name) do
+      %{"status" => "ready"} -> true
+      %{"status" => "not_configured"} -> true
+      _ -> false
+    end
+  end
+
   def subscribe do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, @topic)
   end
 
   defp broadcast(message) do
     Phoenix.PubSub.broadcast(Algedonia.PubSub, @topic, message)
+  end
+
+  defp ensure_repo_status_table do
+    if :ets.whereis(@repo_status_table) == :undefined do
+      :ets.new(@repo_status_table, [:set, :public, :named_table])
+    end
+
+    :ok
   end
 end

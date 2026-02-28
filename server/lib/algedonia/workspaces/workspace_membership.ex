@@ -5,6 +5,8 @@ defmodule Algedonia.Workspaces.WorkspaceMembership do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "workspace_memberships" do
     field :role, :string, default: "member"
 

@@ -27,6 +27,45 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       assert {:error, %{reason: "unauthorized"}} =
                subscribe_and_join(socket, "daemon:wrong-id", %{})
     end
+
+    test "includes github_repo_url when workspace has one", %{socket: socket} do
+      workspace =
+        Algedonia.Factory.insert_workspace!(%{
+          slug: "ws-with-repo",
+          github_repo_url: "https://github.com/example/repo"
+        })
+
+      assert {:ok, reply, _socket} =
+               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{
+                 "workspace_slug" => workspace.slug
+               })
+
+      assert reply.status == "ok"
+      assert reply.github_repo_url == "https://github.com/example/repo"
+      assert reply.workspace_slug == "ws-with-repo"
+    end
+
+    test "omits github_repo_url when workspace has none", %{socket: socket} do
+      workspace = Algedonia.Factory.insert_workspace!(%{slug: "ws-no-repo"})
+
+      assert {:ok, reply, _socket} =
+               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{
+                 "workspace_slug" => workspace.slug
+               })
+
+      assert reply.status == "ok"
+      assert reply.workspace_slug == "ws-no-repo"
+      refute Map.has_key?(reply, :github_repo_url)
+    end
+
+    test "omits workspace fields when no workspace_slug provided", %{socket: socket} do
+      assert {:ok, reply, _socket} =
+               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      assert reply.status == "ok"
+      refute Map.has_key?(reply, :github_repo_url)
+      refute Map.has_key?(reply, :workspace_slug)
+    end
   end
 
   describe "connect" do
@@ -41,6 +80,50 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
 
     test "rejects missing params" do
       assert :error = connect(DaemonSocket, %{})
+    end
+  end
+
+  describe "repo_clone_status" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "stores ready status for daemon", %{socket: socket} do
+      ref =
+        push(socket, "repo_clone_status", %{
+          "status" => "ready",
+          "path" => "/tmp/repos/ws"
+        })
+
+      refute_reply ref, _
+
+      status = Algedonia.Daemons.get_repo_status(@daemon_name)
+      assert status["status"] == "ready"
+      assert status["path"] == "/tmp/repos/ws"
+    end
+
+    test "stores error status for daemon", %{socket: socket} do
+      ref =
+        push(socket, "repo_clone_status", %{
+          "status" => "error",
+          "message" => "clone failed"
+        })
+
+      refute_reply ref, _
+
+      status = Algedonia.Daemons.get_repo_status(@daemon_name)
+      assert status["status"] == "error"
+      assert status["message"] == "clone failed"
+    end
+
+    test "stores not_configured status", %{socket: socket} do
+      ref = push(socket, "repo_clone_status", %{"status" => "not_configured"})
+      refute_reply ref, _
+
+      assert Algedonia.Daemons.repo_ready?(@daemon_name)
     end
   end
 

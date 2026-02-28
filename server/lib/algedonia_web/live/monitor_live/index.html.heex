@@ -3,6 +3,7 @@
   current_scope={@current_scope}
   current_workspace={@current_workspace}
   current_user={@current_user}
+  user_workspaces={@user_workspaces}
   nav_section={@nav_section}
   current_path={@current_path}
 >
@@ -66,4 +67,18 @@
       </div>
     </div>
   </div>
+
+  <.modal
+    :if={@show_new_workspace_modal}
+    id="new-workspace-modal"
+    show
+    on_cancel={JS.push("close_new_workspace_modal")}
+  >
+    <h2 class="text-lg font-semibold text-fg mb-4">New workspace</h2>
+    <.live_component
+      module={AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent}
+      id="new-workspace-form"
+      form={@new_workspace_form}
+    />
+  </.modal>
 </Layouts.app>
