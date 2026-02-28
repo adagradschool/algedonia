@@ -36,6 +36,10 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
      |> stream_insert(:daemons, daemon)}
   end
 
+  def handle_info({:repo_clone_status, _daemon_id, _status}, socket) do
+    {:noreply, socket}
+  end
+
   defp status_color(:online), do: "bg-status-green"
   defp status_color(:unhealthy), do: "bg-status-yellow"
   defp status_color(:offline), do: "bg-fg-muted"
