@@ -70,7 +70,7 @@
               <td class="py-2">
                 <.link
                   navigate={
-                    ~p"/w/#{@workspace_slug}/tickets/#{ticket_ref(@ticket)}/loops/#{loop_ref(loop.id)}"
+                    ~p"/w/#{@workspace_slug}/tickets/#{ticket_ref(@ticket)}/loops/#{short_id(loop.id)}"
                   }
                   class="text-fg hover:text-accent-indigo transition-colors"
                 >

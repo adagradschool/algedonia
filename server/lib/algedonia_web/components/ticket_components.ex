@@ -4,6 +4,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   """
   use Phoenix.Component
   import AlgedoniaWeb.CoreComponents, only: [icon: 1]
+  import AlgedoniaWeb.Helpers, only: [ticket_ref: 1, short_id: 1]
 
   alias Phoenix.LiveView.JS
 
@@ -105,7 +106,7 @@ defmodule AlgedoniaWeb.TicketComponents do
       assigns
       |> assign(:loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
       |> assign(:ticket_ref, ticket_ref(assigns.ticket))
-      |> assign(:loop_ref, loop_ref(Map.get(assigns.loop_ids, assigns.ticket.id)))
+      |> assign(:loop_ref, short_id(Map.get(assigns.loop_ids, assigns.ticket.id)))
 
     ~H"""
     <div
@@ -190,7 +191,7 @@ defmodule AlgedoniaWeb.TicketComponents do
       assigns
       |> assign(:loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
       |> assign(:ticket_ref, ticket_ref(assigns.ticket))
-      |> assign(:loop_ref, loop_ref(Map.get(assigns.loop_ids, assigns.ticket.id)))
+      |> assign(:loop_ref, short_id(Map.get(assigns.loop_ids, assigns.ticket.id)))
 
     ~H"""
     <div
@@ -387,13 +388,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   defp ticket_code(%{number: number}, prefix) when is_integer(number),
     do: "#{prefix}-#{number}"
 
-  defp ticket_code(ticket, _prefix), do: String.slice(ticket.id, 0, 8)
-
-  defp ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
-  defp ticket_ref(%{id: id}), do: id
-
-  defp loop_ref(loop_id) when is_binary(loop_id), do: String.slice(loop_id, 0, 8)
-  defp loop_ref(_), do: nil
+  defp ticket_code(ticket, _prefix), do: short_id(ticket.id)
 
   defp workspace_path(nil, path), do: path
   defp workspace_path(slug, path), do: "/w/#{slug}#{path}"

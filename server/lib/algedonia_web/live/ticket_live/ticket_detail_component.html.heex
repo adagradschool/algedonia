@@ -1,0 +1,234 @@
+<div id="ticket-detail" class="flex-1 overflow-auto">
+  <div class="max-w-6xl mx-auto px-6 py-6">
+    <div class="grid grid-cols-[minmax(0,1fr)_18rem] gap-8">
+      <div class="min-w-0">
+        <.form
+          for={@ticket_form}
+          id="ticket-detail-form"
+          phx-change="autosave_ticket"
+          class="min-w-0"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <.link
+                patch={~p"/w/#{@workspace_slug}/tickets"}
+                class="text-fg-muted hover:text-fg transition-colors min-w-11 min-h-11 inline-flex items-center justify-center"
+              >
+                <.icon name="hero-arrow-left" class="size-4" />
+              </.link>
+              <span class="font-mono text-xs text-fg-muted">
+                {if @ticket.number,
+                  do: "#{@workspace_prefix}-#{@ticket.number}",
+                  else: short_id(@ticket.id)}
+              </span>
+            </div>
+            <div class="flex gap-1">
+              <span class="text-[11px] text-fg-muted px-2 self-center">
+                <%= case @save_state do %>
+                  <% :saving -> %>
+                    Saving...
+                  <% :saved -> %>
+                    Saved
+                  <% :error -> %>
+                    Save failed
+                  <% _ -> %>
+                <% end %>
+              </span>
+              <button
+                :if={@ticket.status == :backlog}
+                phx-click="plan_ticket"
+                phx-value-id={@ticket.id}
+                class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-yellow border border-status-yellow/40 bg-status-yellow/10 rounded-md hover:bg-status-yellow/20 transition-colors"
+                type="button"
+              >
+                <.icon name="hero-light-bulb-mini" class="size-3.5" /> Plan
+              </button>
+              <button
+                :if={@ticket.status == :planning}
+                phx-click="open_planning_session"
+                phx-value-id={@ticket.id}
+                class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-yellow border border-status-yellow/40 bg-status-yellow/10 rounded-md hover:bg-status-yellow/20 transition-colors"
+                type="button"
+              >
+                <.icon name="hero-chat-bubble-left-right-mini" class="size-3.5" /> Plan Session
+              </button>
+              <button
+                :if={@ticket.status in [:planning, :halted]}
+                phx-click="start_work"
+                phx-value-id={@ticket.id}
+                class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-green border border-status-green/40 bg-status-green/10 rounded-md hover:bg-status-green/20 transition-colors"
+                type="button"
+              >
+                <.icon name="hero-play-mini" class="size-3.5" /> Start Work
+              </button>
+              <.link
+                :if={@ticket.status in [:planning, :in_progress, :completed] && @loop_id}
+                navigate={
+                  ~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{short_id(@loop_id)}"
+                }
+                class="flex items-center gap-1 px-2 py-1 text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors rounded hover:bg-surface-raised"
+              >
+                <.icon name="hero-magnifying-glass" class="size-3" /> Inspect
+              </.link>
+              <div class="dropdown dropdown-end">
+                <button
+                  id="ticket-settings-button"
+                  class="size-7 flex items-center justify-center text-fg-muted hover:text-fg transition-colors rounded-md hover:bg-surface-raised"
+                  title="Settings"
+                  type="button"
+                >
+                  <.icon name="hero-cog-6-tooth-mini" class="size-4" />
+                </button>
+                <ul
+                  tabindex="0"
+                  class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-40 p-1 shadow-lg mt-1"
+                >
+                  <li>
+                    <button
+                      id="ticket-duplicate-action"
+                      phx-click="duplicate_ticket"
+                      phx-value-id={@ticket.id}
+                      class="text-xs rounded"
+                      type="button"
+                    >
+                      Duplicate
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      id="ticket-delete-action"
+                      phx-click="confirm_delete"
+                      class="text-xs rounded text-status-red"
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <.input
+              field={@ticket_form[:title]}
+              type="text"
+              placeholder="Issue title"
+              class="w-full bg-transparent border-0 text-2xl font-semibold text-fg placeholder-fg-muted p-0 focus:ring-0 focus:outline-none"
+              phx-debounce="600"
+            />
+          </div>
+
+          <div class="mt-6 border-t border-border pt-4 space-y-4">
+            <.ticket_detail_markdown_field
+              id="ticket-description-field"
+              field_key={:description}
+              label="Description"
+              value={@ticket.description || ""}
+              placeholder="Add description"
+            />
+
+            <.ticket_detail_markdown_field
+              id="ticket-acceptance-criteria-field"
+              field_key={:acceptance_criteria}
+              label="Acceptance Criteria"
+              value={@ticket.acceptance_criteria || ""}
+              placeholder="Add acceptance criteria"
+            />
+
+            <.ticket_detail_markdown_field
+              id="ticket-rubric-field"
+              field_key={:rubric}
+              label="Rubric"
+              value={@ticket.rubric || ""}
+              placeholder="Add rubric"
+            />
+          </div>
+        </.form>
+
+        <%!-- Activity / Comments --%>
+        <div class="mt-8">
+          <.activity_feed
+            comments={@comments}
+            comment_form={@comment_form}
+            comment_form_id={@comment_form_id}
+            reply_to={@reply_to}
+            reply_form={@reply_form}
+            ticket_id={@ticket.id}
+            created_at={@ticket.inserted_at}
+            editing_comment_id={@editing_comment_id}
+            edit_form={@edit_form}
+          />
+        </div>
+      </div>
+
+      <aside class="w-72">
+        <div class="space-y-3">
+          <div class="text-xs font-medium text-fg-muted uppercase tracking-wide">
+            Properties
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+              <.icon name="hero-adjustments-horizontal-mini" class="size-3.5" /> Status
+            </div>
+            <.input
+              field={@ticket_form[:status]}
+              type="select"
+              options={AlgedoniaWeb.TicketLive.TicketFormComponent.status_options()}
+              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+              phx-debounce="600"
+            />
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+              <.icon name="hero-signal-mini" class="size-3.5" /> Priority
+            </div>
+            <.input
+              field={@ticket_form[:priority]}
+              type="select"
+              options={AlgedoniaWeb.TicketLive.TicketFormComponent.priority_options()}
+              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+              phx-debounce="600"
+            />
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+              <.icon name="hero-tag-mini" class="size-3.5" /> Type
+            </div>
+            <.input
+              field={@ticket_form[:type]}
+              type="select"
+              options={AlgedoniaWeb.TicketLive.TicketFormComponent.type_options()}
+              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+              phx-debounce="600"
+            />
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+              <.icon name="hero-cpu-chip-mini" class="size-3.5" /> Coding Agent
+            </div>
+            <.input
+              field={@ticket_form[:coding_agent]}
+              type="select"
+              options={AlgedoniaWeb.TicketLive.TicketFormComponent.coding_agent_options()}
+              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+              phx-debounce="600"
+            />
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+              <.icon name="hero-user-mini" class="size-3.5" /> Assignee
+            </div>
+            <.input
+              field={@ticket_form[:assignee]}
+              type="text"
+              placeholder="Assignee"
+              class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+              phx-debounce="600"
+            />
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>

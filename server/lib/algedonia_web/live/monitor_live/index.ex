@@ -46,15 +46,5 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
   defp status_color(_), do: "bg-fg-muted"
 
   defp relative_time(nil), do: "never"
-
-  defp relative_time(datetime) do
-    diff = DateTime.diff(DateTime.utc_now(), datetime, :second)
-
-    cond do
-      diff < 5 -> "just now"
-      diff < 60 -> "#{diff}s ago"
-      diff < 3600 -> "#{div(diff, 60)}m ago"
-      true -> "#{div(diff, 3600)}h ago"
-    end
-  end
+  defp relative_time(datetime), do: relative_time_text(datetime)
 end

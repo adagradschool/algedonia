@@ -29,6 +29,9 @@ type LoopProcess struct {
 	Cancel  context.CancelFunc
 	Done    chan struct{}
 
+	mu      sync.Mutex
+	stopped bool
+
 	// adapter fields — set when started via StartLoopWithAdapter
 	adapter    adapter.AgentAdapter
 	process    *adapter.Process
@@ -453,7 +456,13 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	go func() {
 		defer close(done)
 		defer func() {
-			if err := m.closeAdapterProcess(lp); err != nil {
+			lp.mu.Lock()
+			lp.stopped = true
+			lpAdapter := lp.adapter
+			lpProcess := lp.process
+			lp.mu.Unlock()
+
+			if err := closeAdapterProcess(lpAdapter, lpProcess); err != nil {
 				log.Printf("Failed to close adapter process for loop %s: %v", loopID, err)
 			}
 			m.mu.Lock()
@@ -506,14 +515,18 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 				}
 
 				if role == "checker" {
+					lp.mu.Lock()
+					lpAttempt := lp.attempt
+					lp.mu.Unlock()
+
 					expectedJSONPath, expectedFeedbackPath :=
-						expectedCheckerHandoffPaths(loopID, lp.attempt)
+						expectedCheckerHandoffPaths(loopID, lpAttempt)
 					attemptPayload["expected_handoff_json_path"] = expectedJSONPath
 					attemptPayload["expected_handoff_feedback_path"] = expectedFeedbackPath
-					attemptPayload["attempt"] = lp.attempt
+					attemptPayload["attempt"] = lpAttempt
 
 					verdict, feedbackPath, feedback, parseErr :=
-						loadCheckerHandoff(loopID, lp.attempt)
+						loadCheckerHandoff(loopID, lpAttempt)
 					if parseErr != nil {
 						m.sendEvent("error", map[string]interface{}{
 							"loop_id":     loopID,
@@ -633,26 +646,38 @@ func (m *Manager) StopLoop(loopID, reason string) error {
 	m.mu.Lock()
 	lp, exists := m.loops[loopID]
 	m.mu.Unlock()
-
 	if !exists {
 		return fmt.Errorf("loop %s not found", loopID)
 	}
 
+	lp.mu.Lock()
+	if lp.stopped {
+		lp.mu.Unlock()
+		<-lp.Done
+		return nil
+	}
+	lp.stopped = true
+	lpAdapter := lp.adapter
+	lpProcess := lp.process
+	lpSession := lp.Session
+	lp.mu.Unlock()
+
 	log.Printf("Stopping loop %s: %s", loopID, reason)
 
-	// Adapter-managed process
-	if lp.adapter != nil {
-		err := lp.adapter.Kill(lp.process)
+	if lpAdapter != nil {
+		err := lpAdapter.Kill(lpProcess)
 		<-lp.Done
 		return err
 	}
 
-	// Raw PTY process
-	pid := lp.Session.Pid()
+	return m.stopRawPTY(loopID, lp, lpSession)
+}
+
+func (m *Manager) stopRawPTY(loopID string, lp *LoopProcess, sess *ptyPkg.Session) error {
+	pid := sess.Pid()
 	if pid > 0 {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
-
 	select {
 	case <-lp.Done:
 		return nil
@@ -850,8 +875,8 @@ func parseAttempt(raw interface{}) int {
 	return 1
 }
 
-func (m *Manager) closeAdapterProcess(lp *LoopProcess) error {
-	if lp == nil || lp.adapter == nil || lp.process == nil {
+func closeAdapterProcess(ag adapter.AgentAdapter, proc *adapter.Process) error {
+	if ag == nil || proc == nil {
 		return nil
 	}
 	// Adapter process cleanup hook. TUI adapters exit with Wait() and need no extra cleanup.
@@ -867,13 +892,23 @@ func (m *Manager) SendInput(loopID string, data []byte) error {
 		return fmt.Errorf("loop %s not found", loopID)
 	}
 
+	lp.mu.Lock()
+	if lp.stopped {
+		lp.mu.Unlock()
+		return fmt.Errorf("loop %s is stopped", loopID)
+	}
+	lpAdapter := lp.adapter
+	lpProcess := lp.process
+	lpSession := lp.Session
+	lp.mu.Unlock()
+
 	// Adapter-managed process
-	if lp.adapter != nil {
-		return lp.adapter.SendInput(lp.process, data)
+	if lpAdapter != nil {
+		return lpAdapter.SendInput(lpProcess, data)
 	}
 
 	// Raw PTY process
-	_, err := lp.Session.Write(data)
+	_, err := lpSession.Write(data)
 	if err != nil {
 		return fmt.Errorf("writing stdin to loop %s: %w", loopID, err)
 	}
@@ -893,16 +928,26 @@ func (m *Manager) ResizeLoop(loopID string, cols, rows uint16) error {
 		return fmt.Errorf("loop %s not found", loopID)
 	}
 
+	lp.mu.Lock()
+	if lp.stopped {
+		lp.mu.Unlock()
+		return fmt.Errorf("loop %s is stopped", loopID)
+	}
+	lpAdapter := lp.adapter
+	lpProcess := lp.process
+	lpSession := lp.Session
+	lp.mu.Unlock()
+
 	// Adapter-managed process
-	if lp.adapter != nil {
-		return lp.adapter.Resize(lp.process, cols, rows)
+	if lpAdapter != nil {
+		return lpAdapter.Resize(lpProcess, cols, rows)
 	}
 
 	// Raw PTY process
-	if lp.Session == nil {
+	if lpSession == nil {
 		return fmt.Errorf("loop %s has no PTY session", loopID)
 	}
-	if err := lp.Session.SetSize(rows, cols); err != nil {
+	if err := lpSession.SetSize(rows, cols); err != nil {
 		return fmt.Errorf("resizing loop %s: %w", loopID, err)
 	}
 	return nil

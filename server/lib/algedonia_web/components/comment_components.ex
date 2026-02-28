@@ -3,6 +3,7 @@ defmodule AlgedoniaWeb.CommentComponents do
   UI components for the ticket activity feed — comments, replies, and compose forms.
   """
   use Phoenix.Component
+  import AlgedoniaWeb.Helpers, only: [relative_time_text: 1]
 
   @doc """
   Renders the full activity section for a ticket detail view.
@@ -357,20 +358,5 @@ defmodule AlgedoniaWeb.CommentComponents do
     |> Enum.take(2)
     |> Enum.map_join(&String.first/1)
     |> String.upcase()
-  end
-
-  defp relative_time_text(nil), do: ""
-
-  defp relative_time_text(datetime) do
-    now = DateTime.utc_now()
-    diff = DateTime.diff(now, datetime, :second)
-
-    cond do
-      diff < 60 -> "just now"
-      diff < 3600 -> "#{div(diff, 60)}m ago"
-      diff < 86_400 -> "#{div(diff, 3600)}h ago"
-      diff < 2_592_000 -> "#{div(diff, 86_400)}d ago"
-      true -> Calendar.strftime(datetime, "%b %d, %Y")
-    end
   end
 end

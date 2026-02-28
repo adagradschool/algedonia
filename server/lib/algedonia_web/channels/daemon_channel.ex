@@ -5,7 +5,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   use Phoenix.Channel
 
   alias Algedonia.Daemons
-  alias Algedonia.Orchestrator
+  alias Algedonia.{DecomposeOrchestrator, TaskLoopOrchestrator}
   alias Algedonia.Terminals
   alias Algedonia.Workspaces
 
@@ -85,12 +85,12 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("loop_result", %{"loop_id" => loop_id} = payload, socket) do
-    Orchestrator.handle_loop_result(loop_id, payload)
+    DecomposeOrchestrator.handle_loop_result(loop_id, payload)
     {:noreply, socket}
   end
 
   def handle_in("attempt_complete", %{"loop_id" => loop_id} = payload, socket) do
-    Orchestrator.handle_attempt_complete(loop_id, payload,
+    TaskLoopOrchestrator.handle_attempt_complete(loop_id, payload,
       daemon_name: socket.assigns.daemon_name
     )
 
@@ -98,7 +98,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("error", %{"loop_id" => loop_id} = payload, socket) do
-    Orchestrator.handle_loop_error(loop_id, payload)
+    DecomposeOrchestrator.handle_loop_error(loop_id, payload)
     {:noreply, socket}
   end
 
@@ -185,14 +185,14 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp maybe_append_step_output(loop_id, decoded) do
-    case Orchestrator.current_step_terminal_id(loop_id) do
+    case TaskLoopOrchestrator.current_step_terminal_id(loop_id) do
       step_id when is_binary(step_id) -> Terminals.append(step_id, decoded)
       _ -> :ok
     end
   end
 
   defp maybe_end_step_terminal(loop_id, exit_code) do
-    case Orchestrator.latest_step_terminal_id(loop_id) do
+    case TaskLoopOrchestrator.latest_step_terminal_id(loop_id) do
       step_id when is_binary(step_id) ->
         Terminals.terminal_ended(step_id)
 

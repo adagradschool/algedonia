@@ -136,6 +136,18 @@ defmodule Algedonia.Loops do
   def preload_ticket(%Loop{} = loop), do: Repo.preload(loop, dag: :ticket)
 
   @doc """
+  Preloads a loop with its DAG and ticket.
+  """
+  @spec preload_with_ticket(Loop.t()) :: Loop.t()
+  def preload_with_ticket(%Loop{} = loop), do: Repo.preload(loop, dag: :ticket)
+
+  @doc """
+  Preloads a loop with its DAG, ticket, and workspace.
+  """
+  @spec preload_with_workspace(Loop.t()) :: Loop.t()
+  def preload_with_workspace(%Loop{} = loop), do: Repo.preload(loop, dag: [ticket: :workspace])
+
+  @doc """
   Subscribes to updates for a specific loop.
   """
   @spec subscribe(binary()) :: :ok | {:error, term()}

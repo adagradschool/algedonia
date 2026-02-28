@@ -179,4 +179,71 @@ defmodule Algedonia.TicketsTest do
       end
     end
   end
+
+  describe "start_work/1" do
+    test "creates a loop and returns its id for a planning ticket" do
+      ticket = insert_ticket!(%{status: :planning})
+      assert {:ok, loop_id} = Tickets.start_work(ticket)
+      assert is_binary(loop_id)
+      assert Tickets.get_ticket!(ticket.id).status == :in_progress
+    end
+
+    test "creates a loop and returns its id for a halted ticket" do
+      ticket = insert_ticket!(%{status: :halted})
+      assert {:ok, loop_id} = Tickets.start_work(ticket)
+      assert is_binary(loop_id)
+    end
+
+    test "returns error for backlog ticket" do
+      ticket = insert_ticket!(%{status: :backlog})
+      assert {:error, :invalid_status} = Tickets.start_work(ticket)
+    end
+
+    test "returns error for in_progress ticket" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      assert {:error, :invalid_status} = Tickets.start_work(ticket)
+    end
+  end
+
+  describe "start_planning/1" do
+    test "moves backlog ticket to planning" do
+      ticket = insert_ticket!(%{status: :backlog})
+      assert {:ok, planned} = Tickets.start_planning(ticket)
+      assert planned.status == :planning
+    end
+
+    test "returns error for non-backlog ticket" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      assert {:error, :invalid_status} = Tickets.start_planning(ticket)
+    end
+  end
+
+  describe "search_tickets_grouped/1" do
+    test "returns grouped tickets with count" do
+      insert_ticket!(%{status: :backlog, title: "Task A"})
+      insert_ticket!(%{status: :in_progress, title: "Task B"})
+
+      result = Tickets.search_tickets_grouped([])
+      assert %{grouped: grouped, count: count} = result
+      assert is_map(grouped)
+      assert count >= 2
+    end
+
+    test "filters by text query" do
+      insert_ticket!(%{status: :backlog, title: "Alpha migration"})
+      insert_ticket!(%{status: :backlog, title: "Beta cleanup"})
+
+      result = Tickets.search_tickets_grouped(query: "alpha")
+      backlog = Map.get(result.grouped, :backlog, [])
+      assert length(backlog) == 1
+      assert hd(backlog).title == "Alpha migration"
+    end
+
+    test "returns zero count when no matches" do
+      insert_ticket!(%{status: :backlog, title: "Something"})
+
+      result = Tickets.search_tickets_grouped(query: "nonexistent_xyz")
+      assert result.count == 0
+    end
+  end
 end
