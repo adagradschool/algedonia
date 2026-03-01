@@ -159,6 +159,40 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Requeues running task loops assigned to a daemon.
+
+  This is used when a daemon disconnects so orphaned loops do not remain
+  stuck in a running state.
+  """
+  @spec requeue_running_task_loops_for_daemon(binary()) :: [Loop.t()]
+  def requeue_running_task_loops_for_daemon(daemon_id) when is_binary(daemon_id) do
+    Loop
+    |> where(
+      [l],
+      l.assigned_daemon_id == ^daemon_id and l.role == :task and
+        l.status in [:running_maker, :running_checker]
+    )
+    |> Repo.all()
+    |> Enum.map(fn loop ->
+      {:ok, updated} =
+        update_loop(loop, %{
+          status: :pending,
+          assigned_daemon_id: nil
+        })
+
+      updated = Repo.preload(updated, :dag)
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        "dag:#{updated.dag.ticket_id}",
+        {:loop_status_changed, updated}
+      )
+
+      updated
+    end)
+  end
+
+  @doc """
   Subscribes to updates for a specific loop.
   """
   @spec subscribe(binary()) :: :ok | {:error, term()}

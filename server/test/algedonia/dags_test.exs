@@ -180,7 +180,7 @@ defmodule Algedonia.DagsTest do
       assert info.attempt == 2
     end
 
-    test "active_loop_info_for_tickets/1 falls back for terminal loops" do
+    test "active_loop_info_for_tickets/1 falls back with terminal loop stage and attempt" do
       ticket = insert_ticket!()
       dag = insert_dag!(%{ticket_id: ticket.id})
 
@@ -197,8 +197,8 @@ defmodule Algedonia.DagsTest do
       info = result[ticket.id]
 
       assert info.loop_id == loop.id
-      assert info.stage == "maker"
-      assert info.attempt == 1
+      assert info.stage == "completed"
+      assert info.attempt == 3
     end
 
     test "first_inspect_loop_ids_for_tickets/1 prefers task loops then falls back" do
