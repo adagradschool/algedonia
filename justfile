@@ -49,3 +49,7 @@ test-daemon:
 # Open the GitHub repo in the browser
 github:
     open https://github.com/adagradschool/algedonia
+
+# Deploy Phoenix server to Fly.io
+deploy:
+    cd server && fly deploy

@@ -22,6 +22,7 @@ defmodule AlgedoniaWeb.Router do
   scope "/", AlgedoniaWeb do
     pipe_through :browser
 
+    get "/health", HealthController, :index
     get "/", PageController, :home
     get "/auth/github", AuthController, :github
     get "/auth/callback", AuthController, :callback

@@ -1,0 +1,65 @@
+name: Deploy Phoenix (Fly.io)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.1.0 or v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Tag and Deploy
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Normalize release tag
+        id: normalize_tag
+        working-directory: .
+        run: |
+          raw="${{ inputs.version }}"
+          if [[ "$raw" == v* ]]; then
+            tag="$raw"
+          else
+            tag="v$raw"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure tag does not exist
+        working-directory: .
+        run: |
+          tag="${{ steps.normalize_tag.outputs.tag }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists"
+            exit 1
+          fi
+
+      - name: Create and push tag
+        working-directory: .
+        run: |
+          tag="${{ steps.normalize_tag.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
+
+      - name: Setup Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@v1
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only
