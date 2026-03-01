@@ -31,6 +31,18 @@ defmodule AlgedoniaWeb.TicketLive.TicketDetailComponent do
 
   defp subscribe_to_comments(_socket, _ticket), do: :ok
 
+  def hook_status_classes(:passed), do: "bg-status-green/10 text-status-green"
+  def hook_status_classes(:failed), do: "bg-status-red/10 text-status-red"
+  def hook_status_classes(:running_maker), do: "bg-status-blue/10 text-status-blue"
+  def hook_status_classes(_), do: "bg-fg-muted/10 text-fg-muted"
+
+  def format_hook_status(:running_maker), do: "Running"
+  def format_hook_status(:running_checker), do: "Checking"
+  def format_hook_status(status), do: status |> Atom.to_string() |> String.capitalize()
+
+  def format_transition_status(:in_progress), do: "In Progress"
+  def format_transition_status(status), do: status |> Atom.to_string() |> String.capitalize()
+
   attr :id, :string, required: true
   attr :field_key, :atom, required: true
   attr :label, :string, required: true

@@ -2,7 +2,7 @@ defmodule Algedonia.Tickets.Planning do
   @moduledoc """
   Planning workflow operations — start work and start planning transitions.
   """
-  alias Algedonia.Tickets
+  alias Algedonia.{Daemons, Tickets, Workspaces}
   alias Algedonia.Tickets.Ticket
 
   @doc """
@@ -17,13 +17,12 @@ defmodule Algedonia.Tickets.Planning do
   end
 
   def start_work(%Ticket{} = ticket) do
-    case resolve_work_loop(ticket) do
-      {:ok, loop_id} ->
-        mark_in_progress(ticket)
-        {:ok, loop_id}
-
-      {:error, _} = error ->
-        error
+    with :ok <- ensure_valid_daemon(ticket),
+         {:ok, loop_id} <- resolve_work_loop(ticket) do
+      mark_in_progress(ticket)
+      {:ok, loop_id}
+    else
+      {:error, _} = error -> error
     end
   end
 
@@ -45,9 +44,9 @@ defmodule Algedonia.Tickets.Planning do
         create_single_loop(ticket)
 
       dag ->
-        case dag.loops do
-          [loop | _] -> {:ok, loop.id}
-          [] -> create_loop_for_dag(dag, ticket)
+        case Enum.find(dag.loops, &(&1.role == :task)) do
+          nil -> create_loop_for_dag(dag, ticket)
+          loop -> {:ok, loop.id}
         end
     end
   end
@@ -95,4 +94,23 @@ defmodule Algedonia.Tickets.Planning do
     _ = Tickets.update_ticket(ticket, %{status: :in_progress})
     :ok
   end
+
+  defp ensure_valid_daemon(%Ticket{} = ticket) do
+    with {:ok, daemon} <- Daemons.find_online() do
+      ensure_repo_ready(ticket, daemon.name)
+    end
+  end
+
+  defp ensure_repo_ready(%Ticket{workspace_id: workspace_id}, daemon_name)
+       when is_integer(workspace_id) do
+    workspace = Workspaces.get_workspace!(workspace_id)
+
+    if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name) do
+      {:error, :daemon_repo_not_ready}
+    else
+      :ok
+    end
+  end
+
+  defp ensure_repo_ready(_ticket, _daemon_name), do: :ok
 end

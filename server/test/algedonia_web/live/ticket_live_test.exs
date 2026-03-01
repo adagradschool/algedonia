@@ -179,6 +179,27 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert updated_ticket.rubric =~ "- [ ] add tests"
     end
 
+    test "sidebar coding_agent field persists after change", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{
+          title: "Sidebar persist",
+          workspace_id: workspace.id,
+          coding_agent: :codex
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> form("#ticket-detail-form", ticket: %{coding_agent: "claude_code"})
+      |> render_change()
+
+      updated_ticket = Tickets.get_ticket!(ticket.id)
+      assert updated_ticket.coding_agent == :claude_code
+    end
+
     test "filters by status", %{conn: conn, workspace: workspace} do
       insert_ticket!(%{title: "Backlog one", status: :backlog, workspace_id: workspace.id})
       insert_ticket!(%{title: "Progress one", status: :in_progress, workspace_id: workspace.id})
@@ -220,6 +241,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       conn: conn,
       workspace: workspace
     } do
+      insert_daemon!(%{status: :online})
       ticket = insert_ticket!(%{title: "Loop me", status: :planning, workspace_id: workspace.id})
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets?view=list")
 
@@ -238,10 +260,64 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
     end
 
+    test "start work from planning list fails without daemon and stays planning", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{title: "Loop me", status: :planning, workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets?view=list")
+
+      html =
+        view
+        |> element(~s{button[phx-click="start_work"][phx-value-id="#{ticket.id}"]})
+        |> render_click()
+
+      assert html =~ "No online daemon available"
+      assert Tickets.get_ticket!(ticket.id).status == :planning
+    end
+
+    test "start work ignores hook loop and navigates to task loop", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      insert_daemon!(%{status: :online})
+      ticket = insert_ticket!(%{title: "Loop me", status: :planning, workspace_id: workspace.id})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      hook_loop =
+        insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :hook,
+          status: :pending,
+          title: "Hook: planning -> in_progress"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets?view=list")
+
+      view
+      |> element(~s{button[phx-click="start_work"][phx-value-id="#{ticket.id}"]})
+      |> render_click()
+
+      task_loop =
+        Dags.get_dag_by_ticket(ticket.id).loops
+        |> Enum.find(&(&1.role == :task))
+
+      assert task_loop
+      assert task_loop.id != hook_loop.id
+
+      assert_redirect(
+        view,
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(task_loop.id, 0, 8)}?#{%{agent_type: "claude_code"}}"
+      )
+    end
+
     test "start work with planning codex ticket navigates with codex agent_type", %{
       conn: conn,
       workspace: workspace
     } do
+      insert_daemon!(%{status: :online})
+
       ticket =
         insert_ticket!(%{
           title: "Loop me with Codex",
@@ -280,6 +356,103 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute has_element?(view, ~s{button[phx-click="mark_planning_complete"]})
     end
 
+    test "board shows inspect when ticket has a loop id", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{title: "Has loop", status: :planning, workspace_id: workspace.id})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert has_element?(
+               view,
+               ~s{a[href="/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}"]}
+             )
+    end
+
+    test "in-progress card shows clickable stage label", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{
+          title: "Running ticket",
+          status: :in_progress,
+          workspace_id: workspace.id
+        })
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      insert_loop!(%{
+        dag_id: dag.id,
+        role: :task,
+        status: :running_checker,
+        current_attempt: 2
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Checker #2")
+    end
+
+    test "board shows inspect for completed ticket with loop", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{title: "Completed loop", status: :completed, workspace_id: workspace.id})
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :passed})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert has_element?(
+               view,
+               ~s{a[href="/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}"]}
+             )
+    end
+
+    test "ticket detail shows inspect when ticket has a loop id", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{title: "Inspectable", status: :halted, workspace_id: workspace.id})
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :failed})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert has_element?(
+               view,
+               ~s{a[href*="/loops/#{String.slice(loop.id, 0, 8)}"]},
+               "Inspect"
+             )
+    end
+
+    test "ticket detail shows inspect for legacy non-task loop", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{title: "Legacy loop", status: :in_progress, workspace_id: workspace.id})
+
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :decompose, status: :running_maker})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert has_element?(
+               view,
+               ~s{a[href*="/loops/#{String.slice(loop.id, 0, 8)}"]},
+               "Inspect"
+             )
+    end
+
     test "status display order places halted after in progress", %{
       conn: conn,
       workspace: workspace
@@ -297,6 +470,32 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       form_options = TicketFormComponent.status_options()
       assert Enum.map(form_options, &elem(&1, 1)) == Tickets.display_statuses()
+    end
+  end
+
+  describe "Export Markdown" do
+    test "ticket detail settings dropdown has export option", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{title: "Exportable", workspace_id: workspace.id})
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert html =~ "Export Markdown"
+      assert html =~ "ticket-export-markdown-action"
+    end
+
+    test "clicking export redirects to export endpoint", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{title: "Exportable", workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#ticket-export-markdown-action")
+      |> render_click()
+
+      assert_redirect(
+        view,
+        "/w/#{workspace.slug}/tickets/#{ticket.number}/export/markdown"
+      )
     end
   end
 
@@ -412,6 +611,105 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       })
 
       assert render(view) =~ "PubSub comment"
+    end
+  end
+
+  describe "Automations section" do
+    test "shows transition automations in ticket properties", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+
+      {:ok, _hook} =
+        Algedonia.Workspaces.create_transition_hook(workspace, %{
+          "from_status" => "planning",
+          "to_status" => "in_progress",
+          "instruction" => "Run pre-flight checks"
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "Automations"
+      assert html =~ "Planning -&gt; In Progress"
+      assert html =~ "Run pre-flight checks"
+    end
+
+    test "shows automations section when hook loops exist", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      insert_loop!(%{
+        dag_id: dag.id,
+        ticket_id: ticket.id,
+        role: :hook,
+        title: "Hook: backlog → planning",
+        description: "Run linter",
+        status: :passed
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "Automations"
+      assert html =~ "Hook: backlog"
+      assert html =~ "Run linter"
+      assert html =~ "Passed"
+    end
+
+    test "does not show automations section when no hook loops", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      refute html =~ "ticket-automations"
+    end
+
+    test "hook loops display status badges", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      insert_loop!(%{
+        dag_id: dag.id,
+        ticket_id: ticket.id,
+        role: :hook,
+        title: "Hook: in_progress → halted",
+        status: :failed
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "Failed"
+    end
+
+    test "hook loops update via PubSub", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      # Create a hook loop externally (simulating HookExecutor)
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :hook,
+          title: "Hook: backlog → planning",
+          status: :pending
+        })
+
+      # Broadcast the event
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        "dag:#{ticket.id}",
+        {:hook_loop_created, loop}
+      )
+
+      assert render(view) =~ "Hook: backlog"
     end
   end
 end

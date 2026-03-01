@@ -175,6 +175,35 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
     end
   end
 
+  describe "GET /api/w/:workspace/tickets/:id/export/markdown" do
+    test "returns markdown with content-disposition header", %{conn: conn, workspace: workspace} do
+      ticket =
+        insert_ticket!(%{
+          workspace_id: workspace.id,
+          title: "Export me",
+          description: "Some desc"
+        })
+
+      conn = get(conn, "/api/w/#{workspace.slug}/tickets/#{ticket.number}/export/markdown")
+
+      assert response_content_type(conn, :markdown) =~ "text/markdown"
+
+      assert get_resp_header(conn, "content-disposition") == [
+               ~s(attachment; filename="#{workspace.prefix}-#{ticket.number}.md")
+             ]
+
+      body = response(conn, 200)
+      assert body =~ "# ##{ticket.number}: Export me"
+      assert body =~ "## Description"
+      assert body =~ "Some desc"
+    end
+
+    test "returns 404 for nonexistent ticket", %{conn: conn, workspace: workspace} do
+      conn = get(conn, "/api/w/#{workspace.slug}/tickets/#{Ecto.UUID.generate()}/export/markdown")
+      assert json_response(conn, 404)
+    end
+  end
+
   describe "DELETE /api/w/:workspace/tickets/:id" do
     test "deletes a ticket", %{conn: conn, workspace: workspace} do
       ticket = insert_ticket!(%{workspace_id: workspace.id})

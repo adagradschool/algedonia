@@ -171,11 +171,12 @@
       <.status_column
         :for={status <- @statuses}
         status={status}
+        last={status == List.last(@statuses)}
         count={length(Map.get(@tickets_by_status, status, []))}
         stream={stream_for(@streams, status)}
         prefix={@workspace_prefix}
         workspace_slug={@workspace_slug}
-        loop_ids={@loop_ids}
+        loop_info={@loop_info}
       />
     </div>
 
@@ -199,7 +200,7 @@
             id={dom_id}
             prefix={@workspace_prefix}
             workspace_slug={@workspace_slug}
-            loop_ids={@loop_ids}
+            loop_info={@loop_info}
           />
         </div>
       </div>
@@ -222,6 +223,8 @@
       workspace_prefix={@workspace_prefix}
       save_state={@save_state}
       loop_id={@loop_id}
+      hook_loops={@hook_loops}
+      transition_hooks={@transition_hooks}
       comments={@comments}
       comment_form={@comment_form}
       comment_form_id={@comment_form_id}

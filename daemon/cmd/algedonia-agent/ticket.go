@@ -33,6 +33,7 @@ func newTicketCmd() *cobra.Command {
 	cmd.AddCommand(newTicketCommentUpdateCmd())
 	cmd.AddCommand(newTicketCommentDeleteCmd())
 	cmd.AddCommand(newTicketCommentsCmd())
+	cmd.AddCommand(newTicketExportCmd())
 
 	return cmd
 }
@@ -521,6 +522,30 @@ func newTicketCommentsCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	return cmd
+}
+
+// --- export ---
+
+func newTicketExportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "export <number-or-id>",
+		Short: "Export ticket as markdown",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := ticketClient()
+			if err != nil {
+				return err
+			}
+
+			md, err := client.ExportTicketMarkdown(args[0])
+			if err != nil {
+				return fmt.Errorf("exporting ticket: %w", err)
+			}
+
+			fmt.Print(md)
+			return nil
+		},
+	}
 }
 
 // --- helpers ---

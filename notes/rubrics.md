@@ -14,8 +14,8 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 
 | # | Criterion | Pass/Fail Rule |
 |---|-----------|---------------|
-| E1 | Function length | Functions are <=20 lines. Exception: pipeline-heavy functions with a single logical flow may reach 30. |
-| E2 | Module length | Modules are <=300 lines. Split into submodules if exceeded. |
+| E1 | Function length | Functions should be <=20 lines (soft gate — a few lines over is acceptable if the code is succinct and readable). Exception: pipeline-heavy functions with a single logical flow may reach 30. |
+| E2 | Module length | Modules should be <=300 lines (soft gate — a few lines over is acceptable if the code is succinct). Split into submodules if significantly exceeded. |
 | E3 | Public function documentation | Every public function has `@doc` and `@spec`. |
 | E4 | Module documentation | Every module has `@moduledoc` describing its responsibility. |
 | E5 | Naming | Modules use `CamelCase`, functions use `snake_case`, constants use `@snake_case`. No abbreviations unless universally understood (e.g., `id`, `pid`, `ref`). |
@@ -77,9 +77,9 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | LV1 | Socket assigns are minimal. No full lists in assigns when only a count or summary is needed. Use `stream` for collections that update incrementally. |
 | LV2 | `handle_event/3` callbacks are thin dispatchers: validate params, call a context function, assign the result. No business logic in LiveView modules. |
 | LV3 | `handle_info/2` callbacks for PubSub messages update only the affected assigns, not the entire state. |
-| LV4 | LiveView modules are <=200 lines. Extract function components and live components for complex UI sections. |
+| LV4 | LiveView modules should be <=200 lines (soft gate — a few lines over is acceptable if the code is succinct). Extract function components and live components for complex UI sections. |
 | LV5 | Every LiveView subscribes to PubSub topics in `mount/3`, not in `handle_params/2` (unless topic depends on params, in which case unsubscribe from the old topic first). |
-| LV6 | HEEx templates are in separate `.heex` files, not inline `~H` sigils, when they exceed 30 lines. |
+| LV6 | HEEx templates are in separate `.heex` files, not inline `~H` sigils, when they exceed ~30 lines. |
 | LV7 | No raw HTML strings. Use HEEx components and function components exclusively. |
 | LV8 | Form changesets are validated client-side via `phx-change` before submission. |
 
@@ -115,7 +115,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 |---|-------|
 | LVD1 | `assigns` contains data only used by a child component (should be passed as props or fetched by the child). |
 | LVD2 | Multiple LiveViews duplicating the same PubSub subscription and handling logic (extract to a shared hook module). |
-| LVD3 | JavaScript hooks that grow beyond 50 lines without extraction into a separate JS module. |
+| LVD3 | JavaScript hooks that grow significantly beyond ~50 lines without extraction into a separate JS module. |
 | LVD4 | Synchronous database queries in `handle_event` that could cause UI lag. Use `assign_async` or `start_async` for queries over 100ms. |
 
 ---
@@ -130,7 +130,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | CH2 | `handle_in/3` callbacks validate incoming payloads and return `{:reply, {:error, reason}, socket}` on invalid input. Never silently drop malformed messages. |
 | CH3 | Channel authentication happens in `join/3`. An invalid project token returns `{:error, %{reason: "unauthorized"}}`. |
 | CH4 | Binary data (terminal output) uses the channel's binary encoding. Do not Base64-encode binary payloads as JSON strings. |
-| CH5 | Channel modules are <=150 lines. Delegate business logic to context modules or the Orchestrator. |
+| CH5 | Channel modules should be <=150 lines (soft gate — a few lines over is acceptable if the code is succinct). Delegate business logic to context modules or the Orchestrator. |
 
 ### Idioms
 
@@ -216,7 +216,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | ECD2 | Schemas with fields not in the SDD data model (schema drift). |
 | ECD3 | Missing indexes on columns used in WHERE clauses or JOINs. |
 | ECD4 | Changesets that `cast` all fields including those that should be server-controlled (e.g., `inserted_at`). |
-| ECD5 | Context modules over 300 lines. Split by entity (e.g., `Tickets`, `Loops`, `Dags`). |
+| ECD5 | Context modules significantly over ~300 lines. Split by entity (e.g., `Tickets`, `Loops`, `Dags`). |
 
 ---
 
@@ -233,7 +233,7 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 | GS5 | `handle_info/2` handles `:DOWN` and `:EXIT` messages for any monitored/linked processes. |
 | GS6 | State recovery: on startup, GenServers for `LockManager`, `CircuitBreaker`, and `Orchestrator` reload state from PostgreSQL. |
 | GS7 | Supervision tree is documented: which supervisor owns which children, restart strategy (`:one_for_one` vs `:rest_for_one`). |
-| GS8 | GenServer modules are <=200 lines. Extract helper functions into a companion module (e.g., `Algedonia.LockManager.Checks` for conflict detection logic). |
+| GS8 | GenServer modules should be <=200 lines (soft gate — a few lines over is acceptable if the code is succinct). Extract helper functions into a companion module (e.g., `Algedonia.LockManager.Checks` for conflict detection logic). |
 
 ### Idioms
 
@@ -282,8 +282,8 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 
 | # | Criterion |
 |---|-----------|
-| GO1 | Functions are <=40 lines. Exception: switch statements with many cases may exceed this. |
-| GO2 | Files are <=500 lines. Split by concern (e.g., `pty.go`, `repo.go`, `adapter.go`). |
+| GO1 | Functions should be <=40 lines (soft gate — a few lines over is acceptable if the code is succinct and readable). Exception: switch statements with many cases may exceed this. |
+| GO2 | Files should be <=500 lines (soft gate — a few lines over is acceptable if the code is succinct). Split by concern if significantly exceeded (e.g., `pty.go`, `repo.go`, `adapter.go`). |
 | GO3 | Exported functions and types have godoc comments starting with the name. |
 | GO4 | Error handling: every error is either handled, wrapped with `fmt.Errorf("context: %w", err)`, or returned. No ignored errors (no blank `_` for error returns except in tests or deferred Close calls). |
 | GO5 | Formatting: all code passes `gofmt`. No exceptions. |

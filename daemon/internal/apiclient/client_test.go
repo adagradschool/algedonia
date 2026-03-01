@@ -384,6 +384,49 @@ func TestListWorkspaces(t *testing.T) {
 	}
 }
 
+func TestExportTicketMarkdown(t *testing.T) {
+	wantMarkdown := "# #42: My ticket\n\n| Field | Value |\n"
+
+	_, client := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/w/my-ws/tickets/42/export/markdown" {
+			t.Errorf("path = %q, want /api/w/my-ws/tickets/42/export/markdown", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/markdown")
+		w.Header().Set("Content-Disposition", `attachment; filename="42.md"`)
+		_, _ = w.Write([]byte(wantMarkdown))
+	})
+
+	md, err := client.ExportTicketMarkdown("42")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if md != wantMarkdown {
+		t.Errorf("markdown = %q, want %q", md, wantMarkdown)
+	}
+}
+
+func TestExportTicketMarkdown_NotFound(t *testing.T) {
+	_, client := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"ticket not found"}`))
+	})
+
+	_, err := client.ExportTicketMarkdown("999")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 404 {
+		t.Errorf("StatusCode = %d, want 404", apiErr.StatusCode)
+	}
+}
+
 func TestNew_DefaultHTTPClientHasTimeout(t *testing.T) {
 	client := New("http://example.com", "token", "ws")
 	if client.HTTPClient == http.DefaultClient {

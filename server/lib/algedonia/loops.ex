@@ -148,6 +148,17 @@ defmodule Algedonia.Loops do
   def preload_with_workspace(%Loop{} = loop), do: Repo.preload(loop, dag: [ticket: :workspace])
 
   @doc """
+  Lists hook loops for a ticket, ordered by insertion time.
+  """
+  @spec list_hook_loops_for_ticket(binary()) :: [Loop.t()]
+  def list_hook_loops_for_ticket(ticket_id) do
+    Loop
+    |> where([l], l.ticket_id == ^ticket_id and l.role == :hook)
+    |> order_by([l], desc: l.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
   Subscribes to updates for a specific loop.
   """
   @spec subscribe(binary()) :: :ok | {:error, term()}

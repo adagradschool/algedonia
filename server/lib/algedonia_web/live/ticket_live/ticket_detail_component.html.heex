@@ -1,13 +1,13 @@
 <div id="ticket-detail" class="flex-1 overflow-auto">
   <div class="max-w-6xl mx-auto px-6 py-6">
     <div class="grid grid-cols-[minmax(0,1fr)_18rem] gap-8">
-      <div class="min-w-0">
-        <.form
-          for={@ticket_form}
-          id="ticket-detail-form"
-          phx-change="autosave_ticket"
-          class="min-w-0"
-        >
+      <.form
+        for={@ticket_form}
+        id="ticket-detail-form"
+        phx-change="autosave_ticket"
+        class="contents"
+      >
+        <div class="min-w-0">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <.link
@@ -62,7 +62,7 @@
                 <.icon name="hero-play-mini" class="size-3.5" /> Start Work
               </button>
               <.link
-                :if={@ticket.status in [:planning, :in_progress, :completed] && @loop_id}
+                :if={@loop_id}
                 navigate={
                   ~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{short_id(@loop_id)}"
                 }
@@ -83,6 +83,17 @@
                   tabindex="0"
                   class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-40 p-1 shadow-lg mt-1"
                 >
+                  <li>
+                    <button
+                      id="ticket-export-markdown-action"
+                      phx-click="export_markdown"
+                      phx-value-id={@ticket.id}
+                      class="text-xs rounded"
+                      type="button"
+                    >
+                      Export Markdown
+                    </button>
+                  </li>
                   <li>
                     <button
                       id="ticket-duplicate-action"
@@ -144,91 +155,143 @@
               placeholder="Add rubric"
             />
           </div>
-        </.form>
+        </div>
 
-        <%!-- Activity / Comments --%>
-        <div class="mt-8">
-          <.activity_feed
-            comments={@comments}
-            comment_form={@comment_form}
-            comment_form_id={@comment_form_id}
-            reply_to={@reply_to}
-            reply_form={@reply_form}
-            ticket_id={@ticket.id}
-            created_at={@ticket.inserted_at}
-            editing_comment_id={@editing_comment_id}
-            edit_form={@edit_form}
-          />
+        <aside class="w-72">
+          <div class="space-y-3">
+            <div class="text-xs font-medium text-fg-muted uppercase tracking-wide">
+              Properties
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-adjustments-horizontal-mini" class="size-3.5" /> Status
+              </div>
+              <.input
+                field={@ticket_form[:status]}
+                type="select"
+                options={AlgedoniaWeb.TicketLive.TicketFormComponent.status_options()}
+                class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                phx-debounce="600"
+              />
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-signal-mini" class="size-3.5" /> Priority
+              </div>
+              <.input
+                field={@ticket_form[:priority]}
+                type="select"
+                options={AlgedoniaWeb.TicketLive.TicketFormComponent.priority_options()}
+                class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                phx-debounce="600"
+              />
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-tag-mini" class="size-3.5" /> Type
+              </div>
+              <.input
+                field={@ticket_form[:type]}
+                type="select"
+                options={AlgedoniaWeb.TicketLive.TicketFormComponent.type_options()}
+                class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                phx-debounce="600"
+              />
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-cpu-chip-mini" class="size-3.5" /> Coding Agent
+              </div>
+              <.input
+                field={@ticket_form[:coding_agent]}
+                type="select"
+                options={AlgedoniaWeb.TicketLive.TicketFormComponent.coding_agent_options()}
+                class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                phx-debounce="600"
+              />
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-user-mini" class="size-3.5" /> Assignee
+              </div>
+              <.input
+                field={@ticket_form[:assignee]}
+                type="text"
+                placeholder="Assignee"
+                class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                phx-debounce="600"
+              />
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-bolt-mini" class="size-3.5" /> Automations
+              </div>
+              <div :if={@transition_hooks == []} class="text-[11px] text-fg-muted">
+                No transition automations configured.
+              </div>
+              <div :if={@transition_hooks != []} class="space-y-1.5">
+                <div
+                  :for={hook <- @transition_hooks}
+                  class="rounded-md bg-surface-panel px-2 py-1.5 border border-border-soft/60"
+                >
+                  <div class="text-[11px] text-fg">
+                    {format_transition_status(hook.from_status)} -> {format_transition_status(
+                      hook.to_status
+                    )}
+                  </div>
+                  <p class="text-[10px] text-fg-muted mt-0.5">{hook.instruction}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </.form>
+
+      <%!-- Automations --%>
+      <div :if={@hook_loops != []} class="mt-8 col-start-1" id="ticket-automations">
+        <div class="text-xs font-medium text-fg-muted uppercase tracking-wide mb-3">
+          Automations
+        </div>
+        <div class="space-y-2">
+          <.link
+            :for={loop <- @hook_loops}
+            navigate={~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{short_id(loop.id)}"}
+            class="flex items-center justify-between px-3 py-2 rounded-md bg-surface-panel hover:bg-surface-raised transition-colors group"
+          >
+            <div class="flex-1 min-w-0">
+              <span class="text-sm text-fg group-hover:text-accent-indigo transition-colors">
+                {loop.title}
+              </span>
+              <p :if={loop.description} class="text-xs text-fg-muted truncate mt-0.5">
+                {loop.description}
+              </p>
+            </div>
+            <div class="flex items-center gap-2 ml-3 flex-shrink-0">
+              <span class={"text-[11px] font-medium px-1.5 py-0.5 rounded #{hook_status_classes(loop.status)}"}>
+                {format_hook_status(loop.status)}
+              </span>
+              <span class="text-[11px] text-fg-muted">
+                {Calendar.strftime(loop.inserted_at, "%b %d %H:%M")}
+              </span>
+            </div>
+          </.link>
         </div>
       </div>
 
-      <aside class="w-72">
-        <div class="space-y-3">
-          <div class="text-xs font-medium text-fg-muted uppercase tracking-wide">
-            Properties
-          </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
-              <.icon name="hero-adjustments-horizontal-mini" class="size-3.5" /> Status
-            </div>
-            <.input
-              field={@ticket_form[:status]}
-              type="select"
-              options={AlgedoniaWeb.TicketLive.TicketFormComponent.status_options()}
-              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
-              phx-debounce="600"
-            />
-          </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
-              <.icon name="hero-signal-mini" class="size-3.5" /> Priority
-            </div>
-            <.input
-              field={@ticket_form[:priority]}
-              type="select"
-              options={AlgedoniaWeb.TicketLive.TicketFormComponent.priority_options()}
-              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
-              phx-debounce="600"
-            />
-          </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
-              <.icon name="hero-tag-mini" class="size-3.5" /> Type
-            </div>
-            <.input
-              field={@ticket_form[:type]}
-              type="select"
-              options={AlgedoniaWeb.TicketLive.TicketFormComponent.type_options()}
-              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
-              phx-debounce="600"
-            />
-          </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
-              <.icon name="hero-cpu-chip-mini" class="size-3.5" /> Coding Agent
-            </div>
-            <.input
-              field={@ticket_form[:coding_agent]}
-              type="select"
-              options={AlgedoniaWeb.TicketLive.TicketFormComponent.coding_agent_options()}
-              class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
-              phx-debounce="600"
-            />
-          </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 text-[11px] text-fg-muted">
-              <.icon name="hero-user-mini" class="size-3.5" /> Assignee
-            </div>
-            <.input
-              field={@ticket_form[:assignee]}
-              type="text"
-              placeholder="Assignee"
-              class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
-              phx-debounce="600"
-            />
-          </div>
-        </div>
-      </aside>
+      <%!-- Activity / Comments --%>
+      <div class="mt-8 col-start-1">
+        <.activity_feed
+          comments={@comments}
+          comment_form={@comment_form}
+          comment_form_id={@comment_form_id}
+          reply_to={@reply_to}
+          reply_form={@reply_form}
+          ticket_id={@ticket.id}
+          created_at={@ticket.inserted_at}
+          editing_comment_id={@editing_comment_id}
+          edit_form={@edit_form}
+        />
+      </div>
     </div>
   </div>
 </div>

@@ -19,7 +19,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   @detail_events ~w(autosave_ticket autosave_ticket_markdown
     submit_comment submit_reply start_reply edit_comment update_comment
     cancel_edit delete_comment start_work plan_ticket open_planning_session
-    duplicate_ticket confirm_delete cancel_delete confirm_delete_now)
+    export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now)
 
   @impl true
   def mount(params, session, socket) do
@@ -160,6 +160,20 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       else: {:noreply, socket}
   end
 
+  def handle_info({event, _loop}, socket)
+      when event in [:hook_loop_created, :loop_status_changed] do
+    ticket = socket.assigns[:ticket]
+
+    if ticket,
+      do:
+        {:noreply,
+         assign(socket, hook_loops: Algedonia.Loops.list_hook_loops_for_ticket(ticket.id))},
+      else: {:noreply, socket}
+  end
+
+  def handle_info({:dag_created, _dag}, socket), do: {:noreply, socket}
+  def handle_info({:dag_updated, _dag}, socket), do: {:noreply, socket}
+
   # -- Streams --
 
   defp stream_tickets(socket) do
@@ -176,9 +190,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         prefix: a.workspace_prefix
       )
 
-    active_ids =
+    ticket_ids =
       grouped
-      |> Map.take([:planning, :in_progress])
       |> Map.values()
       |> List.flatten()
       |> Enum.map(& &1.id)
@@ -189,7 +202,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     |> assign(
       ticket_count: count,
       tickets_by_status: grouped,
-      loop_ids: Dags.first_loop_ids_for_tickets(active_ids)
+      loop_info: Dags.active_loop_info_for_tickets(ticket_ids)
     )
   end
 end

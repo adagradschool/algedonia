@@ -82,4 +82,88 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       refute html =~ "@someone"
     end
   end
+
+  describe "automations" do
+    test "renders automations section", %{conn: conn, workspace: workspace} do
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+      assert html =~ "Automations"
+      assert html =~ "No automations configured"
+    end
+
+    test "add automation button shows form", %{conn: conn, workspace: workspace} do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      html =
+        view
+        |> element("button[phx-click=show_hook_form]")
+        |> render_click()
+
+      assert html =~ "From status"
+      assert html =~ "To status"
+      assert html =~ "Instruction"
+    end
+
+    test "creates a hook and shows it in the list", %{conn: conn, workspace: workspace} do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      view
+      |> element("button[phx-click=show_hook_form]")
+      |> render_click()
+
+      view
+      |> form("form[phx-submit=save_hook]",
+        hook: %{from_status: "backlog", to_status: "planning", instruction: "Run all tests"}
+      )
+      |> render_submit()
+
+      html = render(view)
+      assert html =~ "Backlog"
+      assert html =~ "Planning"
+      assert html =~ "Run all tests"
+    end
+
+    test "deletes a hook", %{conn: conn, workspace: workspace} do
+      {:ok, _hook} =
+        Algedonia.Workspaces.create_transition_hook(workspace, %{
+          "from_status" => "backlog",
+          "to_status" => "planning",
+          "instruction" => "Run tests"
+        })
+
+      {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+      assert html =~ "Run tests"
+
+      view
+      |> element("button[phx-click=delete_hook]")
+      |> render_click()
+
+      refute render(view) =~ "Run tests"
+    end
+
+    test "rejects duplicate from/to pair", %{conn: conn, workspace: workspace} do
+      {:ok, _hook} =
+        Algedonia.Workspaces.create_transition_hook(workspace, %{
+          "from_status" => "backlog",
+          "to_status" => "planning",
+          "instruction" => "First"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      view
+      |> element("button[phx-click=show_hook_form]")
+      |> render_click()
+
+      view
+      |> form("form[phx-submit=save_hook]",
+        hook: %{from_status: "backlog", to_status: "planning", instruction: "Duplicate"}
+      )
+      |> render_submit()
+
+      # The duplicate should have been rejected, only one hook with "First" should exist
+      hooks = Algedonia.Workspaces.list_transition_hooks(workspace.id)
+      assert length(hooks) == 1
+      assert hd(hooks).instruction == "First"
+    end
+  end
 end

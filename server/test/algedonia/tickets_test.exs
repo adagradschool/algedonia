@@ -182,6 +182,7 @@ defmodule Algedonia.TicketsTest do
 
   describe "start_work/1" do
     test "creates a loop and returns its id for a planning ticket" do
+      insert_daemon!(%{status: :online})
       ticket = insert_ticket!(%{status: :planning})
       assert {:ok, loop_id} = Tickets.start_work(ticket)
       assert is_binary(loop_id)
@@ -189,9 +190,54 @@ defmodule Algedonia.TicketsTest do
     end
 
     test "creates a loop and returns its id for a halted ticket" do
+      insert_daemon!(%{status: :online})
       ticket = insert_ticket!(%{status: :halted})
       assert {:ok, loop_id} = Tickets.start_work(ticket)
       assert is_binary(loop_id)
+    end
+
+    test "fails early when no online daemon and stays planning" do
+      ticket = insert_ticket!(%{status: :planning})
+
+      assert {:error, :no_online_daemon} = Tickets.start_work(ticket)
+      assert Tickets.get_ticket!(ticket.id).status == :planning
+      assert is_nil(Algedonia.Dags.get_dag_by_ticket(ticket.id))
+    end
+
+    test "fails early when daemon repo is not ready and stays planning" do
+      workspace =
+        insert_workspace!(%{
+          github_repo_url: "https://github.com/example/repo"
+        })
+
+      insert_daemon!(%{name: "daemon-not-ready", status: :online})
+      ticket = insert_ticket!(%{status: :planning, workspace_id: workspace.id})
+
+      assert {:error, :daemon_repo_not_ready} = Tickets.start_work(ticket)
+      assert Tickets.get_ticket!(ticket.id).status == :planning
+      assert is_nil(Algedonia.Dags.get_dag_by_ticket(ticket.id))
+    end
+
+    test "ignores hook loops and returns a task loop" do
+      insert_daemon!(%{status: :online})
+      ticket = insert_ticket!(%{status: :planning})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      hook_loop =
+        insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :hook,
+          status: :pending,
+          title: "Hook: planning -> in_progress"
+        })
+
+      assert {:ok, loop_id} = Tickets.start_work(ticket)
+      task_loop = Algedonia.Loops.get_loop!(loop_id)
+
+      assert task_loop.role == :task
+      assert task_loop.id != hook_loop.id
+      assert Tickets.get_ticket!(ticket.id).status == :in_progress
     end
 
     test "returns error for backlog ticket" do
@@ -215,6 +261,107 @@ defmodule Algedonia.TicketsTest do
     test "returns error for non-backlog ticket" do
       ticket = insert_ticket!(%{status: :in_progress})
       assert {:error, :invalid_status} = Tickets.start_planning(ticket)
+    end
+  end
+
+  describe "export_markdown/1" do
+    test "renders full ticket with all sections and comments" do
+      ticket =
+        insert_ticket!(%{
+          title: "Add feature X",
+          status: :in_progress,
+          type: :feature,
+          priority: 2,
+          assignee: "alice",
+          coding_agent: :claude_code,
+          description: "Build feature X",
+          acceptance_criteria: "- Passes tests",
+          rubric: "| # | Rule |\n|---|------|"
+        })
+
+      {:ok, updated} = Tickets.update_overview(ticket, "High-level overview")
+      ticket = Tickets.get_ticket!(updated.id)
+
+      {:ok, c1} =
+        Tickets.create_comment(%{ticket_id: ticket.id, author: "alice", body: "Looks good"})
+
+      {:ok, _r1} =
+        Tickets.create_comment(%{
+          ticket_id: ticket.id,
+          author: "bob",
+          body: "I agree",
+          parent_id: c1.id
+        })
+
+      comments = Tickets.list_comments(ticket.id)
+      ticket = %{ticket | comments: comments}
+
+      md = Tickets.export_markdown(ticket)
+
+      assert md =~ "# ##{ticket.number}: Add feature X"
+      assert md =~ "| Status | in progress |"
+      assert md =~ "| Type | feature |"
+      assert md =~ "| Priority | P2 |"
+      assert md =~ "| Assignee | alice |"
+      assert md =~ "| Coding Agent | claude_code |"
+      assert md =~ "## Description\n\nBuild feature X"
+      assert md =~ "## Acceptance Criteria\n\n- Passes tests"
+      assert md =~ "## Rubric"
+      assert md =~ "## Overview\n\nHigh-level overview"
+      assert md =~ "## Comments"
+      assert md =~ "### alice"
+      assert md =~ "Looks good"
+      assert md =~ "> #### bob"
+      assert md =~ "> I agree"
+    end
+
+    test "omits empty optional sections" do
+      ticket =
+        insert_ticket!(%{
+          title: "Sparse ticket",
+          description: nil,
+          acceptance_criteria: nil,
+          rubric: nil
+        })
+
+      ticket = %{ticket | comments: [], overview: nil}
+      md = Tickets.export_markdown(ticket)
+
+      assert md =~ "# ##{ticket.number}: Sparse ticket"
+      refute md =~ "## Description"
+      refute md =~ "## Acceptance Criteria"
+      refute md =~ "## Rubric"
+      refute md =~ "## Overview"
+      refute md =~ "## Comments"
+    end
+
+    test "orders comments chronologically with nested replies" do
+      ticket = insert_ticket!()
+
+      {:ok, c1} =
+        Tickets.create_comment(%{ticket_id: ticket.id, author: "alice", body: "First"})
+
+      {:ok, _c2} =
+        Tickets.create_comment(%{ticket_id: ticket.id, author: "bob", body: "Second"})
+
+      {:ok, _r1} =
+        Tickets.create_comment(%{
+          ticket_id: ticket.id,
+          author: "carol",
+          body: "Reply to first",
+          parent_id: c1.id
+        })
+
+      comments = Tickets.list_comments(ticket.id)
+      ticket = %{ticket | comments: comments}
+      md = Tickets.export_markdown(ticket)
+
+      first_pos = :binary.match(md, "First") |> elem(0)
+      reply_pos = :binary.match(md, "Reply to first") |> elem(0)
+      second_pos = :binary.match(md, "### bob") |> elem(0)
+
+      assert first_pos < reply_pos
+      assert reply_pos < second_pos
     end
   end
 

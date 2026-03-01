@@ -135,15 +135,13 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp auto_start_planning_loop(ticket, state) do
-    case {Dags.get_dag_by_ticket(ticket.id), Daemons.find_online()} do
-      {%{loops: [loop | _]}, {:ok, daemon}} ->
-        case start_loop(loop.id, daemon.name, [], state) do
-          {:ok, new_state} -> new_state
-          {:error, _} -> state
-        end
-
-      _ ->
-        state
+    with %{loops: loops} <- Dags.get_dag_by_ticket(ticket.id),
+         {:ok, daemon} <- Daemons.find_online(),
+         %{id: loop_id} <- Enum.find(loops, &(&1.role == :task)),
+         {:ok, new_state} <- start_loop(loop_id, daemon.name, [], state) do
+      new_state
+    else
+      _ -> state
     end
   end
 
@@ -370,10 +368,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp maybe_complete_ticket(loop) do
-    all_passed? = loop.dag_id |> Dags.list_loops_for_dag() |> Enum.all?(&(&1.status == :passed))
+    task_loops =
+      loop.dag_id
+      |> Dags.list_loops_for_dag()
+      |> Enum.filter(&(&1.role == :task))
 
-    if all_passed?,
-      do: Tickets.update_ticket(Tickets.get_ticket!(loop.dag.ticket_id), %{status: :completed})
+    all_tasks_passed? = task_loops != [] and Enum.all?(task_loops, &(&1.status == :passed))
+
+    if all_tasks_passed? do
+      Tickets.update_ticket(Tickets.get_ticket!(loop.dag.ticket_id), %{status: :completed})
+    end
   end
 
   defp ensure_daemon(_loop, dn) when is_binary(dn), do: fetch_daemon(dn)
