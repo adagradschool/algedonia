@@ -6,7 +6,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   use AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal
 
   alias Algedonia.{Dags, Tickets}
-  alias Algedonia.Tickets.{Comment, Ticket}
+  alias Algedonia.Tickets.Ticket
   alias Algedonia.Workspaces
   alias AlgedoniaWeb.TicketLive.DetailEvents
 
@@ -28,22 +28,22 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
     current_workspace =
       socket.assigns[:current_workspace] ||
-        if(session["current_workspace_id"],
-          do: Workspaces.get_workspace!(session["current_workspace_id"])
-        )
+        (session["current_workspace_id"] &&
+           Workspaces.get_workspace!(session["current_workspace_id"]))
 
     {:ok,
-     socket
-     |> assign(:statuses, @statuses)
-     |> assign(:show_shortcut_help, false)
-     |> assign(:current_user_id, session["user_id"])
-     |> assign(:current_workspace_id, session["current_workspace_id"])
-     |> assign(:current_workspace, current_workspace)
-     |> assign(:workspace_prefix, session["current_workspace_prefix"] || "AG")
-     |> assign(:workspace_slug, workspace_slug)
-     |> assign(:save_state, :idle)
-     |> assign(:confirm_delete, false)
-     |> assign(:delete_ticket_id, nil)}
+     assign(socket,
+       statuses: @statuses,
+       show_shortcut_help: false,
+       current_user_id: session["user_id"],
+       current_workspace_id: session["current_workspace_id"],
+       current_workspace: current_workspace,
+       workspace_prefix: session["current_workspace_prefix"] || "AG",
+       workspace_slug: workspace_slug,
+       save_state: :idle,
+       confirm_delete: false,
+       delete_ticket_id: nil
+     )}
   end
 
   @impl true
@@ -74,24 +74,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     )
   end
 
-  defp apply_action(socket, :show, %{"ticket_ref" => ticket_ref}) do
-    ticket = Tickets.get_ticket_by_ref!(socket.assigns.current_workspace.id, ticket_ref)
-
-    assign(socket,
-      page_title: ticket.title,
-      ticket: ticket,
-      ticket_form: to_form(Tickets.change_ticket(ticket)),
-      comments: Tickets.list_comments(ticket.id),
-      comment_form: to_form(Tickets.change_comment(%Comment{ticket_id: ticket.id})),
-      comment_form_id: "new_comment_0",
-      confirm_delete: false,
-      delete_ticket_id: nil,
-      reply_to: nil,
-      reply_form: nil,
-      editing_comment_id: nil,
-      edit_form: nil,
-      loop_id: first_loop_id(ticket)
-    )
+  defp apply_action(socket, :show, %{"ticket_ref" => ref}) do
+    DetailEvents.load_detail(socket, socket.assigns.current_workspace.id, ref)
   end
 
   defp apply_action(socket, :edit, %{"ticket_ref" => ticket_ref}) do
@@ -179,7 +163,25 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   # -- Streams --
 
   defp stream_tickets(socket) do
-    %{grouped: grouped, count: count} = Tickets.search_tickets_grouped(search_opts(socket))
+    a = socket.assigns
+
+    %{grouped: grouped, count: count} =
+      Tickets.search_tickets_grouped(
+        status: a.filter_status,
+        assignee: a.filter_assignee,
+        sort_by: a.sort_by,
+        sort_order: a.sort_order,
+        workspace_id: a.current_workspace_id,
+        query: a.filter_query,
+        prefix: a.workspace_prefix
+      )
+
+    active_ids =
+      grouped
+      |> Map.take([:planning, :in_progress])
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.map(& &1.id)
 
     Enum.reduce(@statuses, socket, fn s, acc ->
       stream(acc, stream_name(s), Map.get(grouped, s, []), reset: true)
@@ -187,42 +189,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     |> assign(
       ticket_count: count,
       tickets_by_status: grouped,
-      loop_ids: Dags.first_loop_ids_for_tickets(active_ticket_ids(grouped))
+      loop_ids: Dags.first_loop_ids_for_tickets(active_ids)
     )
-  end
-
-  defp search_opts(socket) do
-    [
-      status: socket.assigns.filter_status,
-      assignee: socket.assigns.filter_assignee,
-      sort_by: socket.assigns.sort_by,
-      sort_order: socket.assigns.sort_order,
-      workspace_id: socket.assigns.current_workspace_id,
-      query: socket.assigns.filter_query,
-      prefix: socket.assigns.workspace_prefix
-    ]
-  end
-
-  defp active_ticket_ids(grouped) do
-    grouped
-    |> Map.take([:planning, :in_progress])
-    |> Map.values()
-    |> List.flatten()
-    |> Enum.map(& &1.id)
-  end
-
-  # -- Helpers --
-
-  @doc false
-  def stream_name(status), do: :"tickets_#{status}"
-
-  @doc false
-  def stream_for(streams, status), do: Map.get(streams, stream_name(status), [])
-
-  defp first_loop_id(%Ticket{} = ticket) do
-    case Dags.get_dag_by_ticket(ticket.id) do
-      %{loops: [loop | _]} -> loop.id
-      _ -> nil
-    end
   end
 end

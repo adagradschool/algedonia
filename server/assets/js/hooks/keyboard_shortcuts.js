@@ -78,13 +78,6 @@ const KeyboardShortcuts = {
 
     if (meta) return
 
-    // S — start/stop loop
-    if (key === "s") {
-      event.preventDefault()
-      this.pushEvent("shortcut_toggle_loop", {})
-      return
-    }
-
     // 1/2/3 — switch sidebar tabs
     if (key === "1") {
       event.preventDefault()

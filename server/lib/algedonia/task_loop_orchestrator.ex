@@ -38,6 +38,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
     )
   end
 
+  @doc "Handles an attempt error from the daemon."
+  @spec handle_attempt_error(binary(), map(), keyword()) :: :ok | {:error, term()}
+  def handle_attempt_error(loop_id, payload, opts \\ []) do
+    call_if_alive(
+      opts,
+      {:attempt_error, loop_id, payload, Keyword.get(opts, :daemon_name)},
+      {:error, :orchestrator_not_running}
+    )
+  end
+
   @doc "Returns in-memory history for a loop's maker/checker spin-ups."
   @spec get_loop_history(binary(), keyword()) :: [map()]
   def get_loop_history(lid, opts \\ []), do: call_if_alive(opts, {:get_loop_history, lid}, [])
@@ -61,6 +71,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   @impl true
   def init(s) do
+    Tickets.subscribe()
     {:ok, Map.merge(s, %{task_history: %{}, checker_handoff_repairs: %{}, task_run_config: %{}})}
   end
 
@@ -79,6 +90,13 @@ defmodule Algedonia.TaskLoopOrchestrator do
     end
   end
 
+  def handle_call({:attempt_error, lid, payload, dn}, _from, st) do
+    case handle_error(lid, payload, dn, st) do
+      {:ok, s} -> {:reply, :ok, s}
+      {:error, r} -> {:reply, {:error, r}, st}
+    end
+  end
+
   def handle_call({:get_loop_history, lid}, _from, st),
     do: {:reply, Map.get(st.task_history, lid, []), st}
 
@@ -88,8 +106,66 @@ defmodule Algedonia.TaskLoopOrchestrator do
   def handle_call({:latest_step_terminal_id, lid}, _from, st),
     do: {:reply, H.latest_id(st, lid), st}
 
+  @impl true
+  def handle_info({:ticket_updated, %{status: :halted} = ticket}, state) do
+    {:noreply, halt_running_loops(ticket, state)}
+  end
+
+  def handle_info({:ticket_updated, %{status: :planning} = ticket}, state) do
+    {:noreply, auto_start_planning_loop(ticket, state)}
+  end
+
+  def handle_info({:ticket_updated, _ticket}, state), do: {:noreply, state}
+  def handle_info({:ticket_created, _ticket}, state), do: {:noreply, state}
+  def handle_info({:ticket_deleted, _ticket}, state), do: {:noreply, state}
+
+  defp halt_running_loops(ticket, state) do
+    loops = running_loops_for_ticket(ticket.id)
+
+    Enum.reduce(loops, state, fn loop, acc ->
+      AlgedoniaWeb.DaemonChannel.push_stop_loop(
+        daemon_name_for(loop),
+        loop.id,
+        "ticket halted"
+      )
+
+      {:ok, _} = Loops.update_loop_status(loop, :failed)
+      acc
+    end)
+  end
+
+  defp auto_start_planning_loop(ticket, state) do
+    case {Dags.get_dag_by_ticket(ticket.id), Daemons.find_online()} do
+      {%{loops: [loop | _]}, {:ok, daemon}} ->
+        case start_loop(loop.id, daemon.name, [], state) do
+          {:ok, new_state} -> new_state
+          {:error, _} -> state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  defp running_loops_for_ticket(ticket_id) do
+    case Dags.get_dag_by_ticket(ticket_id) do
+      %{loops: loops} ->
+        Enum.filter(loops, &(&1.status in [:running_maker, :running_checker]))
+
+      _ ->
+        []
+    end
+  end
+
+  defp daemon_name_for(%{assigned_daemon_id: id}) when not is_nil(id) do
+    Daemons.get_daemon!(id).name
+  end
+
+  defp daemon_name_for(_), do: "unknown"
+
   defp start_loop(loop_id, daemon_name, opts, state) do
     with %{role: :task} = loop <- Loops.get_loop(loop_id) || {:error, :not_found},
+         :ok <- guard_startable(loop),
          {:ok, daemon} <- fetch_daemon(daemon_name),
          :ok <- check_repo_ready(daemon.name, loop),
          {:ok, loop} <-
@@ -126,8 +202,48 @@ defmodule Algedonia.TaskLoopOrchestrator do
         _ -> {:ok, state}
       end
     else
-      # Decompose-checker loops currently bypass task-loop completion handling.
+      # credo:disable-for-next-line Credo.Check.Design.TagTODO
+      # TODO: implement decompose_checker attempt handling
       %{role: :decompose_checker} -> {:ok, state}
+      _ -> {:ok, state}
+    end
+  end
+
+  defp handle_error(loop_id, payload, daemon_name, state) do
+    with {:ok, _} <- Ecto.UUID.cast(loop_id),
+         %{role: :task} = loop <- Loops.get_loop(loop_id) do
+      loop = Loops.preload_with_ticket(loop)
+      sid = Map.get(payload, "session_id")
+      ec = Map.get(payload, "exit_code", 1)
+      message = Map.get(payload, "message", "agent exited with code #{ec}")
+
+      case loop.status do
+        :running_maker ->
+          attrs = [session_id: sid, exit_code: ec, status: "failed", error: message]
+          state = H.complete_last(state, loop.id, "maker", loop.current_attempt, attrs)
+          do_retry(loop, "Maker run failed: #{message}", daemon_name, state)
+
+        :running_checker ->
+          attrs = [
+            session_id: sid,
+            exit_code: ec,
+            verdict: "fail",
+            feedback: "Checker run failed: #{message}",
+            status: "failed",
+            error: message
+          ]
+
+          state =
+            state
+            |> clear_hr(loop.id)
+            |> H.complete_last(loop.id, "checker", loop.current_attempt, attrs)
+
+          do_retry(loop, "Checker run failed: #{message}", daemon_name, state)
+
+        _ ->
+          {:ok, state}
+      end
+    else
       _ -> {:ok, state}
     end
   end
@@ -301,6 +417,9 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   defp clear_hr(s, id),
     do: %{s | checker_handoff_repairs: Map.delete(s.checker_handoff_repairs, id)}
+
+  defp guard_startable(%{status: status}) when status in [:pending, :ready], do: :ok
+  defp guard_startable(_), do: {:error, :already_running}
 
   defp default_push(dn, lid, opts),
     do: AlgedoniaWeb.DaemonChannel.push_start_loop(dn, lid, opts)

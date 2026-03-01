@@ -28,6 +28,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     GenServer.call(pid, {:attempt_complete, loop_id, payload, daemon_name})
   end
 
+  defp handle_attempt_error(pid, loop_id, payload, daemon_name) do
+    GenServer.call(pid, {:attempt_error, loop_id, payload, daemon_name})
+  end
+
   defp get_history(pid, loop_id) do
     GenServer.call(pid, {:get_loop_history, loop_id})
   end
@@ -331,6 +335,32 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     end
   end
 
+  describe "task loop: maker error recovery" do
+    test "maker error retries with next maker attempt", %{orchestrator: pid} do
+      %{loop: loop, daemon: daemon} = setup_task_loop(pid)
+      loop_id = loop.id
+
+      assert :ok =
+               handle_attempt_error(
+                 pid,
+                 loop.id,
+                 %{
+                   "session_id" => "maker-1",
+                   "exit_code" => 2,
+                   "message" => "agent exited with code 2"
+                 },
+                 daemon.name
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+      assert loop_id == loop.id
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :running_maker
+      assert reloaded.current_attempt == 2
+    end
+  end
+
   describe "task loop: checker pass" do
     test "checker pass marks loop as passed", %{orchestrator: pid} do
       %{loop: loop, daemon: daemon} = setup_task_loop(pid)
@@ -584,6 +614,126 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
       assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
       assert_receive {:push, _, _, %{"role" => "maker"}}
+    end
+  end
+
+  describe "start_loop status guard" do
+    test "returns {:error, :already_running} for running_maker loop", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :running_maker, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      assert {:error, :already_running} =
+               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+    end
+
+    test "returns {:error, :already_running} for passed loop", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :passed, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      assert {:error, :already_running} =
+               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+    end
+
+    test "returns {:error, :already_running} for failed loop", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :failed, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      assert {:error, :already_running} =
+               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+    end
+
+    test "allows starting a pending loop", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert_receive {:push, _, _, %{"role" => "maker"}}
+    end
+  end
+
+  describe "ticket halt stops running loops" do
+    test "halted ticket stops running loops and sets status to failed", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      daemon = insert_daemon!(%{status: :online})
+
+      loop =
+        insert_loop!(%{
+          dag_id: dag.id,
+          role: :task,
+          status: :running_maker,
+          assigned_daemon_id: daemon.id,
+          max_attempts: 3,
+          current_attempt: 1
+        })
+
+      # Simulate ticket halted via PubSub
+      send(pid, {:ticket_updated, %{ticket | status: :halted}})
+
+      # Give the GenServer time to process
+      :sys.get_state(pid)
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :failed
+    end
+
+    test "halted ticket ignores already-passed loops", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        insert_loop!(%{
+          dag_id: dag.id,
+          role: :task,
+          status: :passed,
+          max_attempts: 3,
+          current_attempt: 1
+        })
+
+      send(pid, {:ticket_updated, %{ticket | status: :halted}})
+      :sys.get_state(pid)
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :passed
+    end
+  end
+
+  describe "ticket planning auto-start" do
+    test "planning ticket auto-starts first loop on available daemon", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :planning})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      _daemon = insert_daemon!(%{status: :online})
+      loop_id = loop.id
+
+      send(pid, {:ticket_updated, %{ticket | status: :planning}})
+      :sys.get_state(pid)
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :running_maker
+    end
+
+    test "planning ticket with no daemon does not crash", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :planning})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      _loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      # No daemon inserted
+
+      send(pid, {:ticket_updated, %{ticket | status: :planning}})
+      # Should not crash
+      :sys.get_state(pid)
+
+      refute_receive {:push, _, _, _}, 100
     end
   end
 

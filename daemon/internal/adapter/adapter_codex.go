@@ -89,51 +89,9 @@ func (a *CodexAdapter) SendInput(process *Process, data []byte) error {
 
 // Wait blocks until completion.
 func (a *CodexAdapter) Wait(process *Process) (*ExitResult, error) {
-	type waitOutcome struct {
-		exitCode int
-		fromHook bool
-		err      error
-	}
-
-	outcomeCh := make(chan waitOutcome, 2)
-
-	go func() {
-		exitCode, err := waitProcess(process.session)
-		outcomeCh <- waitOutcome{exitCode: exitCode, err: err}
-	}()
-
-	if process.completionMarker != "" {
-		go func() {
-			for {
-				if _, err := os.Stat(process.completionMarker); err == nil {
-					outcomeCh <- waitOutcome{exitCode: 0, fromHook: true}
-					return
-				}
-				time.Sleep(250 * time.Millisecond)
-			}
-		}()
-	}
-
-	outcome := <-outcomeCh
-	if outcome.fromHook {
-		_ = killProcess(process.session, 2*time.Second)
-	}
-	if outcome.err != nil {
-		return nil, outcome.err
-	}
-
-	if outcome.fromHook && process.completionMarker != "" {
-		if raw, err := os.ReadFile(process.completionMarker); err == nil {
-			_, _ = process.collector.Write(raw)
-			_, _ = process.collector.Write([]byte("\n"))
-		}
-	}
-
-	return &ExitResult{
-		ExitCode:  outcome.exitCode,
-		SessionID: process.SessionID,
-		Output:    process.collector.Bytes(),
-	}, nil
+	return WaitWithCompletionMarker(process, func() (int, error) {
+		return waitProcess(process.session)
+	})
 }
 
 // Kill terminates the process.

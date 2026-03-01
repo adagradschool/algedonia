@@ -1,7 +1,9 @@
 defmodule AlgedoniaWeb.DaemonChannelTest do
   use AlgedoniaWeb.ChannelCase
 
+  alias Algedonia.{Daemons, Repo, TaskLoopOrchestrator}
   alias AlgedoniaWeb.DaemonSocket
+  alias Ecto.Adapters.SQL.Sandbox
 
   @daemon_id "test-daemon-id"
   @daemon_name "test-daemon"
@@ -222,6 +224,49 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         })
 
       refute_reply ref, _
+    end
+
+    test "routes task loop errors to TaskLoopOrchestrator", %{socket: socket} do
+      test_pid = self()
+
+      push_fn = fn daemon_name, loop_id, opts ->
+        send(test_pid, {:orch_push, daemon_name, loop_id, opts})
+        :ok
+      end
+
+      {:ok, orch} = TaskLoopOrchestrator.start_link(name: TaskLoopOrchestrator, push_fn: push_fn)
+      on_exit(fn -> if Process.alive?(orch), do: GenServer.stop(orch) end)
+      Sandbox.allow(Repo, self(), orch)
+
+      daemon = Daemons.get_daemon_by_name(@daemon_name)
+      assert daemon
+      ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
+      dag = Algedonia.Factory.insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        Algedonia.Factory.insert_loop!(%{
+          dag_id: dag.id,
+          role: :task,
+          status: :running_maker,
+          current_attempt: 1,
+          max_attempts: 3,
+          assigned_daemon_id: daemon.id
+        })
+
+      loop_id = loop.id
+
+      ref =
+        push(socket, "error", %{
+          "loop_id" => loop.id,
+          "message" => "agent exited with code 2",
+          "exit_code" => 2,
+          "session_id" => "maker-1"
+        })
+
+      refute_reply ref, _
+      assert_receive {:orch_push, @daemon_name, ^loop_id, %{"role" => "maker"}}, 1000
+      assert loop_id == loop.id
+      assert Algedonia.Loops.get_loop!(loop.id).current_attempt == 2
     end
   end
 

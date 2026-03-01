@@ -127,15 +127,6 @@
             >
               {@stage}
             </span>
-            <span class={[
-              "px-2 py-0.5 rounded text-[11px] border",
-              if(@active,
-                do: "bg-status-green/10 text-status-green border-status-green/40",
-                else: "bg-surface-panel text-fg-muted border-border"
-              )
-            ]}>
-              {if @active, do: "Active", else: "Inactive"}
-            </span>
             <span
               :if={!@planning_session?}
               id="loop-index-badge"
@@ -146,32 +137,12 @@
           </div>
 
           <button
-            :if={!@active}
-            phx-click="start_loop"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
-            type="button"
-          >
-            Start Loop
-            <.kbd class="bg-white/15 border-white/20 text-white/70">S</.kbd>
-          </button>
-          <button
             :if={@active && @planning_session?}
             phx-click="finish_planning"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
             type="button"
           >
             Done
-          </button>
-          <button
-            :if={@active && !@planning_session?}
-            phx-click="stop_loop"
-            aria-label="Stop loop (S)"
-            title="Stop loop (S)"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-md bg-status-red/90 hover:bg-status-red text-white transition-colors"
-            type="button"
-          >
-            <span class="sr-only">Stop loop</span>
-            <.icon name="hero-stop-mini" class="size-4" />
           </button>
         </div>
 
@@ -274,13 +245,13 @@
       >
         <div
           :if={!@planning_session?}
-          class="h-11 border-b border-border bg-surface px-2 flex items-center gap-1"
+          class="h-12 border-b border-border-soft bg-surface px-2 flex items-center gap-1"
         >
           <button
             phx-click="switch_tab"
             phx-value-tab="overview"
             class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
+              "h-full px-3 text-[12px] border-b-2 transition-colors flex items-center gap-1",
               if(@active_tab == "overview",
                 do: "text-fg border-accent-indigo",
                 else: "text-fg-muted border-transparent hover:text-fg-secondary"
@@ -294,7 +265,7 @@
             phx-click="switch_tab"
             phx-value-tab="rubric"
             class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
+              "h-full px-3 text-[12px] border-b-2 transition-colors flex items-center gap-1",
               if(@active_tab == "rubric",
                 do: "text-fg border-accent-indigo",
                 else: "text-fg-muted border-transparent hover:text-fg-secondary"
@@ -308,7 +279,7 @@
             phx-click="switch_tab"
             phx-value-tab="diff"
             class={[
-              "px-3 py-2 text-[12px] border-b-2 transition-colors flex items-center gap-1",
+              "h-full px-3 text-[12px] border-b-2 transition-colors flex items-center gap-1",
               if(@active_tab == "diff",
                 do: "text-fg border-accent-indigo",
                 else: "text-fg-muted border-transparent hover:text-fg-secondary"

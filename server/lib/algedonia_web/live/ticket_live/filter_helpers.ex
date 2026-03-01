@@ -83,6 +83,16 @@ defmodule AlgedoniaWeb.TicketLive.FilterHelpers do
   defp view_string(:list), do: "list"
   defp view_string(_), do: "board"
 
+  @doc """
+  Returns the stream name atom for a ticket status.
+  """
+  def stream_name(status), do: :"tickets_#{status}"
+
+  @doc """
+  Returns the stream entries for a status from the streams map.
+  """
+  def stream_for(streams, status), do: Map.get(streams, stream_name(status), [])
+
   defp normalize_filter_query(nil), do: nil
 
   defp normalize_filter_query(q) when is_binary(q),

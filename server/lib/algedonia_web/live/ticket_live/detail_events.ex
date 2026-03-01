@@ -14,6 +14,29 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   @ticket_detail_fields [:description, :acceptance_criteria, :rubric]
 
+  @doc """
+  Loads ticket detail assigns onto the socket for the :show action.
+  """
+  def load_detail(socket, workspace_id, ticket_ref) do
+    ticket = Tickets.get_ticket_by_ref!(workspace_id, ticket_ref)
+
+    assign(socket,
+      page_title: ticket.title,
+      ticket: ticket,
+      ticket_form: to_form(Tickets.change_ticket(ticket)),
+      comments: Tickets.list_comments(ticket.id),
+      comment_form: to_form(Tickets.change_comment(%Comment{ticket_id: ticket.id})),
+      comment_form_id: "new_comment_0",
+      confirm_delete: false,
+      delete_ticket_id: nil,
+      reply_to: nil,
+      reply_form: nil,
+      editing_comment_id: nil,
+      edit_form: nil,
+      loop_id: Algedonia.Dags.first_loop_id(ticket.id)
+    )
+  end
+
   @doc false
   def handle("autosave_ticket", %{"ticket" => params}, socket) do
     case Tickets.update_ticket(socket.assigns.ticket, params) do
@@ -201,14 +224,14 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   defp work_loop_path(socket, ticket, loop_id) do
     slug = socket.assigns.workspace_slug
 
-    ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{short_id(loop_id)}?#{%{autostart: 1, agent_type: Agents.ticket_agent_type(ticket)}}"
+    ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{short_id(loop_id)}?#{%{agent_type: Agents.ticket_agent_type(ticket)}}"
   end
 
   defp planning_path(socket, ticket) do
     slug = socket.assigns.workspace_slug
     ref = "plan-" <> short_id(ticket.id)
 
-    ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{ref}?#{%{autostart: 1, role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
+    ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{ref}?#{%{role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
   end
 
   defp next_form_counter(id),

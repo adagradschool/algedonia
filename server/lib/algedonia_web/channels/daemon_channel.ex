@@ -5,7 +5,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   use Phoenix.Channel
 
   alias Algedonia.Daemons
-  alias Algedonia.{DecomposeOrchestrator, TaskLoopOrchestrator}
+  alias Algedonia.{DecomposeOrchestrator, Loops, TaskLoopOrchestrator}
   alias Algedonia.Terminals
   alias Algedonia.Workspaces
 
@@ -98,7 +98,20 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("error", %{"loop_id" => loop_id} = payload, socket) do
-    DecomposeOrchestrator.handle_loop_error(loop_id, payload)
+    if uuid_string?(loop_id) do
+      case Loops.get_loop(loop_id) do
+        %{role: :task} ->
+          TaskLoopOrchestrator.handle_attempt_error(loop_id, payload,
+            daemon_name: socket.assigns.daemon_name
+          )
+
+        _ ->
+          DecomposeOrchestrator.handle_loop_error(loop_id, payload)
+      end
+    else
+      DecomposeOrchestrator.handle_loop_error(loop_id, payload)
+    end
+
     {:noreply, socket}
   end
 
@@ -206,4 +219,10 @@ defmodule AlgedoniaWeb.DaemonChannel do
         :ok
     end
   end
+
+  defp uuid_string?(value) when is_binary(value) do
+    String.match?(value, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  end
+
+  defp uuid_string?(_), do: false
 end
