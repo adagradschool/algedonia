@@ -5,7 +5,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   use Phoenix.Channel
 
   alias Algedonia.Daemons
-  alias Algedonia.{DecomposeOrchestrator, Loops, TaskLoopOrchestrator}
+  alias Algedonia.{DecomposeOrchestrator, HookExecutor, Loops, TaskLoopOrchestrator}
   alias Algedonia.Terminals
   alias Algedonia.Workspaces
 
@@ -90,9 +90,28 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("attempt_complete", %{"loop_id" => loop_id} = payload, socket) do
-    TaskLoopOrchestrator.handle_attempt_complete(loop_id, payload,
-      daemon_name: socket.assigns.daemon_name
-    )
+    if uuid_string?(loop_id) do
+      case Loops.get_loop(loop_id) do
+        %{role: :task} ->
+          TaskLoopOrchestrator.handle_attempt_complete(loop_id, payload,
+            daemon_name: socket.assigns.daemon_name
+          )
+
+        %{role: :hook} ->
+          HookExecutor.handle_attempt_complete(loop_id, payload,
+            daemon_name: socket.assigns.daemon_name
+          )
+
+        _ ->
+          TaskLoopOrchestrator.handle_attempt_complete(loop_id, payload,
+            daemon_name: socket.assigns.daemon_name
+          )
+      end
+    else
+      TaskLoopOrchestrator.handle_attempt_complete(loop_id, payload,
+        daemon_name: socket.assigns.daemon_name
+      )
+    end
 
     {:noreply, socket}
   end
@@ -102,6 +121,11 @@ defmodule AlgedoniaWeb.DaemonChannel do
       case Loops.get_loop(loop_id) do
         %{role: :task} ->
           TaskLoopOrchestrator.handle_attempt_error(loop_id, payload,
+            daemon_name: socket.assigns.daemon_name
+          )
+
+        %{role: :hook} ->
+          HookExecutor.handle_attempt_error(loop_id, payload,
             daemon_name: socket.assigns.daemon_name
           )
 

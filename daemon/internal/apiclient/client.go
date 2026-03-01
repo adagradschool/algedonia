@@ -211,6 +211,13 @@ func (c *Client) DeleteComment(ticketIDOrNumber, commentID string) error {
 	return c.delete(path)
 }
 
+// ExportTicketMarkdown fetches the rendered markdown export for a ticket.
+func (c *Client) ExportTicketMarkdown(idOrNumber string) (string, error) {
+	path := fmt.Sprintf("/api/w/%s/tickets/%s/export/markdown",
+		c.Workspace, url.PathEscape(idOrNumber))
+	return c.getRaw(path)
+}
+
 // ListWorkspaces returns all workspaces the user has access to.
 func (c *Client) ListWorkspaces() ([]Workspace, error) {
 	var resp struct {
@@ -224,6 +231,32 @@ func (c *Client) ListWorkspaces() ([]Workspace, error) {
 
 func (c *Client) get(path string, out interface{}) error {
 	return c.do("GET", path, nil, out)
+}
+
+func (c *Client) getRaw(path string) (string, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+path, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return "", &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+	}
+
+	return string(body), nil
 }
 
 func (c *Client) post(path string, body interface{}, out interface{}) error {

@@ -107,13 +107,36 @@ defmodule Algedonia.Tickets do
 
   @doc """
   Updates a ticket.
+
+  ## Options
+
+    * `:skip_hooks` — when `true`, does not fire transition hooks (default `false`)
   """
-  @spec update_ticket(Ticket.t(), map()) :: {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
-  def update_ticket(%Ticket{} = ticket, attrs) do
-    ticket
-    |> Ticket.changeset(attrs)
-    |> Repo.update()
-    |> broadcast(:ticket_updated)
+  @spec update_ticket(Ticket.t(), map(), keyword()) ::
+          {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
+  def update_ticket(%Ticket{} = ticket, attrs, opts \\ []) do
+    old_status = ticket.status
+
+    result =
+      ticket
+      |> Ticket.changeset(attrs)
+      |> Repo.update()
+      |> broadcast(:ticket_updated)
+
+    with {:ok, updated} <- result,
+         false <- Keyword.get(opts, :skip_hooks, false) do
+      maybe_fire_hooks(ticket, old_status, updated)
+    end
+
+    result
+  end
+
+  defp maybe_fire_hooks(ticket, old_status, updated) do
+    new_status = updated.status
+
+    if old_status != new_status && !(old_status == :halted && new_status == :halted) do
+      Algedonia.HookExecutor.fire_hooks(ticket.workspace_id, updated, old_status, new_status)
+    end
   end
 
   @doc """
@@ -265,6 +288,10 @@ defmodule Algedonia.Tickets do
   defp filter_by_assignee(query, nil), do: query
   defp filter_by_assignee(query, ""), do: query
   defp filter_by_assignee(query, assignee), do: where(query, [t], t.assignee == ^assignee)
+
+  # -- Markdown export (delegated) --
+
+  defdelegate export_markdown(ticket), to: Algedonia.Tickets.MarkdownExport, as: :render
 
   # -- Planning workflow (delegated) --
 

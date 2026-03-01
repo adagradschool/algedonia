@@ -23,7 +23,7 @@ defmodule Algedonia.Loops.Loop do
     :resolved
   ]
 
-  @roles [:task, :decompose, :decompose_checker]
+  @roles [:task, :decompose, :decompose_checker, :hook]
 
   schema "loops" do
     field :title, :string
@@ -38,6 +38,7 @@ defmodule Algedonia.Loops.Loop do
     field :branch_name, :string
 
     belongs_to :dag, Algedonia.Dags.Dag
+    belongs_to :ticket, Algedonia.Tickets.Ticket
     belongs_to :assigned_daemon, Algedonia.Daemons.DaemonRegistration
 
     timestamps(type: :utc_datetime_usec)
@@ -60,6 +61,7 @@ defmodule Algedonia.Loops.Loop do
       :rubric,
       :branch_name,
       :dag_id,
+      :ticket_id,
       :assigned_daemon_id
     ])
     |> validate_required([:title, :dag_id])

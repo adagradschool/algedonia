@@ -6,7 +6,16 @@ defmodule Algedonia.Workspaces do
 
   alias Algedonia.Accounts.User
   alias Algedonia.Repo
-  alias Algedonia.Workspaces.{Workspace, WorkspaceInvitation, WorkspaceMembership}
+  alias Algedonia.Workspaces.{TransitionHook, Workspace, WorkspaceInvitation, WorkspaceMembership}
+
+  @stage_order %{
+    backlog: 0,
+    planning: 1,
+    in_progress: 2,
+    halted: 3,
+    completed: 4,
+    archived: 5
+  }
 
   @doc """
   Gets a workspace by slug, raising if not found.
@@ -226,5 +235,67 @@ defmodule Algedonia.Workspaces do
       "" -> "AG"
       prefix -> prefix
     end
+  end
+
+  @doc """
+  Lists transition hooks for a workspace, sorted by stage progression order.
+  """
+  @spec list_transition_hooks(integer()) :: [TransitionHook.t()]
+  def list_transition_hooks(workspace_id) do
+    TransitionHook
+    |> where([h], h.workspace_id == ^workspace_id)
+    |> Repo.all()
+    |> Enum.sort_by(fn h ->
+      {Map.get(@stage_order, h.from_status, 99), Map.get(@stage_order, h.to_status, 99)}
+    end)
+  end
+
+  @doc """
+  Gets a single transition hook by ID. Returns nil if not found.
+  """
+  @spec get_transition_hook(binary()) :: TransitionHook.t() | nil
+  def get_transition_hook(id), do: Repo.get(TransitionHook, id)
+
+  @doc """
+  Creates a transition hook for a workspace.
+  """
+  @spec create_transition_hook(Workspace.t(), map()) ::
+          {:ok, TransitionHook.t()} | {:error, Ecto.Changeset.t()}
+  def create_transition_hook(%Workspace{} = workspace, attrs) do
+    %TransitionHook{}
+    |> TransitionHook.changeset(Map.put(attrs, "workspace_id", workspace.id))
+    |> Repo.insert()
+  end
+
+  @doc """
+  Updates a transition hook.
+  """
+  @spec update_transition_hook(TransitionHook.t(), map()) ::
+          {:ok, TransitionHook.t()} | {:error, Ecto.Changeset.t()}
+  def update_transition_hook(%TransitionHook{} = hook, attrs) do
+    hook
+    |> TransitionHook.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Deletes a transition hook.
+  """
+  @spec delete_transition_hook(TransitionHook.t()) ::
+          {:ok, TransitionHook.t()} | {:error, Ecto.Changeset.t()}
+  def delete_transition_hook(%TransitionHook{} = hook) do
+    Repo.delete(hook)
+  end
+
+  @doc """
+  Returns enabled hooks matching a specific transition for a workspace.
+  """
+  @spec get_hooks_for_transition(integer(), atom(), atom()) :: [TransitionHook.t()]
+  def get_hooks_for_transition(workspace_id, from_status, to_status) do
+    TransitionHook
+    |> where([h], h.workspace_id == ^workspace_id)
+    |> where([h], h.from_status == ^from_status and h.to_status == ^to_status)
+    |> where([h], h.enabled == true)
+    |> Repo.all()
   end
 end

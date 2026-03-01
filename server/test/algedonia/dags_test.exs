@@ -125,4 +125,97 @@ defmodule Algedonia.DagsTest do
       assert hd(deps).downstream_loop_id == l2.id
     end
   end
+
+  describe "first loop helpers" do
+    test "first_loop_id/1 returns first task loop and ignores hooks" do
+      ticket = insert_ticket!()
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      _hook = insert_loop!(%{dag_id: dag.id, ticket_id: ticket.id, role: :hook, title: "Hook"})
+      task = insert_loop!(%{dag_id: dag.id, ticket_id: ticket.id, role: :task, title: "Task"})
+
+      assert Dags.first_loop_id(ticket.id) == task.id
+    end
+
+    test "first_loop_ids_for_tickets/1 maps tickets to task loops only" do
+      ticket1 = insert_ticket!()
+      dag1 = insert_dag!(%{ticket_id: ticket1.id})
+      _hook1 = insert_loop!(%{dag_id: dag1.id, ticket_id: ticket1.id, role: :hook})
+      task1 = insert_loop!(%{dag_id: dag1.id, ticket_id: ticket1.id, role: :task})
+
+      ticket2 = insert_ticket!()
+      dag2 = insert_dag!(%{ticket_id: ticket2.id})
+      task2 = insert_loop!(%{dag_id: dag2.id, ticket_id: ticket2.id, role: :task})
+
+      result = Dags.first_loop_ids_for_tickets([ticket1.id, ticket2.id])
+
+      assert result[ticket1.id] == task1.id
+      assert result[ticket2.id] == task2.id
+    end
+
+    test "first_inspect_loop_id/1 falls back to non-hook loops when no task loop exists" do
+      ticket = insert_ticket!()
+      dag = insert_dag!(%{ticket_id: ticket.id})
+      _hook = insert_loop!(%{dag_id: dag.id, ticket_id: ticket.id, role: :hook})
+      legacy = insert_loop!(%{dag_id: dag.id, ticket_id: ticket.id, role: :decompose})
+
+      assert Dags.first_inspect_loop_id(ticket.id) == legacy.id
+    end
+
+    test "active_loop_info_for_tickets/1 returns stage and attempt for active loops" do
+      ticket = insert_ticket!()
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      insert_loop!(%{
+        dag_id: dag.id,
+        ticket_id: ticket.id,
+        role: :task,
+        status: :running_checker,
+        current_attempt: 2
+      })
+
+      result = Dags.active_loop_info_for_tickets([ticket.id])
+      info = result[ticket.id]
+
+      assert info.stage == "checker"
+      assert info.attempt == 2
+    end
+
+    test "active_loop_info_for_tickets/1 falls back for terminal loops" do
+      ticket = insert_ticket!()
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :task,
+          status: :passed,
+          current_attempt: 3
+        })
+
+      result = Dags.active_loop_info_for_tickets([ticket.id])
+      info = result[ticket.id]
+
+      assert info.loop_id == loop.id
+      assert info.stage == "maker"
+      assert info.attempt == 1
+    end
+
+    test "first_inspect_loop_ids_for_tickets/1 prefers task loops then falls back" do
+      ticket1 = insert_ticket!()
+      dag1 = insert_dag!(%{ticket_id: ticket1.id})
+      task1 = insert_loop!(%{dag_id: dag1.id, ticket_id: ticket1.id, role: :task})
+      _legacy1 = insert_loop!(%{dag_id: dag1.id, ticket_id: ticket1.id, role: :decompose})
+
+      ticket2 = insert_ticket!()
+      dag2 = insert_dag!(%{ticket_id: ticket2.id})
+      _hook2 = insert_loop!(%{dag_id: dag2.id, ticket_id: ticket2.id, role: :hook})
+      legacy2 = insert_loop!(%{dag_id: dag2.id, ticket_id: ticket2.id, role: :decompose_checker})
+
+      result = Dags.first_inspect_loop_ids_for_tickets([ticket1.id, ticket2.id])
+
+      assert result[ticket1.id] == task1.id
+      assert result[ticket2.id] == legacy2.id
+    end
+  end
 end

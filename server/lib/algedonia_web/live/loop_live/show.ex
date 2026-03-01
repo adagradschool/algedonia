@@ -20,6 +20,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   import AlgedoniaWeb.CommentComponents, only: [avatar: 1, relative_time: 1]
   import AlgedoniaWeb.DiffComponents
 
+  @repo_ready_retry_delay_ms 1_000
+  @repo_ready_retry_limit 20
+
   @impl true
   def mount(
         %{"loop_ref" => loop_ref, "workspace" => workspace_slug} = params,
@@ -52,6 +55,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(init_agent_ui(agent_type))
       |> assign(:show_shortcut_help, false)
       |> assign(:planning_session?, false)
+      |> assign(:repo_ready_retry_count, 0)
+      |> assign(:manual_step_selected?, false)
       |> assign(:comments, list_ticket_comments(socket.assigns[:ticket]))
       |> OverviewHelper.init_assigns()
       |> DiffTab.init_assigns()
@@ -92,8 +97,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         params["agent_type"] || socket.assigns.agent_type || Agents.default_coding_agent_string()
       )
 
-    if connected?(socket) && socket.assigns.loop_record &&
-         socket.assigns.loop_record.status in [:pending, :ready] && !socket.assigns.active do
+    if connected?(socket) && should_auto_start?(socket) do
       send(self(), :auto_start_loop)
     end
 
@@ -125,6 +129,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket =
       socket
       |> assign(:selected_step_id, step_id)
+      |> assign(:manual_step_selected?, true)
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
 
@@ -277,17 +282,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   def handle_info({:loop_history_updated, history}, socket) do
     previous_terminal_id = socket.assigns.selected_terminal_id
-    was_following_current = HistoryHelper.following_current_step?(socket)
-
-    socket =
-      if was_following_current do
-        assign(socket, :selected_step_id, nil)
-      else
-        socket
-      end
 
     socket =
       socket
+      |> HistoryHelper.prepare_history_update()
       |> HistoryHelper.assign_history(history)
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
@@ -335,6 +333,24 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   # -- Private --
 
+  defp should_auto_start?(socket) do
+    cond do
+      socket.assigns.active ->
+        false
+
+      socket.assigns.planning_session? ->
+        true
+
+      socket.assigns.loop_record &&
+        socket.assigns.loop_record.role == :task &&
+          socket.assigns.loop_record.status in [:pending, :ready] ->
+        true
+
+      true ->
+        false
+    end
+  end
+
   defp start_loop_on_daemon(socket) do
     case resolve_daemon(socket) do
       {:error, :no_online_daemon} ->
@@ -357,11 +373,26 @@ defmodule AlgedoniaWeb.LoopLive.Show do
          ) do
       :ok ->
         socket
+        |> clear_flash(:info)
+        |> assign(:repo_ready_retry_count, 0)
         |> assign(:active, true)
         |> HistoryHelper.assign_history(
           TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id)
         )
         |> OverviewHelper.maybe_start_overview_generation()
+
+      {:error, :already_running} ->
+        socket
+        |> clear_flash(:info)
+        |> assign(:repo_ready_retry_count, 0)
+        |> assign(:active, true)
+        |> HistoryHelper.assign_history(
+          TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id)
+        )
+        |> OverviewHelper.maybe_start_overview_generation()
+
+      {:error, :repo_not_ready} ->
+        schedule_repo_ready_retry(socket)
 
       {:error, _} ->
         put_flash(socket, :error, "Unable to start loop")
@@ -384,6 +415,30 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket
     |> assign(:active, true)
     |> OverviewHelper.maybe_start_overview_generation()
+  end
+
+  defp schedule_repo_ready_retry(socket) do
+    retries = socket.assigns.repo_ready_retry_count
+
+    if retries < @repo_ready_retry_limit && connected?(socket) && should_auto_start?(socket) do
+      Process.send_after(self(), :auto_start_loop, @repo_ready_retry_delay_ms)
+
+      socket =
+        socket
+        |> assign(:repo_ready_retry_count, retries + 1)
+
+      if retries == 0 do
+        put_flash(
+          socket,
+          :info,
+          "Daemon repository is still preparing. Retrying automatically..."
+        )
+      else
+        socket
+      end
+    else
+      put_flash(socket, :error, "Daemon repository is not ready yet")
+    end
   end
 
   defp list_ticket_comments(%{id: id}), do: Tickets.list_comments(id)

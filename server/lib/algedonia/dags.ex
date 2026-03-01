@@ -9,6 +9,12 @@ defmodule Algedonia.Dags do
   alias Algedonia.Repo
   alias Ecto.Multi
 
+  @status_to_stage %{
+    running_checker: "checker",
+    passed: "completed",
+    failed: "failed"
+  }
+
   @doc """
   Creates a DAG with loops and dependencies atomically.
 
@@ -127,7 +133,7 @@ defmodule Algedonia.Dags do
   end
 
   @doc """
-  Returns a map of ticket_id => first loop_id for the given ticket IDs.
+  Returns a map of ticket_id => first task-loop id for the given ticket IDs.
   """
   @spec first_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
   def first_loop_ids_for_tickets([]), do: %{}
@@ -135,6 +141,7 @@ defmodule Algedonia.Dags do
   def first_loop_ids_for_tickets(ticket_ids) do
     from(d in Dag,
       join: l in assoc(d, :loops),
+      where: l.role == :task,
       where: d.ticket_id in ^ticket_ids,
       distinct: d.ticket_id,
       order_by: [asc: d.ticket_id, asc: l.inserted_at],
@@ -145,13 +152,101 @@ defmodule Algedonia.Dags do
   end
 
   @doc """
-  Returns the first loop ID for a ticket, or nil if no DAG/loops exist.
+  Returns a map of ticket_id => first inspectable loop id.
+
+  Prefers task loops; falls back to non-hook loops for legacy tickets.
+  """
+  @spec first_inspect_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
+  def first_inspect_loop_ids_for_tickets([]), do: %{}
+
+  def first_inspect_loop_ids_for_tickets(ticket_ids) do
+    from(d in Dag,
+      join: l in assoc(d, :loops),
+      where: d.ticket_id in ^ticket_ids and l.role != :hook,
+      order_by: [
+        asc: d.ticket_id,
+        asc: fragment("CASE WHEN ? = ? THEN 0 ELSE 1 END", l.role, ^"task"),
+        asc: l.inserted_at
+      ],
+      select: {d.ticket_id, l.id}
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {ticket_id, loop_id}, acc ->
+      Map.put_new(acc, ticket_id, loop_id)
+    end)
+  end
+
+  @doc """
+  Returns a map of ticket_id => loop info for the given ticket IDs.
+
+  For each ticket, finds the active (non-terminal) loop and returns its ID,
+  stage, and attempt. Falls back to the first inspectable loop with defaults.
+  """
+  @spec active_loop_info_for_tickets([binary()]) :: %{
+          binary() => %{loop_id: binary(), stage: String.t(), attempt: integer()}
+        }
+  def active_loop_info_for_tickets([]), do: %{}
+
+  def active_loop_info_for_tickets(ticket_ids) do
+    terminal = [:passed, :failed, :escalated, :skipped, :resolved]
+
+    active =
+      from(d in Dag,
+        join: l in assoc(d, :loops),
+        where: d.ticket_id in ^ticket_ids and l.role != :hook and l.status not in ^terminal,
+        distinct: d.ticket_id,
+        order_by: [asc: d.ticket_id, asc: l.inserted_at],
+        select: {d.ticket_id, l.id, l.status, l.current_attempt}
+      )
+      |> Repo.all()
+      |> Map.new(fn {tid, lid, status, attempt} ->
+        {tid, %{loop_id: lid, stage: stage_for_status(status), attempt: max(attempt, 1)}}
+      end)
+
+    missing = ticket_ids -- Map.keys(active)
+    fallback = first_inspect_loop_ids_for_tickets(missing)
+
+    Map.merge(
+      active,
+      Map.new(fallback, fn {tid, lid} ->
+        {tid, %{loop_id: lid, stage: "maker", attempt: 1}}
+      end)
+    )
+  end
+
+  @doc """
+  Returns the stage string for a given loop status atom.
+  """
+  @spec stage_for_status(atom()) :: String.t()
+  def stage_for_status(status), do: Map.get(@status_to_stage, status, "maker")
+
+  @doc """
+  Returns the first task-loop ID for a ticket, or nil if no DAG/task loops exist.
   """
   @spec first_loop_id(binary()) :: binary() | nil
   def first_loop_id(ticket_id) do
-    case get_dag_by_ticket(ticket_id) do
-      %{loops: [loop | _]} -> loop.id
-      _ -> nil
+    ticket_id
+    |> list_task_loops_for_ticket()
+    |> List.first()
+    |> case do
+      nil -> nil
+      loop -> loop.id
+    end
+  end
+
+  @doc """
+  Returns the first inspectable loop ID for a ticket.
+
+  Prefers task loops; falls back to non-hook loops for legacy tickets.
+  """
+  @spec first_inspect_loop_id(binary()) :: binary() | nil
+  def first_inspect_loop_id(ticket_id) do
+    ticket_id
+    |> list_inspectable_loops_for_ticket()
+    |> List.first()
+    |> case do
+      nil -> nil
+      loop -> loop.id
     end
   end
 
@@ -213,5 +308,28 @@ defmodule Algedonia.Dags do
 
   defp broadcast(ticket_id, message) do
     Phoenix.PubSub.broadcast(Algedonia.PubSub, "dag:#{ticket_id}", message)
+  end
+
+  defp list_task_loops_for_ticket(ticket_id) do
+    from(l in Loop,
+      join: d in Dag,
+      on: l.dag_id == d.id,
+      where: d.ticket_id == ^ticket_id and l.role == :task,
+      order_by: [asc: l.inserted_at]
+    )
+    |> Repo.all()
+  end
+
+  defp list_inspectable_loops_for_ticket(ticket_id) do
+    from(l in Loop,
+      join: d in Dag,
+      on: l.dag_id == d.id,
+      where: d.ticket_id == ^ticket_id and l.role != :hook,
+      order_by: [
+        asc: fragment("CASE WHEN ? = ? THEN 0 ELSE 1 END", l.role, ^"task"),
+        asc: l.inserted_at
+      ]
+    )
+    |> Repo.all()
   end
 end

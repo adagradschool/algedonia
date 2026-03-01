@@ -17,6 +17,7 @@ defmodule Algedonia.Workspaces.Workspace do
     has_many :tickets, Algedonia.Tickets.Ticket
     has_many :workspace_memberships, Algedonia.Workspaces.WorkspaceMembership
     has_many :invitations, Algedonia.Workspaces.WorkspaceInvitation
+    has_many :transition_hooks, Algedonia.Workspaces.TransitionHook
 
     timestamps(type: :utc_datetime)
   end

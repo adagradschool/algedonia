@@ -73,6 +73,23 @@ defmodule AlgedoniaWeb.Api.TicketController do
       conn |> put_status(:not_found) |> json(%{error: "ticket not found"})
   end
 
+  def export_markdown(conn, %{"id" => id}) do
+    ticket = resolve_ticket(conn, id)
+    comments = Tickets.list_comments(ticket.id)
+    ticket = %{ticket | comments: comments}
+    markdown = Tickets.export_markdown(ticket)
+    workspace = conn.assigns.workspace
+    filename = "#{workspace.prefix}-#{ticket.number}.md"
+
+    conn
+    |> put_resp_content_type("text/markdown")
+    |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
+    |> send_resp(200, markdown)
+  rescue
+    Ecto.NoResultsError ->
+      conn |> put_status(:not_found) |> json(%{error: "ticket not found"})
+  end
+
   defp resolve_ticket(conn, id) do
     workspace = conn.assigns.workspace
 

@@ -208,6 +208,39 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
+  describe "attempt_complete" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "routes hook loop completion to HookExecutor", %{socket: socket} do
+      ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
+      dag = Algedonia.Factory.insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        Algedonia.Factory.insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :hook,
+          status: :running_maker
+        })
+
+      ref =
+        push(socket, "attempt_complete", %{
+          "loop_id" => loop.id,
+          "exit_code" => 0,
+          "session_id" => "hook-1"
+        })
+
+      refute_reply ref, _
+      assert Algedonia.Loops.get_loop!(loop.id).status == :passed
+      assert Algedonia.Tickets.get_ticket!(ticket.id).status == :in_progress
+    end
+  end
+
   describe "error" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =
@@ -267,6 +300,31 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       assert_receive {:orch_push, @daemon_name, ^loop_id, %{"role" => "maker"}}, 1000
       assert loop_id == loop.id
       assert Algedonia.Loops.get_loop!(loop.id).current_attempt == 2
+    end
+
+    test "routes hook loop errors to HookExecutor", %{socket: socket} do
+      ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
+      dag = Algedonia.Factory.insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        Algedonia.Factory.insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :hook,
+          status: :running_maker
+        })
+
+      ref =
+        push(socket, "error", %{
+          "loop_id" => loop.id,
+          "message" => "hook failed",
+          "exit_code" => 2,
+          "session_id" => "hook-err"
+        })
+
+      refute_reply ref, _
+      assert Algedonia.Loops.get_loop!(loop.id).status == :failed
+      assert Algedonia.Tickets.get_ticket!(ticket.id).status == :halted
     end
   end
 

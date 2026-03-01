@@ -19,28 +19,39 @@ defmodule AlgedoniaWeb.LoopLive.HistoryHelper do
   def assign_history(socket, history) do
     step_history = step_history(history)
     current_step_id = current_step_id(socket, step_history)
+    manual_step_selected? = socket.assigns[:manual_step_selected?] == true
 
     selected_step_id =
-      selected_step_id(step_history, socket.assigns[:selected_step_id], current_step_id)
+      selected_step_id(
+        step_history,
+        socket.assigns[:selected_step_id],
+        current_step_id,
+        manual_step_selected?
+      )
+
+    manual_step_selected? =
+      manual_step_selected? and is_binary(selected_step_id) and
+        selected_step_id == socket.assigns[:selected_step_id]
 
     socket
     |> assign(:history, history)
     |> assign(:step_history, step_history)
     |> assign(:selected_step_id, selected_step_id)
     |> assign(:current_step_id, current_step_id)
+    |> assign(:manual_step_selected?, manual_step_selected?)
     |> assign(:final_verdict, extract_final_verdict(history))
   end
 
   @doc """
-  Returns true when the user is following the current (latest) step,
-  i.e. no manual step selection or the selection matches the current step.
+  Clears explicit selection before history assignment while auto-follow is enabled.
   """
-  @spec following_current_step?(Phoenix.LiveView.Socket.t()) :: boolean()
-  def following_current_step?(socket) do
-    selected = socket.assigns[:selected_step_id]
-    current = socket.assigns[:current_step_id]
-
-    is_nil(selected) or selected == current
+  @spec prepare_history_update(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  def prepare_history_update(socket) do
+    if socket.assigns[:manual_step_selected?] == true do
+      socket
+    else
+      assign(socket, :selected_step_id, nil)
+    end
   end
 
   @doc """
@@ -110,11 +121,11 @@ defmodule AlgedoniaWeb.LoopLive.HistoryHelper do
 
   defp sortable_timestamp(_), do: 0
 
-  defp selected_step_id([], _selected, _current_step_id), do: nil
+  defp selected_step_id([], _selected, _current_step_id, _manual_selected?), do: nil
 
-  defp selected_step_id(history, selected, current_step_id) do
+  defp selected_step_id(history, selected, current_step_id, manual_selected?) do
     cond do
-      is_binary(selected) && Enum.any?(history, &(&1.id == selected)) ->
+      manual_selected? && is_binary(selected) && Enum.any?(history, &(&1.id == selected)) ->
         selected
 
       is_binary(current_step_id) && Enum.any?(history, &(&1.id == current_step_id)) ->
@@ -137,9 +148,6 @@ defmodule AlgedoniaWeb.LoopLive.HistoryHelper do
       current_id = TaskLoopOrchestrator.current_step_terminal_id(loop_id) ->
         if Enum.any?(history, &(&1.id == current_id)), do: current_id
 
-      current_id = current_step_id_from_loop_context(socket, history) ->
-        current_id
-
       latest_id = TaskLoopOrchestrator.latest_step_terminal_id(loop_id) ->
         if Enum.any?(history, &(&1.id == latest_id)), do: latest_id
 
@@ -149,27 +157,8 @@ defmodule AlgedoniaWeb.LoopLive.HistoryHelper do
   end
 
   defp current_step_id_from_history_status(history) do
-    Enum.find(history, fn entry -> entry.status == "running" end)
-  end
-
-  defp current_step_id_from_loop_context(socket, history) do
-    stage = socket.assigns[:stage]
-    attempt = socket.assigns[:attempt]
-
-    role =
-      case stage do
-        "maker" -> "maker"
-        "checker" -> "checker"
-        _ -> nil
-      end
-
-    if is_integer(attempt) && is_binary(role) do
-      history
-      |> Enum.find(fn entry -> entry.attempt == attempt && entry.role == role end)
-      |> case do
-        nil -> nil
-        entry -> entry.id
-      end
-    end
+    history
+    |> Enum.filter(fn entry -> entry.status == "running" end)
+    |> List.last()
   end
 end

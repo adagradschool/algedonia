@@ -64,7 +64,7 @@ go build -o algedonia-agent ./cmd/algedonia-agent
 ### Elixir
 - Modules: `CamelCase` (e.g., `Algedonia.Tickets`)
 - Functions: `snake_case`
-- Max 300 lines/module, ≤20 lines/function (30 for pipeline-heavy)
+- ~300 lines/module, ~20 lines/function (30 for pipeline-heavy) — soft gates, a few lines over is fine if succinct
 - Context modules are the test seam; no `Repo` calls outside contexts
 - Side effects injected or passed as arguments
 - LiveView: minimal socket assigns, use `stream` for collections, thin `handle_event`

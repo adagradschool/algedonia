@@ -99,14 +99,18 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :id, :string, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
-  attr :loop_ids, :map, default: %{}
+  attr :loop_info, :map, default: %{}
 
   def ticket_card(assigns) do
+    info = Map.get(assigns.loop_info, assigns.ticket.id, %{})
+
     assigns =
       assigns
-      |> assign(:loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+      |> assign(:loop_id, info[:loop_id])
       |> assign(:ticket_ref, ticket_ref(assigns.ticket))
-      |> assign(:loop_ref, short_id(Map.get(assigns.loop_ids, assigns.ticket.id)))
+      |> assign(:loop_ref, short_id(info[:loop_id]))
+      |> assign(:stage, info[:stage])
+      |> assign(:attempt, info[:attempt])
 
     ~H"""
     <div
@@ -116,62 +120,113 @@ defmodule AlgedoniaWeb.TicketComponents do
       phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}"))}
     >
       <div class="text-sm font-medium leading-snug text-fg">{@ticket.title}</div>
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <.priority_icon priority={@ticket.priority} />
-          <span class="font-mono text-[10px] text-fg-muted">
-            {ticket_code(@ticket, @prefix)}
-          </span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            :if={@ticket.status == :backlog}
-            phx-click="plan_ticket"
-            phx-value-id={@ticket.id}
-            phx-stop-propagation
-            class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors"
-            type="button"
-          >
-            Plan
-          </button>
-          <button
-            :if={@ticket.status == :planning}
-            phx-click="open_planning_session"
-            phx-value-id={@ticket.id}
-            phx-stop-propagation
-            class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors"
-            type="button"
-          >
-            Plan Session
-          </button>
-          <button
-            :if={@ticket.status in [:planning, :halted]}
-            phx-click="start_work"
-            phx-value-id={@ticket.id}
-            phx-stop-propagation
-            class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors"
-            type="button"
-          >
-            Start Work
-          </button>
-          <a
-            :if={@ticket.status in [:in_progress, :completed] && @loop_id}
-            href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
-            phx-stop-propagation
-            data-phx-link="redirect"
-            data-phx-link-state="push"
-            class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
-          >
-            Inspect
-          </a>
-          <.type_badge type={@ticket.type} />
-          <span
-            :if={@ticket.assignee}
-            class="text-[10px] text-fg-muted max-w-36 whitespace-normal break-words text-right"
-          >
-            {@ticket.assignee}
-          </span>
-        </div>
+      <.ticket_card_bottom_row
+        ticket={@ticket}
+        prefix={@prefix}
+        workspace_slug={@workspace_slug}
+        ticket_ref={@ticket_ref}
+        loop_id={@loop_id}
+        loop_ref={@loop_ref}
+        stage={@stage}
+        attempt={@attempt}
+      />
+    </div>
+    """
+  end
+
+  attr :ticket, :map, required: true
+  attr :prefix, :string, required: true
+  attr :workspace_slug, :string, default: nil
+  attr :ticket_ref, :string, required: true
+  attr :loop_id, :string, default: nil
+  attr :loop_ref, :string, default: nil
+  attr :stage, :string, default: nil
+  attr :attempt, :integer, default: nil
+
+  defp ticket_card_bottom_row(%{ticket: %{status: :in_progress}} = assigns) do
+    ~H"""
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2 min-w-0">
+        <.priority_icon priority={@ticket.priority} />
+        <span class="font-mono text-[10px] text-fg-muted whitespace-nowrap">
+          {ticket_code(@ticket, @prefix)}
+        </span>
+        <.type_badge type={@ticket.type} />
+      </div>
+      <div class="flex items-center gap-2 justify-end">
+        <a
+          :if={@loop_id}
+          href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
+          phx-stop-propagation
+          data-phx-link="redirect"
+          data-phx-link-state="push"
+          data-role="loop-stage-link"
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
+        >
+          {stage_label(@stage || "maker", @attempt || 1)}
+        </a>
+      </div>
+    </div>
+    """
+  end
+
+  defp ticket_card_bottom_row(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <.priority_icon priority={@ticket.priority} />
+        <span class="font-mono text-[10px] text-fg-muted whitespace-nowrap">
+          {ticket_code(@ticket, @prefix)}
+        </span>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap justify-end">
+        <button
+          :if={@ticket.status == :backlog}
+          phx-click="plan_ticket"
+          phx-value-id={@ticket.id}
+          phx-stop-propagation
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors"
+          type="button"
+        >
+          Plan
+        </button>
+        <button
+          :if={@ticket.status == :planning}
+          phx-click="open_planning_session"
+          phx-value-id={@ticket.id}
+          phx-stop-propagation
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-yellow/40 bg-status-yellow/10 text-status-yellow text-[11px] font-medium hover:bg-status-yellow/20 transition-colors"
+          type="button"
+        >
+          Plan Session
+        </button>
+        <button
+          :if={@ticket.status in [:planning, :halted]}
+          phx-click="start_work"
+          phx-value-id={@ticket.id}
+          phx-stop-propagation
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green text-[11px] font-medium hover:bg-status-green/20 transition-colors"
+          type="button"
+        >
+          Start Work
+        </button>
+        <a
+          :if={@loop_id}
+          href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
+          phx-stop-propagation
+          data-phx-link="redirect"
+          data-phx-link-state="push"
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
+        >
+          Inspect
+        </a>
+        <.type_badge type={@ticket.type} />
+        <span
+          :if={@ticket.assignee}
+          class="text-[10px] text-fg-muted max-w-36 whitespace-normal break-words text-right"
+        >
+          {@ticket.assignee}
+        </span>
       </div>
     </div>
     """
@@ -184,14 +239,16 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :id, :string, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
-  attr :loop_ids, :map, default: %{}
+  attr :loop_info, :map, default: %{}
 
   def ticket_row(assigns) do
+    info = Map.get(assigns.loop_info, assigns.ticket.id, %{})
+
     assigns =
       assigns
-      |> assign(:loop_id, Map.get(assigns.loop_ids, assigns.ticket.id))
+      |> assign(:loop_id, info[:loop_id])
       |> assign(:ticket_ref, ticket_ref(assigns.ticket))
-      |> assign(:loop_ref, short_id(Map.get(assigns.loop_ids, assigns.ticket.id)))
+      |> assign(:loop_ref, short_id(info[:loop_id]))
 
     ~H"""
     <div
@@ -200,7 +257,7 @@ defmodule AlgedoniaWeb.TicketComponents do
       phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}"))}
     >
       <.priority_icon priority={@ticket.priority} />
-      <span class="font-mono text-xs text-fg-muted w-16 shrink-0">
+      <span class="font-mono text-xs text-fg-muted w-16 shrink-0 whitespace-nowrap">
         {ticket_code(@ticket, @prefix)}
       </span>
       <.status_icon status={@ticket.status} />
@@ -239,7 +296,7 @@ defmodule AlgedoniaWeb.TicketComponents do
         Start Work
       </button>
       <a
-        :if={@ticket.status in [:in_progress, :completed] && @loop_id}
+        :if={@loop_id}
         href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
         phx-stop-propagation
         data-phx-link="redirect"
@@ -307,7 +364,8 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :stream, :any, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
-  attr :loop_ids, :map, default: %{}
+  attr :loop_info, :map, default: %{}
+  attr :last, :boolean, default: false
 
   def status_column(assigns) do
     label = status_label(assigns.status)
@@ -343,7 +401,10 @@ defmodule AlgedoniaWeb.TicketComponents do
         phx-update="stream"
         data-kanban-column
         data-status={@status}
-        class="flex flex-col gap-2 flex-1 overflow-y-auto"
+        class={[
+          "flex flex-col gap-2 flex-1 overflow-y-auto",
+          !@last && "border-r border-border-soft/20 pr-4"
+        ]}
       >
         <.ticket_card
           :for={{dom_id, ticket} <- @stream}
@@ -351,12 +412,14 @@ defmodule AlgedoniaWeb.TicketComponents do
           id={dom_id}
           prefix={@prefix}
           workspace_slug={@workspace_slug}
-          loop_ids={@loop_ids}
+          loop_info={@loop_info}
         />
       </div>
     </div>
     """
   end
+
+  defp stage_label(stage, attempt), do: "#{String.capitalize(stage)} ##{attempt}"
 
   @doc """
   Returns a human-readable label for a status atom.

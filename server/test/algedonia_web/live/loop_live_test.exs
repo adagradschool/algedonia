@@ -56,6 +56,26 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute render(view) =~ "No online daemon available"
     end
 
+    test "pending hook loop does NOT auto-start", %{conn: conn, workspace: workspace} do
+      ticket = Factory.insert_ticket!(%{workspace_id: workspace.id, status: :planning})
+      dag = Factory.insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        Factory.insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :hook,
+          status: :pending,
+          title: "Hook: planning -> in_progress"
+        })
+
+      {:ok, view, html} =
+        live(conn, "/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      refute html =~ "No online daemon available"
+      refute render(view) =~ "No online daemon available"
+    end
+
     test "ad hoc planning session loads ticket context", %{conn: conn, workspace: workspace} do
       ticket =
         Factory.insert_ticket!(%{
@@ -71,6 +91,23 @@ defmodule AlgedoniaWeb.LoopLiveTest do
         )
 
       assert html =~ "Planning: Plan this"
+    end
+
+    test "planning session auto-starts on mount", %{conn: conn, workspace: workspace} do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "Plan this"
+        })
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/plan-#{String.slice(ticket.id, 0, 8)}?#{%{role: "planning"}}"
+        )
+
+      assert render(view) =~ "No online daemon available"
     end
 
     test "planning role shows sidebar but hides top-bar maker/index indicators", %{
@@ -229,6 +266,38 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert has_element?(view, "#attempt-1-checker-step-checker-1")
     end
 
+    test "auto-follows maker to checker transition for selected chip and terminal panel", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      loop_id = "history-transition-#{System.unique_integer([:positive])}"
+      {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
+
+      send(view.pid, {:loop_history_updated, maker_running_history_fixture()})
+      render_click(element(view, "button[phx-click='toggle_steps']"))
+
+      assert has_element?(
+               view,
+               "button[phx-value-step_id='step-maker-1'][class*='border-accent-indigo/60']"
+             )
+
+      assert has_element?(view, "#attempt-1-maker-step-maker-1")
+
+      send(view.pid, {:loop_history_updated, step_history_fixture()})
+
+      assert has_element?(
+               view,
+               "button[phx-value-step_id='step-checker-1'][class*='border-accent-indigo/60']"
+             )
+
+      refute has_element?(
+               view,
+               "button[phx-value-step_id='step-maker-1'][class*='border-accent-indigo/60']"
+             )
+
+      assert has_element?(view, "#attempt-1-checker-step-checker-1")
+    end
+
     test "orders out-of-order history and marks checker as current when running", %{
       conn: conn,
       workspace: workspace
@@ -246,13 +315,13 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert html =~ ~r/Maker #1.*Checker #1/s
     end
 
-    test "uses loop status as current step when no history entry is running", %{
+    test "auto-follow selects newest completed step when no step is running", %{
       conn: conn,
       workspace: workspace
     } do
       loop =
         build_task_loop!(workspace, %{
-          status: :running_checker,
+          status: :running_maker,
           current_attempt: 1
         })
 
@@ -261,14 +330,19 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
       render_click(element(view, "button[phx-click='toggle_steps']"))
 
-      assert has_element?(view, "button[phx-value-step_id='step-checker-1'] .animate-spin")
+      assert has_element?(
+               view,
+               "button[phx-value-step_id='step-checker-1'][class*='border-accent-indigo/60']"
+             )
+
       assert has_element?(view, "#attempt-1-checker-step-checker-1")
     end
 
-    test "keeps current spinner on running step while viewing older step", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "manual step selection stays pinned across history updates while spinner tracks current step",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       loop =
         build_task_loop!(workspace, %{
           status: :running_checker,
@@ -281,8 +355,28 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       render_click(element(view, "button[phx-click='toggle_steps']"))
       render_click(element(view, "button[phx-value-step_id='step-maker-1']"))
 
+      assert has_element?(
+               view,
+               "button[phx-value-step_id='step-maker-1'][class*='border-accent-indigo/60']"
+             )
+
       assert has_element?(view, "#attempt-1-maker-step-maker-1")
       assert has_element?(view, "button[phx-value-step_id='step-checker-2'] .animate-spin")
+
+      send(view.pid, {:loop_history_updated, newer_running_checker_history_fixture()})
+
+      assert has_element?(
+               view,
+               "button[phx-value-step_id='step-maker-1'][class*='border-accent-indigo/60']"
+             )
+
+      refute has_element?(
+               view,
+               "button[phx-value-step_id='step-checker-3'][class*='border-accent-indigo/60']"
+             )
+
+      assert has_element?(view, "#attempt-1-maker-step-maker-1")
+      assert has_element?(view, "button[phx-value-step_id='step-checker-3'] .animate-spin")
     end
 
     test "switches to rubric tab and renders collaborative editor shell", %{
@@ -374,6 +468,18 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     ]
   end
 
+  defp maker_running_history_fixture do
+    [
+      %{
+        id: "step-maker-1",
+        role: "maker",
+        attempt: 1,
+        status: "running",
+        started_at: ~U[2026-01-01 00:01:00Z]
+      }
+    ]
+  end
+
   defp out_of_order_running_checker_history_fixture do
     [
       %{
@@ -441,6 +547,53 @@ defmodule AlgedoniaWeb.LoopLiveTest do
         attempt: 2,
         status: "running",
         started_at: ~U[2026-01-01 00:04:00Z]
+      }
+    ]
+  end
+
+  defp newer_running_checker_history_fixture do
+    [
+      %{
+        id: "step-maker-1",
+        role: "maker",
+        attempt: 1,
+        status: "completed",
+        started_at: ~U[2026-01-01 00:01:00Z]
+      },
+      %{
+        id: "step-checker-1",
+        role: "checker",
+        attempt: 1,
+        status: "completed",
+        started_at: ~U[2026-01-01 00:02:00Z]
+      },
+      %{
+        id: "step-maker-2",
+        role: "maker",
+        attempt: 2,
+        status: "completed",
+        started_at: ~U[2026-01-01 00:03:00Z]
+      },
+      %{
+        id: "step-checker-2",
+        role: "checker",
+        attempt: 2,
+        status: "completed",
+        started_at: ~U[2026-01-01 00:04:00Z]
+      },
+      %{
+        id: "step-maker-3",
+        role: "maker",
+        attempt: 3,
+        status: "completed",
+        started_at: ~U[2026-01-01 00:05:00Z]
+      },
+      %{
+        id: "step-checker-3",
+        role: "checker",
+        attempt: 3,
+        status: "running",
+        started_at: ~U[2026-01-01 00:06:00Z]
       }
     ]
   end

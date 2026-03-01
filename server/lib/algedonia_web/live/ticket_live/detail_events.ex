@@ -9,7 +9,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   import Phoenix.Component, only: [assign: 2, to_form: 1]
   import AlgedoniaWeb.Helpers, only: [ticket_ref: 1, short_id: 1]
 
-  alias Algedonia.{Agents, Tickets}
+  alias Algedonia.{Agents, Dags, Loops, Tickets, Workspaces}
   alias Algedonia.Tickets.Comment
 
   @ticket_detail_fields [:description, :acceptance_criteria, :rubric]
@@ -19,6 +19,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   """
   def load_detail(socket, workspace_id, ticket_ref) do
     ticket = Tickets.get_ticket_by_ref!(workspace_id, ticket_ref)
+    if connected?(socket), do: Dags.subscribe(ticket.id)
 
     assign(socket,
       page_title: ticket.title,
@@ -33,7 +34,9 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       reply_form: nil,
       editing_comment_id: nil,
       edit_form: nil,
-      loop_id: Algedonia.Dags.first_loop_id(ticket.id)
+      loop_id: Dags.first_inspect_loop_id(ticket.id),
+      hook_loops: Loops.list_hook_loops_for_ticket(ticket.id),
+      transition_hooks: Workspaces.list_transition_hooks(workspace_id)
     )
   end
 
@@ -127,6 +130,12 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       {:error, :invalid_status} ->
         {:noreply, put_flash(socket, :error, "Only planning or halted tickets can start work")}
 
+      {:error, :no_online_daemon} ->
+        {:noreply, put_flash(socket, :error, "No online daemon available")}
+
+      {:error, :daemon_repo_not_ready} ->
+        {:noreply, put_flash(socket, :error, "Daemon repository is not ready yet")}
+
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Unable to start work")}
     end
@@ -156,6 +165,14 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       {:noreply,
        put_flash(socket, :error, "Planning session is only available in planning stage")}
     end
+  end
+
+  def handle("export_markdown", %{"id" => id}, socket) do
+    ticket = Tickets.get_ticket!(id)
+    slug = socket.assigns.workspace_slug
+    ref = ticket_ref(ticket)
+    url = ~p"/w/#{slug}/tickets/#{ref}/export/markdown"
+    {:noreply, redirect(socket, to: url)}
   end
 
   def handle("duplicate_ticket", %{"id" => id}, socket) do

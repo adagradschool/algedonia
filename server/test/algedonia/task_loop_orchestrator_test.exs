@@ -408,6 +408,31 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       reloaded_ticket = Tickets.get_ticket!(ticket.id)
       assert reloaded_ticket.status == :completed
     end
+
+    test "checker pass completes ticket even when hook loop is pending", %{orchestrator: pid} do
+      %{loop: loop, daemon: daemon, ticket: ticket, dag: dag} = setup_task_loop(pid)
+
+      _hook_loop = insert_loop!(%{dag_id: dag.id, role: :hook, status: :pending})
+
+      handle_attempt_complete(
+        pid,
+        loop.id,
+        %{"session_id" => "maker-1", "exit_code" => 0},
+        daemon.name
+      )
+
+      assert_receive {:push, _, _, %{"role" => "checker"}}
+
+      handle_attempt_complete(
+        pid,
+        loop.id,
+        valid_checker_payload(loop.id, 1, "pass", "All good"),
+        daemon.name
+      )
+
+      reloaded_ticket = Tickets.get_ticket!(ticket.id)
+      assert reloaded_ticket.status == :completed
+    end
   end
 
   describe "task loop: checker fail with retry" do
@@ -734,6 +759,22 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       :sys.get_state(pid)
 
       refute_receive {:push, _, _, _}, 100
+    end
+
+    test "planning ticket auto-start ignores hook loops", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :planning})
+      dag = insert_dag!(%{ticket_id: ticket.id})
+
+      _hook_loop = insert_loop!(%{dag_id: dag.id, role: :hook, status: :pending, max_attempts: 3})
+      task_loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      task_loop_id = task_loop.id
+
+      _daemon = insert_daemon!(%{status: :online})
+
+      send(pid, {:ticket_updated, %{ticket | status: :planning}})
+      :sys.get_state(pid)
+
+      assert_receive {:push, _, ^task_loop_id, %{"role" => "maker"}}
     end
   end
 

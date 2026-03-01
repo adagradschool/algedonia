@@ -40,6 +40,7 @@ defmodule AlgedoniaWeb.Router do
     pipe_through [:browser, AlgedoniaWeb.Plugs.RequireUser, AlgedoniaWeb.Plugs.RequireWorkspace]
 
     get "/", PageController, :workspace_home
+    get "/tickets/:ticket_ref/export/markdown", TicketExportController, :export_markdown
 
     live_session :default, on_mount: [AlgedoniaWeb.PresenceHook] do
       live "/monitor", MonitorLive.Index, :index
@@ -73,6 +74,7 @@ defmodule AlgedoniaWeb.Router do
       pipe_through AlgedoniaWeb.Plugs.ApiWorkspace
 
       resources "/tickets", TicketController, except: [:new, :edit]
+      get "/tickets/:id/export/markdown", TicketController, :export_markdown
 
       resources "/tickets/:ticket_id/comments", CommentController,
         only: [:index, :create, :update, :delete]
