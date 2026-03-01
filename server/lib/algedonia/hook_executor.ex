@@ -8,8 +8,8 @@ defmodule Algedonia.HookExecutor do
   """
 
   alias Algedonia.{Agents, Daemons, Dags, Loops, Tickets, Workspaces}
-  alias AlgedoniaWeb.DaemonChannel
   alias Algedonia.Tickets.Ticket
+  alias AlgedoniaWeb.DaemonChannel
 
   @doc """
   Fires all enabled hooks matching a status transition.

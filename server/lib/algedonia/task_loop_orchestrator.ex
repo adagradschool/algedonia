@@ -135,21 +135,13 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp auto_start_planning_loop(ticket, state) do
-    case {Dags.get_dag_by_ticket(ticket.id), Daemons.find_online()} do
-      {%{loops: loops}, {:ok, daemon}} ->
-        case Enum.find(loops, &(&1.role == :task)) do
-          nil ->
-            state
-
-          loop ->
-            case start_loop(loop.id, daemon.name, [], state) do
-              {:ok, new_state} -> new_state
-              {:error, _} -> state
-            end
-        end
-
-      _ ->
-        state
+    with %{loops: loops} <- Dags.get_dag_by_ticket(ticket.id),
+         {:ok, daemon} <- Daemons.find_online(),
+         %{id: loop_id} <- Enum.find(loops, &(&1.role == :task)),
+         {:ok, new_state} <- start_loop(loop_id, daemon.name, [], state) do
+      new_state
+    else
+      _ -> state
     end
   end
 
