@@ -148,6 +148,14 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, assign(socket, :show_shortcut_help, !socket.assigns.show_shortcut_help)}
   end
 
+  def handle_event("terminal_request_scrollback", _params, socket) do
+    if connected?(socket) do
+      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_event("shortcut_toggle_loop", _params, socket) do
     if socket.assigns.active do
       handle_event("stop_loop", %{}, socket)

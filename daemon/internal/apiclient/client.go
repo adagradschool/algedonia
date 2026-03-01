@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Client communicates with the Algedonia server API.
@@ -22,10 +23,12 @@ type Client struct {
 // New creates a new API client.
 func New(baseURL, token, workspace string) *Client {
 	return &Client{
-		BaseURL:    strings.TrimRight(baseURL, "/"),
-		Token:      token,
-		Workspace:  workspace,
-		HTTPClient: http.DefaultClient,
+		BaseURL:   strings.TrimRight(baseURL, "/"),
+		Token:     token,
+		Workspace: workspace,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 

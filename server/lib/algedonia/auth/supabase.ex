@@ -48,7 +48,7 @@ defmodule Algedonia.Auth.Supabase do
         "code_verifier" => code_verifier
       })
 
-    case Req.post(url, headers: headers, body: body) do
+    case Req.post(url, [headers: headers, body: body] ++ req_options()) do
       {:ok, %{status: 200, body: body}} ->
         extract_github_profile(body)
 
@@ -100,5 +100,9 @@ defmodule Algedonia.Auth.Supabase do
 
   defp generate_code_challenge(verifier) do
     :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false)
+  end
+
+  defp req_options do
+    Application.get_env(:algedonia, :supabase_req_options, [])
   end
 end

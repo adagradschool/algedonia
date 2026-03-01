@@ -340,6 +340,102 @@ func TestHandleStdinInputMissingID(t *testing.T) {
 	}
 }
 
+func TestBroadcastTerminalSlowSubscriberDisconnected(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+	_, ch, _ := mgr.SubscribeTerminal("loop-overflow", 0)
+
+	// Fill subscriber queue and trigger overflow handling.
+	for i := 0; i < 512; i++ {
+		mgr.broadcastTerminal("loop-overflow", []byte("x"))
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for overflow subscriber to disconnect")
+		}
+	}
+}
+
+func TestSubscribeTerminalReplayFromSeq(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+	loopID := "loop-replay"
+
+	for i := 0; i < 5; i++ {
+		mgr.broadcastTerminal(loopID, []byte(fmt.Sprintf("chunk-%d", i+1)))
+	}
+
+	replay, ch, unsubscribe := mgr.SubscribeTerminal(loopID, 3)
+	defer unsubscribe()
+
+	if len(replay) != 3 {
+		t.Fatalf("replay len = %d, want 3", len(replay))
+	}
+	if replay[0].Seq != 3 || replay[1].Seq != 4 || replay[2].Seq != 5 {
+		t.Fatalf("unexpected replay seqs: %d, %d, %d", replay[0].Seq, replay[1].Seq, replay[2].Seq)
+	}
+
+	mgr.broadcastTerminal(loopID, []byte("chunk-6"))
+	select {
+	case live := <-ch:
+		if live.Seq != 6 {
+			t.Fatalf("live seq = %d, want 6", live.Seq)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for live chunk")
+	}
+}
+
+func TestSubscribeTerminalReplayTrimmedByByteCap(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+	mgr.replayMax = 12
+	loopID := "loop-replay-trim"
+
+	mgr.broadcastTerminal(loopID, []byte("aaaaa")) // seq 1
+	mgr.broadcastTerminal(loopID, []byte("bbbbb")) // seq 2
+	mgr.broadcastTerminal(loopID, []byte("ccccc")) // seq 3, seq 1 should be trimmed
+
+	replay, _, unsubscribe := mgr.SubscribeTerminal(loopID, 1)
+	defer unsubscribe()
+
+	if len(replay) != 2 {
+		t.Fatalf("replay len = %d, want 2", len(replay))
+	}
+	if replay[0].Seq != 2 || replay[1].Seq != 3 {
+		t.Fatalf("unexpected replay seqs after trim: %d, %d", replay[0].Seq, replay[1].Seq)
+	}
+}
+
+func TestBroadcastTerminalGapFreeUnderBurst(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+	mgr.replayMax = 2 * 1024 * 1024
+	loopID := "loop-burst"
+	const total = 1000
+
+	for i := 0; i < total; i++ {
+		mgr.broadcastTerminal(loopID, []byte("x"))
+	}
+
+	replay, _, unsubscribe := mgr.SubscribeTerminal(loopID, 1)
+	defer unsubscribe()
+
+	if len(replay) != total {
+		t.Fatalf("received %d seqs, want %d", len(replay), total)
+	}
+
+	for i := 0; i < total; i++ {
+		want := uint64(i + 1)
+		if replay[i].Seq != want {
+			t.Fatalf("seq[%d] = %d, want %d", i, replay[i].Seq, want)
+		}
+	}
+}
+
 func TestSendFuncError(t *testing.T) {
 	// SendFunc that always fails — manager should still function
 	mgr := NewManager(func(string, map[string]interface{}) error {

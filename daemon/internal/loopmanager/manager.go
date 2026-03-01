@@ -19,6 +19,7 @@ import (
 
 	"github.com/algedonia/daemon/internal/adapter"
 	ptyPkg "github.com/algedonia/daemon/internal/pty"
+	"github.com/algedonia/daemon/internal/terminalstream"
 )
 
 // LoopProcess represents a running loop with its PTY session and chunker.
@@ -45,28 +46,40 @@ type LoopProcess struct {
 type Manager struct {
 	mu         sync.Mutex
 	loops      map[string]*LoopProcess
-	termSubs   map[string]map[uint64]chan []byte
+	termSubs   map[string]map[uint64]chan terminalstream.Chunk
+	termStream map[string]*terminalStreamState
 	nextSubID  uint64
 	sendFunc   func(event string, payload map[string]interface{}) error
 	adapterReg *adapter.Registry
 	repoRoot   string
+	replayMax  int
+}
+
+type terminalStreamState struct {
+	nextSeq     uint64
+	history     []terminalstream.Chunk
+	historySize int
 }
 
 const (
 	defaultChunkFlushInterval = 50 * time.Millisecond
 	defaultChunkMaxSize       = 4096
+	defaultReplayMaxBytes     = 8 * 1024 * 1024
 	minChunkFlushMS           = 1
 	minChunkMaxBytes          = 256
+	minReplayMaxBytes         = 64 * 1024
 )
 
 // NewManager creates a Manager that uses sendFunc to send events to the server.
 func NewManager(sendFunc func(event string, payload map[string]interface{}) error, registry *adapter.Registry, repoRoot string) *Manager {
 	return &Manager{
 		loops:      make(map[string]*LoopProcess),
-		termSubs:   make(map[string]map[uint64]chan []byte),
+		termSubs:   make(map[string]map[uint64]chan terminalstream.Chunk),
+		termStream: make(map[string]*terminalStreamState),
 		sendFunc:   sendFunc,
 		adapterReg: registry,
 		repoRoot:   repoRoot,
+		replayMax:  replayMaxBytesFromEnv(os.Getenv),
 	}
 }
 
@@ -79,23 +92,49 @@ func (m *Manager) sendEvent(event string, payload map[string]interface{}) {
 
 func (m *Manager) broadcastTerminal(loopID string, data []byte) {
 	m.mu.Lock()
+
+	stream, ok := m.termStream[loopID]
+	if !ok {
+		stream = &terminalStreamState{}
+		m.termStream[loopID] = stream
+	}
+	stream.nextSeq++
+	chunk := terminalstream.Chunk{
+		Seq:  stream.nextSeq,
+		Data: append([]byte(nil), data...),
+	}
+	stream.history = append(stream.history, chunk)
+	stream.historySize += len(chunk.Data)
+	for stream.historySize > m.replayMax && len(stream.history) > 0 {
+		dropped := stream.history[0]
+		stream.history = stream.history[1:]
+		stream.historySize -= len(dropped.Data)
+	}
+
 	subs := m.termSubs[loopID]
 	if len(subs) == 0 {
 		m.mu.Unlock()
 		return
 	}
-	chans := make([]chan []byte, 0, len(subs))
-	for _, ch := range subs {
-		chans = append(chans, ch)
+	type terminalSub struct {
+		id uint64
+		ch chan terminalstream.Chunk
+	}
+	chans := make([]terminalSub, 0, len(subs))
+	for id, ch := range subs {
+		chans = append(chans, terminalSub{id: id, ch: ch})
 	}
 	m.mu.Unlock()
 
-	payload := append([]byte(nil), data...)
-	for _, ch := range chans {
+	for _, sub := range chans {
 		select {
-		case ch <- payload:
+		case sub.ch <- chunk:
 		default:
-			// Drop when slow consumer backpressure builds up.
+			// Do not silently drop PTY bytes: that corrupts ANSI state and causes
+			// garbled output. Disconnect the slow subscriber so it can reconnect
+			// and resync from canonical scrollback.
+			log.Printf("terminal subscriber overflow for loop %s (sub=%d), disconnecting", loopID, sub.id)
+			m.unsubscribeTerminal(loopID, sub.id)
 		}
 	}
 }
@@ -119,21 +158,42 @@ func (m *Manager) unsubscribeTerminal(loopID string, id uint64) {
 	}
 }
 
-// SubscribeTerminal streams raw PTY bytes for a loop to a dedicated subscriber.
-func (m *Manager) SubscribeTerminal(loopID string) (<-chan []byte, func()) {
+func cloneChunk(chunk terminalstream.Chunk) terminalstream.Chunk {
+	cloned := terminalstream.Chunk{
+		Seq:  chunk.Seq,
+		Data: make([]byte, len(chunk.Data)),
+	}
+	copy(cloned.Data, chunk.Data)
+	return cloned
+}
+
+// SubscribeTerminal streams ordered PTY output for a loop to a dedicated subscriber.
+// If fromSeq > 0, replay includes buffered chunks with Seq >= fromSeq.
+func (m *Manager) SubscribeTerminal(loopID string, fromSeq uint64) ([]terminalstream.Chunk, <-chan terminalstream.Chunk, func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.termSubs[loopID]; !ok {
-		m.termSubs[loopID] = make(map[uint64]chan []byte)
+		m.termSubs[loopID] = make(map[uint64]chan terminalstream.Chunk)
 	}
 	id := m.nextSubID
 	m.nextSubID++
 
-	ch := make(chan []byte, 128)
+	ch := make(chan terminalstream.Chunk, 128)
 	m.termSubs[loopID][id] = ch
 
-	return ch, func() {
+	replay := make([]terminalstream.Chunk, 0)
+	if fromSeq > 0 {
+		if stream := m.termStream[loopID]; stream != nil {
+			for _, item := range stream.history {
+				if item.Seq >= fromSeq {
+					replay = append(replay, cloneChunk(item))
+				}
+			}
+		}
+	}
+
+	return replay, ch, func() {
 		m.unsubscribeTerminal(loopID, id)
 	}
 }
@@ -176,6 +236,25 @@ func chunkMaxSizeFromEnv(getenv func(string) string) int {
 			defaultChunkMaxSize,
 		)
 		return defaultChunkMaxSize
+	}
+
+	return size
+}
+
+func replayMaxBytesFromEnv(getenv func(string) string) int {
+	raw := strings.TrimSpace(getenv("ALGEDONIA_TERMINAL_REPLAY_BYTES"))
+	if raw == "" {
+		return defaultReplayMaxBytes
+	}
+
+	size, err := strconv.Atoi(raw)
+	if err != nil || size < minReplayMaxBytes {
+		log.Printf(
+			"Invalid ALGEDONIA_TERMINAL_REPLAY_BYTES=%q, using default %d",
+			raw,
+			defaultReplayMaxBytes,
+		)
+		return defaultReplayMaxBytes
 	}
 
 	return size
@@ -467,6 +546,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 			}
 			m.mu.Lock()
 			delete(m.loops, loopID)
+			delete(m.termStream, loopID)
 			m.mu.Unlock()
 		}()
 
@@ -782,6 +862,7 @@ func (m *Manager) StartOverviewLoop(ctx context.Context, loopID, task, model str
 
 		m.mu.Lock()
 		delete(m.loops, loopID)
+		delete(m.termStream, loopID)
 		m.mu.Unlock()
 	}()
 

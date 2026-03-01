@@ -36,6 +36,10 @@ config :algedonia, :github,
   client_id: "test-client-id",
   client_secret: "test-client-secret"
 
+# Route auth HTTP requests through Req.Test stubs
+config :algedonia, :github_device_req_options, plug: {Req.Test, Algedonia.Auth.GithubDevice}
+config :algedonia, :supabase_req_options, plug: {Req.Test, Algedonia.Auth.Supabase}
+
 # Don't start DaemonMonitor or Orchestrator in tests (they're tested explicitly)
 config :algedonia, :start_daemon_monitor, false
 config :algedonia, :start_orchestrator, false

@@ -2,15 +2,17 @@ package terminalws
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
-	"github.com/algedonia/daemon/internal/loopmanager"
+	"github.com/algedonia/daemon/internal/terminalstream"
 	"nhooyr.io/websocket"
 )
 
@@ -32,15 +34,22 @@ type TokenVerifier interface {
 	Verify(ctx context.Context, token, loopID string) error
 }
 
+// TerminalManager provides access to loop PTY streams.
+type TerminalManager interface {
+	SubscribeTerminal(loopID string, fromSeq uint64) ([]terminalstream.Chunk, <-chan terminalstream.Chunk, func())
+	SendInput(loopID string, data []byte) error
+	ResizeLoop(loopID string, cols, rows uint16) error
+}
+
 // Server exposes loop PTY streams over a direct WebSocket.
 type Server struct {
 	listenAddr string
-	manager    *loopmanager.Manager
+	manager    TerminalManager
 	verifier   TokenVerifier
 	httpServer *http.Server
 }
 
-func NewServer(listenAddr string, manager *loopmanager.Manager, verifier TokenVerifier) *Server {
+func NewServer(listenAddr string, manager TerminalManager, verifier TokenVerifier) *Server {
 	return &Server{
 		listenAddr: listenAddr,
 		manager:    manager,
@@ -103,11 +112,32 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	streamCh, unsubscribe := s.manager.SubscribeTerminal(loopID)
+	fromSeq := uint64(0)
+	if raw := r.URL.Query().Get("from_seq"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 10, 64); err == nil {
+			fromSeq = parsed
+		}
+	}
+
+	replay, streamCh, unsubscribe := s.manager.SubscribeTerminal(loopID, fromSeq)
 	defer unsubscribe()
 
 	writeCtx, cancelWrite := context.WithCancel(r.Context())
 	defer cancelWrite()
+
+	writeChunk := func(chunk terminalstream.Chunk) error {
+		payload := make([]byte, 1+8+len(chunk.Data))
+		payload[0] = frameTypeInput
+		binary.BigEndian.PutUint64(payload[1:9], chunk.Seq)
+		copy(payload[9:], chunk.Data)
+		return conn.Write(writeCtx, websocket.MessageBinary, payload)
+	}
+
+	for _, chunk := range replay {
+		if err := writeChunk(chunk); err != nil {
+			return
+		}
+	}
 
 	// PTY -> WebSocket
 	go func() {
@@ -117,12 +147,11 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 				return
 			case chunk, ok := <-streamCh:
 				if !ok {
+					_ = conn.Close(websocket.StatusPolicyViolation, "terminal stream reset")
+					cancelWrite()
 					return
 				}
-				payload := make([]byte, 1+len(chunk))
-				payload[0] = frameTypeInput
-				copy(payload[1:], chunk)
-				if err := conn.Write(writeCtx, websocket.MessageBinary, payload); err != nil {
+				if err := writeChunk(chunk); err != nil {
 					cancelWrite()
 					return
 				}

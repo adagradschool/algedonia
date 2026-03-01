@@ -12,6 +12,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   import AlgedoniaWeb.TicketComponents
   import AlgedoniaWeb.PresenceComponents
+  import AlgedoniaWeb.TicketLive.FilterHelpers
 
   @statuses Tickets.display_statuses()
 
@@ -178,23 +179,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   # -- Streams --
 
   defp stream_tickets(socket) do
-    %{grouped: grouped, count: count} =
-      Tickets.search_tickets_grouped(
-        status: socket.assigns.filter_status,
-        assignee: socket.assigns.filter_assignee,
-        sort_by: socket.assigns.sort_by,
-        sort_order: socket.assigns.sort_order,
-        workspace_id: socket.assigns.current_workspace_id,
-        query: socket.assigns.filter_query,
-        prefix: socket.assigns.workspace_prefix
-      )
-
-    active_ids =
-      grouped
-      |> Map.take([:planning, :in_progress])
-      |> Map.values()
-      |> List.flatten()
-      |> Enum.map(& &1.id)
+    %{grouped: grouped, count: count} = Tickets.search_tickets_grouped(search_opts(socket))
 
     Enum.reduce(@statuses, socket, fn s, acc ->
       stream(acc, stream_name(s), Map.get(grouped, s, []), reset: true)
@@ -202,8 +187,28 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     |> assign(
       ticket_count: count,
       tickets_by_status: grouped,
-      loop_ids: Dags.first_loop_ids_for_tickets(active_ids)
+      loop_ids: Dags.first_loop_ids_for_tickets(active_ticket_ids(grouped))
     )
+  end
+
+  defp search_opts(socket) do
+    [
+      status: socket.assigns.filter_status,
+      assignee: socket.assigns.filter_assignee,
+      sort_by: socket.assigns.sort_by,
+      sort_order: socket.assigns.sort_order,
+      workspace_id: socket.assigns.current_workspace_id,
+      query: socket.assigns.filter_query,
+      prefix: socket.assigns.workspace_prefix
+    ]
+  end
+
+  defp active_ticket_ids(grouped) do
+    grouped
+    |> Map.take([:planning, :in_progress])
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.map(& &1.id)
   end
 
   # -- Helpers --
@@ -220,70 +225,4 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       _ -> nil
     end
   end
-
-  defp tickets_path(socket, overrides \\ []) do
-    ~p"/w/#{socket.assigns.workspace_slug}/tickets?#{build_query_params(socket.assigns, overrides)}"
-  end
-
-  defp filter_state_from_params(params) do
-    %{
-      view_mode: if(params["view"] == "list", do: :list, else: :board),
-      filter_status: parse_status(params["status"]),
-      filter_assignee: params["assignee"],
-      filter_query: normalize_filter_query(params["q"]),
-      sort_by: parse_sort_by(params["sort_by"]),
-      sort_order: parse_sort_order(params["sort_order"])
-    }
-  end
-
-  defp filters_changed?(assigns, fs) do
-    !Map.has_key?(assigns, :filter_status) || assigns.filter_status != fs.filter_status ||
-      assigns.filter_assignee != fs.filter_assignee ||
-      Map.get(assigns, :filter_query) != fs.filter_query ||
-      assigns.view_mode != fs.view_mode || Map.get(assigns, :sort_by) != fs.sort_by ||
-      Map.get(assigns, :sort_order) != fs.sort_order
-  end
-
-  defp parse_status(nil), do: nil
-  defp parse_status(""), do: nil
-
-  defp parse_status(s) when is_binary(s),
-    do: if(s in Enum.map(@statuses, &to_string/1), do: String.to_existing_atom(s))
-
-  defp parse_status(s) when is_atom(s), do: s
-
-  defp parse_sort_by(nil), do: :priority
-  defp parse_sort_by("inserted_at"), do: :inserted_at
-  defp parse_sort_by("title"), do: :title
-  defp parse_sort_by(_), do: :priority
-
-  defp parse_sort_order(nil), do: :asc
-  defp parse_sort_order("desc"), do: :desc
-  defp parse_sort_order(_), do: :asc
-
-  defp build_query_params(assigns, overrides) do
-    view = Keyword.get(overrides, :view) || view_string(assigns.view_mode)
-    status = Keyword.get(overrides, :status, assigns.filter_status)
-    sort_by = Keyword.get(overrides, :sort_by, assigns.sort_by)
-    query = normalize_filter_query(Keyword.get(overrides, :q, assigns.filter_query))
-
-    %{}
-    |> then(&if(view != "board", do: Map.put(&1, :view, view), else: &1))
-    |> then(&if(status in [nil, ""], do: &1, else: Map.put(&1, :status, status)))
-    |> then(
-      &if(sort_by && to_string(sort_by) != "priority",
-        do: Map.put(&1, :sort_by, sort_by),
-        else: &1
-      )
-    )
-    |> then(&if(query, do: Map.put(&1, :q, query), else: &1))
-  end
-
-  defp view_string(:list), do: "list"
-  defp view_string(_), do: "board"
-
-  defp normalize_filter_query(nil), do: nil
-
-  defp normalize_filter_query(q) when is_binary(q),
-    do: if(String.trim(q) == "", do: nil, else: String.trim(q))
 end

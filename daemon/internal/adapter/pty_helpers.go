@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,7 @@ func processAlive(pid int) bool {
 
 // killProcess sends SIGTERM to the process group, waits gracePeriod, then SIGKILLs.
 // It intentionally does not call Wait(): adapter wait goroutines own that lifecycle.
+// ESRCH (no such process) is treated as a non-error since the process is already gone.
 func killProcess(sess *ptyPkg.Session, gracePeriod time.Duration) error {
 	pid := sess.Pid()
 	if pid <= 0 {
@@ -49,7 +51,10 @@ func killProcess(sess *ptyPkg.Session, gracePeriod time.Duration) error {
 	}
 
 	target := signalTarget(sess)
-	_ = syscall.Kill(target, syscall.SIGTERM)
+	if err := signalProcess(target, syscall.SIGTERM); err != nil {
+		_ = sess.Close()
+		return fmt.Errorf("sending SIGTERM: %w", err)
+	}
 
 	deadline := time.Now().Add(gracePeriod)
 	for time.Now().Before(deadline) {
@@ -60,7 +65,10 @@ func killProcess(sess *ptyPkg.Session, gracePeriod time.Duration) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	_ = syscall.Kill(target, syscall.SIGKILL)
+	if err := signalProcess(target, syscall.SIGKILL); err != nil {
+		_ = sess.Close()
+		return fmt.Errorf("sending SIGKILL: %w", err)
+	}
 
 	killDeadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(killDeadline) {
@@ -71,6 +79,38 @@ func killProcess(sess *ptyPkg.Session, gracePeriod time.Duration) error {
 	}
 	_ = sess.Close()
 	return nil
+}
+
+// signalProcess sends a signal and treats ESRCH (no such process) and EPERM
+// (permission denied, e.g. process group leader already exited on macOS) as
+// non-errors, since both indicate the target is effectively gone.
+func signalProcess(pid int, sig syscall.Signal) error {
+	err := syscall.Kill(pid, sig)
+	if err == nil {
+		return nil
+	}
+	if isProcessGone(err) {
+		return nil
+	}
+	return err
+}
+
+// isProcessGone returns true if the error indicates the process/group is
+// already gone. On macOS, signaling a process group whose leader has exited
+// returns EPERM rather than ESRCH, so both are treated as "gone".
+func isProcessGone(err error) bool {
+	return matchErrno(err, syscall.ESRCH) || matchErrno(err, syscall.EPERM)
+}
+
+func matchErrno(err error, target syscall.Errno) bool {
+	if errors.Is(err, target) {
+		return true
+	}
+	var se *os.SyscallError
+	if errors.As(err, &se) {
+		return errors.Is(se.Err, target)
+	}
+	return false
 }
 
 // waitProcess waits for the process to exit and returns the exit code.

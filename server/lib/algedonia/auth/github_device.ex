@@ -18,7 +18,7 @@ defmodule Algedonia.Auth.GithubDevice do
 
     body = Jason.encode!(%{"client_id" => client_id, "scope" => "read:user user:email"})
 
-    case Req.post(@device_code_url, headers: headers, body: body) do
+    case Req.post(@device_code_url, [headers: headers, body: body] ++ req_options()) do
       {:ok, %{status: 200, body: body}} ->
         {:ok,
          %{
@@ -53,7 +53,7 @@ defmodule Algedonia.Auth.GithubDevice do
         "grant_type" => "urn:ietf:params:oauth:grant-type:device_code"
       })
 
-    case Req.post(@access_token_url, headers: headers, body: body) do
+    case Req.post(@access_token_url, [headers: headers, body: body] ++ req_options()) do
       {:ok, %{status: 200, body: %{"access_token" => token}}} ->
         {:ok, token}
 
@@ -80,7 +80,7 @@ defmodule Algedonia.Auth.GithubDevice do
       {"accept", "application/json"}
     ]
 
-    case Req.get(@user_api_url, headers: headers) do
+    case Req.get(@user_api_url, [headers: headers] ++ req_options()) do
       {:ok, %{status: 200, body: body}} ->
         {:ok,
          %{
@@ -97,5 +97,9 @@ defmodule Algedonia.Auth.GithubDevice do
       {:error, reason} ->
         {:error, "GitHub request failed: #{inspect(reason)}"}
     end
+  end
+
+  defp req_options do
+    Application.get_env(:algedonia, :github_device_req_options, [])
   end
 end
