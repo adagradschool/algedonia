@@ -210,7 +210,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_redirect(
         view,
-        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{"plan-" <> String.slice(ticket.id, 0, 8)}?#{%{autostart: 1, role: "planning", agent_type: "claude_code"}}"
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{"plan-" <> String.slice(ticket.id, 0, 8)}?#{%{role: "planning", agent_type: "claude_code"}}"
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :planning
@@ -232,7 +232,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_redirect(
         view,
-        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{autostart: 1, agent_type: "claude_code"}}"
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{agent_type: "claude_code"}}"
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
@@ -261,7 +261,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_redirect(
         view,
-        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{autostart: 1, agent_type: "codex"}}"
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{agent_type: "codex"}}"
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :in_progress

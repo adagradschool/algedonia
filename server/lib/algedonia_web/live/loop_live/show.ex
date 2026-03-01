@@ -47,7 +47,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:active, Terminals.active?(loop_id))
       |> assign(:role, "maker")
       |> assign(:agent_type, agent_type)
-      |> assign(:auto_start_requested, false)
       |> assign(:show_steps, false)
       |> assign(:active_tab, "overview")
       |> assign(init_agent_ui(agent_type))
@@ -93,23 +92,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         params["agent_type"] || socket.assigns.agent_type || Agents.default_coding_agent_string()
       )
 
-    socket =
-      if connected?(socket) && params["autostart"] == "1" && !socket.assigns.active &&
-           !socket.assigns.auto_start_requested do
-        send(self(), :auto_start_loop)
-        assign(socket, :auto_start_requested, true)
-      else
-        socket
-      end
+    if connected?(socket) && socket.assigns.loop_record &&
+         socket.assigns.loop_record.status in [:pending, :ready] && !socket.assigns.active do
+      send(self(), :auto_start_loop)
+    end
 
     {:noreply, socket}
   end
 
   @impl true
-  def handle_event("start_loop", _params, socket) do
-    {:noreply, start_loop_on_daemon(socket)}
-  end
-
   def handle_event("switch_tab", %{"tab" => tab}, socket)
       when tab in ["overview", "rubric"] do
     socket =
@@ -156,14 +147,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, socket}
   end
 
-  def handle_event("shortcut_toggle_loop", _params, socket) do
-    if socket.assigns.active do
-      handle_event("stop_loop", %{}, socket)
-    else
-      handle_event("start_loop", %{}, socket)
-    end
-  end
-
   def handle_event("shortcut_back", _params, socket) do
     {:noreply, push_navigate(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
   end
@@ -196,14 +179,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       socket
       |> DiffTab.handle_add_inline_comment(params)
       |> assign(:inline_comment_form, nil)
-
-    {:noreply, socket}
-  end
-
-  def handle_event("stop_loop", _params, socket) do
-    with {:ok, daemon} <- resolve_daemon(socket) do
-      DaemonChannel.push_stop_loop(daemon.name, socket.assigns.loop_id)
-    end
 
     {:noreply, socket}
   end

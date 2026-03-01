@@ -208,3 +208,46 @@ func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 		t.Fatal("Wait timed out; hook marker did not complete process")
 	}
 }
+
+func TestClaudeCodeAdapterWaitPrefersMarkerOverNonZeroExit(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+mkdir -p "$ALGEDONIA_WORKDIR/.algedonia/runtime/$ALGEDONIA_LOOP_ID"
+cat > "$ALGEDONIA_WORKDIR/.algedonia/runtime/$ALGEDONIA_LOOP_ID/attempt_complete.json" <<'EOF'
+{"loop_id":"loop-hook-race","role":"maker","source":"test"}
+EOF
+exit 1
+`
+	if err := os.WriteFile(dir+"/claude", []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	a := &ClaudeCodeAdapter{}
+	proc, err := a.Start(dir, "", map[string]string{
+		"loop_id": "loop-hook-race",
+		"role":    "maker",
+		"workdir": dir,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	reader, _, err := a.AttachPTY(proc)
+	if err != nil {
+		t.Fatalf("AttachPTY: %v", err)
+	}
+	go io.Copy(io.Discard, reader)
+
+	result, err := a.Wait(proc)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	if result.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, want 0 when completion marker exists", result.ExitCode)
+	}
+}

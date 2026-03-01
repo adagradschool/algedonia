@@ -585,7 +585,6 @@ defmodule AlgedoniaWeb.CoreComponents do
           <div :if={@page == "loop"}>
             <div class="text-[10px] uppercase tracking-wider text-fg-muted mb-2">Loop</div>
             <div class="space-y-1.5">
-              <.shortcut_row keys="S" label="Start / stop loop" />
               <.shortcut_row keys="1" label="Overview tab" />
               <.shortcut_row keys="2" label="Rubric tab" />
               <.shortcut_row keys="3" label="Toggle steps list" />

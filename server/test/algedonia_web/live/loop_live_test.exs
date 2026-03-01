@@ -14,13 +14,46 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert has_element?(view, "[id^=terminal-attempt-]")
     end
 
-    test "shows start button when inactive", %{conn: conn, workspace: workspace} do
-      {:ok, view, html} =
+    test "does not show start or stop buttons", %{conn: conn, workspace: workspace} do
+      {:ok, _view, html} =
         live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-new")
 
-      assert html =~ "Start Loop"
+      refute html =~ "Start Loop"
       refute html =~ "Stop Loop"
-      assert has_element?(view, "#loop-index-badge")
+    end
+
+    test "pending loop auto-starts on mount", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{status: :pending})
+
+      {:ok, view, _html} =
+        live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      # Auto-start sends :auto_start_loop which calls start_loop_on_daemon
+      # Without a daemon, it shows a flash error
+      html = render(view)
+      assert html =~ "No online daemon available"
+    end
+
+    test "passed loop does NOT auto-start (view-only)", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{status: :passed, current_attempt: 1})
+
+      {:ok, view, html} =
+        live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      refute html =~ "Start Loop"
+      refute html =~ "No online daemon available"
+      # Re-render to confirm no auto-start was triggered
+      refute render(view) =~ "No online daemon available"
+    end
+
+    test "failed loop does NOT auto-start (view-only)", %{conn: conn, workspace: workspace} do
+      loop = build_task_loop!(workspace, %{status: :failed, current_attempt: 3})
+
+      {:ok, view, html} =
+        live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
+
+      refute html =~ "Start Loop"
+      refute render(view) =~ "No online daemon available"
     end
 
     test "ad hoc planning session loads ticket context", %{conn: conn, workspace: workspace} do
@@ -161,9 +194,6 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       )
 
       assert_push_event(view, "terminal_ended", %{exit_code: 0})
-
-      html = render(view)
-      assert html =~ "Inactive"
     end
 
     test "does not render history sidebar tab and toggles steps panel", %{

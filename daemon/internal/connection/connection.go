@@ -38,6 +38,7 @@ type Client struct {
 	connMu   sync.RWMutex
 	conn     *websocket.Conn
 	connCtx  context.Context
+	writeMu  sync.Mutex
 	handlers map[string]func(ctx context.Context, payload map[string]interface{}) error
 
 	runningLoopsFn func() int
@@ -283,6 +284,9 @@ func (c *Client) send(ctx context.Context, conn *websocket.Conn, topic, event st
 	if err != nil {
 		return fmt.Errorf("marshaling message: %w", err)
 	}
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 
 	return conn.Write(ctx, websocket.MessageText, data)
 }

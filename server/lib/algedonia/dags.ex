@@ -145,6 +145,17 @@ defmodule Algedonia.Dags do
   end
 
   @doc """
+  Returns the first loop ID for a ticket, or nil if no DAG/loops exist.
+  """
+  @spec first_loop_id(binary()) :: binary() | nil
+  def first_loop_id(ticket_id) do
+    case get_dag_by_ticket(ticket_id) do
+      %{loops: [loop | _]} -> loop.id
+      _ -> nil
+    end
+  end
+
+  @doc """
   Gets the DAG for a ticket, preloading loops.
   """
   @spec get_dag_by_ticket(binary()) :: Dag.t() | nil
