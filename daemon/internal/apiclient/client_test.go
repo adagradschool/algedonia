@@ -384,6 +384,16 @@ func TestListWorkspaces(t *testing.T) {
 	}
 }
 
+func TestNew_DefaultHTTPClientHasTimeout(t *testing.T) {
+	client := New("http://example.com", "token", "ws")
+	if client.HTTPClient == http.DefaultClient {
+		t.Error("HTTPClient should not be http.DefaultClient")
+	}
+	if client.HTTPClient.Timeout == 0 {
+		t.Error("HTTPClient.Timeout should be non-zero")
+	}
+}
+
 func TestAPIError_Error(t *testing.T) {
 	err := &APIError{StatusCode: 422, Body: `{"errors":{"title":["can't be blank"]}}`}
 	got := err.Error()

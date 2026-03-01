@@ -4,7 +4,7 @@ defmodule Algedonia.Terminals.TerminalBuffer do
   """
   use GenServer, restart: :temporary
 
-  @max_lines 10_000
+  @max_bytes 8 * 1024 * 1024
   @cleanup_delay :timer.minutes(5)
 
   # --- Client API ---
@@ -27,14 +27,15 @@ defmodule Algedonia.Terminals.TerminalBuffer do
 
   @impl true
   def init(loop_id) do
-    {:ok, %{loop_id: loop_id, lines: [], line_count: 0, ended: false}}
+    {:ok, %{loop_id: loop_id, chunks: :queue.new(), byte_size: 0, ended: false}}
   end
 
   @impl true
   def handle_cast({:append, data}, state) do
-    new_lines = String.split(data, "\n")
-    updated_lines = state.lines ++ new_lines
-    {trimmed, count} = cap_lines(updated_lines)
+    chunk_bytes = byte_size(data)
+    chunks = :queue.in(data, state.chunks)
+    total_bytes = state.byte_size + chunk_bytes
+    {trimmed_chunks, trimmed_size} = trim_chunks(chunks, total_bytes)
 
     Phoenix.PubSub.broadcast(
       Algedonia.PubSub,
@@ -42,12 +43,16 @@ defmodule Algedonia.Terminals.TerminalBuffer do
       {:terminal_data, state.loop_id, data}
     )
 
-    {:noreply, %{state | lines: trimmed, line_count: count}}
+    {:noreply, %{state | chunks: trimmed_chunks, byte_size: trimmed_size}}
   end
 
   @impl true
   def handle_call(:get_scrollback, _from, state) do
-    scrollback = Enum.join(state.lines, "\n")
+    scrollback =
+      state.chunks
+      |> :queue.to_list()
+      |> IO.iodata_to_binary()
+
     {:reply, scrollback, state}
   end
 
@@ -61,13 +66,17 @@ defmodule Algedonia.Terminals.TerminalBuffer do
     {:stop, :normal, state}
   end
 
-  defp cap_lines(lines) do
-    count = length(lines)
+  defp trim_chunks(chunks, total_bytes) when total_bytes <= @max_bytes do
+    {chunks, total_bytes}
+  end
 
-    if count > @max_lines do
-      {Enum.drop(lines, count - @max_lines), @max_lines}
-    else
-      {lines, count}
+  defp trim_chunks(chunks, total_bytes) do
+    case :queue.out(chunks) do
+      {{:value, head}, rest} ->
+        trim_chunks(rest, total_bytes - byte_size(head))
+
+      {:empty, _} ->
+        {:queue.new(), 0}
     end
   end
 end

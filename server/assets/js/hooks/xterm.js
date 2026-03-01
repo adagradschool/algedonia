@@ -17,7 +17,7 @@ function ensureTerminalMetricsStore() {
   return window.__algedoniaTerminalMetrics
 }
 
-function wsUrlWithParams(baseUrl, loopId, token) {
+function wsUrlWithParams(baseUrl, loopId, token, fromSeq) {
   if (!baseUrl || !loopId || !token) return null
 
   try {
@@ -28,6 +28,9 @@ function wsUrlWithParams(baseUrl, loopId, token) {
     const url = new URL(normalized)
     url.searchParams.set("loop_id", loopId)
     url.searchParams.set("token", token)
+    if (Number.isInteger(fromSeq) && fromSeq > 0) {
+      url.searchParams.set("from_seq", String(fromSeq))
+    }
     return url.toString()
   } catch (_) {
     return null
@@ -39,6 +42,8 @@ const XTerm = {
     this.destroying = false
     this.ws = null
     this.wsConnected = false
+    this.hasOpenedSocket = false
+    this.lastOutputSeq = 0
     this.reconnectTimer = null
     this.encoder = new TextEncoder()
 
@@ -55,6 +60,9 @@ const XTerm = {
       fitErrors: 0,
       parserHardeningEnabled: false,
       wsReconnects: 0,
+      seqFrames: 0,
+      seqDuplicates: 0,
+      replayRequests: 0,
     }
     ensureTerminalMetricsStore()[this.el.id] = this.metrics
 
@@ -113,7 +121,11 @@ const XTerm = {
   },
 
   connectTerminalSocket() {
-    const url = wsUrlWithParams(this.terminalWsUrl, this.loopId, this.terminalWsToken)
+    const fromSeq =
+      this.hasOpenedSocket && Number.isInteger(this.lastOutputSeq) && this.lastOutputSeq > 0
+        ? this.lastOutputSeq + 1
+        : null
+    const url = wsUrlWithParams(this.terminalWsUrl, this.loopId, this.terminalWsToken, fromSeq)
     if (!url) {
       return
     }
@@ -129,14 +141,28 @@ const XTerm = {
     this.ws.onopen = () => {
       this.wsConnected = true
       this.sendResizeFrame()
+
+      // On reconnects, request a fresh scrollback snapshot to recover any
+      // bytes missed while the socket was unavailable.
+      if (this.hasOpenedSocket) {
+        this.requestScrollback()
+      }
+      this.hasOpenedSocket = true
     }
 
     this.ws.onmessage = (event) => {
       const data = event.data
       if (!(data instanceof ArrayBuffer)) return
       const bytes = new Uint8Array(data)
-      if (bytes.length <= 1 || bytes[0] !== FRAME_INPUT) return
-      this.enqueueBytes(bytes.subarray(1))
+      if (bytes.length <= 9 || bytes[0] !== FRAME_INPUT) return
+      const seq = this.decodeSeq(bytes)
+      this.metrics.seqFrames += 1
+      if (seq !== null && seq <= this.lastOutputSeq) {
+        this.metrics.seqDuplicates += 1
+        return
+      }
+      if (seq !== null) this.lastOutputSeq = seq
+      this.enqueueBytes(bytes.subarray(9))
     }
 
     this.ws.onclose = () => {
@@ -157,6 +183,25 @@ const XTerm = {
       this.metrics.wsReconnects += 1
       this.connectTerminalSocket()
     }, WS_RECONNECT_MS)
+  },
+
+  requestScrollback() {
+    try {
+      this.metrics.replayRequests += 1
+      this.pushEvent("terminal_request_scrollback", {})
+    } catch (_) {}
+  },
+
+  decodeSeq(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length < 9) return null
+    // Seq is encoded as 8-byte big-endian; keep precision by constraining to
+    // 53-bit JS integer space.
+    let seq = 0
+    for (let i = 1; i <= 8; i += 1) {
+      seq = seq * 256 + bytes[i]
+    }
+    if (!Number.isSafeInteger(seq)) return null
+    return seq
   },
 
   sendInputFrame(bytes) {

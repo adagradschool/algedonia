@@ -19,8 +19,7 @@ defmodule Algedonia.Terminals.TerminalBufferTest do
     TerminalBuffer.append(pid, "first")
     TerminalBuffer.append(pid, "second")
     scrollback = TerminalBuffer.get_scrollback(pid)
-    assert scrollback =~ "first"
-    assert scrollback =~ "second"
+    assert scrollback == "firstsecond"
   end
 
   test "broadcasts on PubSub", %{pid: pid, loop_id: loop_id} do
@@ -31,14 +30,13 @@ defmodule Algedonia.Terminals.TerminalBufferTest do
     assert_receive {:terminal_data, ^loop_id, "hello"}, 1000
   end
 
-  test "caps at max lines", %{pid: pid} do
-    # Write more than 10,000 lines
-    big_data = Enum.map_join(1..10_005, "\n", &"line#{&1}")
+  test "caps scrollback by bytes", %{pid: pid} do
+    # 9MB total should be trimmed below the 8MB cap.
+    big_data = String.duplicate("x", 9 * 1024 * 1024)
     TerminalBuffer.append(pid, big_data)
 
     scrollback = TerminalBuffer.get_scrollback(pid)
-    lines = String.split(scrollback, "\n")
-    assert length(lines) <= 10_000
+    assert byte_size(scrollback) <= 8 * 1024 * 1024
   end
 
   test "terminal_ended schedules cleanup", %{pid: pid} do
