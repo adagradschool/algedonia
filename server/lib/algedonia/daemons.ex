@@ -4,6 +4,7 @@ defmodule Algedonia.Daemons do
   """
   import Ecto.Query, only: [from: 2]
   alias Algedonia.Daemons.DaemonRegistration
+  alias Algedonia.Loops
   alias Algedonia.Repo
 
   @topic "monitor"
@@ -84,8 +85,12 @@ defmodule Algedonia.Daemons do
     |> DaemonRegistration.changeset(%{status: :unhealthy})
     |> Repo.update()
     |> tap(fn
-      {:ok, daemon} -> broadcast({:daemon_status_changed, daemon})
-      _ -> :ok
+      {:ok, daemon} ->
+        Loops.requeue_running_task_loops_for_daemon(daemon.id)
+        broadcast({:daemon_status_changed, daemon})
+
+      _ ->
+        :ok
     end)
   end
 
@@ -94,8 +99,12 @@ defmodule Algedonia.Daemons do
     |> DaemonRegistration.changeset(%{status: :offline, running_loops: 0})
     |> Repo.update()
     |> tap(fn
-      {:ok, daemon} -> broadcast({:daemon_status_changed, daemon})
-      _ -> :ok
+      {:ok, daemon} ->
+        Loops.requeue_running_task_loops_for_daemon(daemon.id)
+        broadcast({:daemon_status_changed, daemon})
+
+      _ ->
+        :ok
     end)
   end
 

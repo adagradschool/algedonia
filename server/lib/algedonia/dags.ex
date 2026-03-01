@@ -5,6 +5,7 @@ defmodule Algedonia.Dags do
   import Ecto.Query
 
   alias Algedonia.Dags.Dag
+  alias Algedonia.Loops
   alias Algedonia.Loops.{Loop, LoopDependency}
   alias Algedonia.Repo
   alias Ecto.Multi
@@ -209,7 +210,18 @@ defmodule Algedonia.Dags do
     Map.merge(
       active,
       Map.new(fallback, fn {tid, lid} ->
-        {tid, %{loop_id: lid, stage: "maker", attempt: 1}}
+        case Loops.get_loop(lid) do
+          nil ->
+            {tid, %{loop_id: lid, stage: "maker", attempt: 1}}
+
+          loop ->
+            {tid,
+             %{
+               loop_id: lid,
+               stage: stage_for_status(loop.status),
+               attempt: max(loop.current_attempt, 1)
+             }}
+        end
       end)
     )
   end

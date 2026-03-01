@@ -573,6 +573,42 @@ Reference: [PRD v4](prd.md), [SDD v3](sdd.md), [Slices v2](slices.md)
 
 ---
 
+## Planning Quality
+
+Criteria for planning phases when extending schemas, adding enum variants, or modifying shared data models. Motivated by [Postmortem 001](postmortems/001-hook-loop-isolation.md).
+
+### Impact Audit
+
+| # | Criterion | Pass/Fail Rule |
+|---|-----------|---------------|
+| P1 | Impact audit for schema changes | When adding a field, enum variant, or association to an existing schema, the plan must include a grep/search for all existing queries, filters, and pattern matches on that schema. Each hit must be evaluated for correctness with the new variant. Fail if no search evidence is provided. |
+
+### Blast Radius
+
+| # | Criterion | Pass/Fail Rule |
+|---|-----------|---------------|
+| P2 | Blast radius subsection | Every plan that modifies a shared schema (used by >1 context module) must include a "Blast Radius" subsection listing: (a) all modules that query or pattern-match on the schema, (b) which ones need changes, (c) which ones are confirmed safe. Fail if the subsection is missing or incomplete. |
+
+### Isolation Invariants
+
+| # | Criterion | Pass/Fail Rule |
+|---|-----------|---------------|
+| P3 | Isolation invariants specification | When adding a new variant to a type used for dispatch (e.g., loop role, ticket status), the plan must state the isolation invariant: which code paths handle the new variant, and which existing paths must exclude it. Fail if the invariant is not stated or if existing paths are not explicitly addressed. |
+
+### Cross-Cutting Query Audit
+
+| # | Criterion | Pass/Fail Rule |
+|---|-----------|---------------|
+| P4 | Cross-cutting query audit for new enum variants | When adding a new enum variant, every query that filters or groups by the enum field must be listed in the plan with a disposition: "needs update", "safe as-is" (with reason), or "new query". Fail if any query is unlisted. Search patterns to use: the field name (e.g., `role`), query function names (e.g., `list_loops`, `_for_dag`), and enum values in the same field. |
+
+### Interaction Tests
+
+| # | Criterion | Pass/Fail Rule |
+|---|-----------|---------------|
+| P5 | Interaction test requirements for shared data models | When a new variant coexists with existing variants in the same table/collection, the plan must require interaction tests: scenarios where both old and new variants are present and existing logic produces correct results. Fail if interaction tests are not listed as deliverables. |
+
+---
+
 # Part 2: Per-Slice Rubrics
 
 ---

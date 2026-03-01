@@ -42,6 +42,29 @@ defmodule Algedonia.DaemonsTest do
       assert {:ok, updated} = Daemons.mark_unhealthy(daemon)
       assert updated.status == :unhealthy
     end
+
+    test "requeues running task loops assigned to the daemon" do
+      daemon = Factory.insert_daemon!(%{status: :online})
+      ticket = Factory.insert_ticket!()
+      dag = Factory.insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        Factory.insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running_maker,
+          current_attempt: 2,
+          assigned_daemon_id: daemon.id
+        })
+
+      assert {:ok, _updated_daemon} = Daemons.mark_unhealthy(daemon)
+
+      updated_loop = Algedonia.Loops.get_loop!(loop.id)
+      assert updated_loop.status == :pending
+      assert is_nil(updated_loop.assigned_daemon_id)
+      assert updated_loop.current_attempt == 2
+    end
   end
 
   describe "mark_offline/1" do
@@ -50,6 +73,29 @@ defmodule Algedonia.DaemonsTest do
       assert {:ok, updated} = Daemons.mark_offline(daemon)
       assert updated.status == :offline
       assert updated.running_loops == 0
+    end
+
+    test "requeues running checker loops assigned to the daemon" do
+      daemon = Factory.insert_daemon!(%{status: :unhealthy, running_loops: 1})
+      ticket = Factory.insert_ticket!()
+      dag = Factory.insert_dag!(%{ticket_id: ticket.id})
+
+      loop =
+        Factory.insert_loop!(%{
+          dag_id: dag.id,
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running_checker,
+          current_attempt: 3,
+          assigned_daemon_id: daemon.id
+        })
+
+      assert {:ok, _updated_daemon} = Daemons.mark_offline(daemon)
+
+      updated_loop = Algedonia.Loops.get_loop!(loop.id)
+      assert updated_loop.status == :pending
+      assert is_nil(updated_loop.assigned_daemon_id)
+      assert updated_loop.current_attempt == 3
     end
   end
 
