@@ -19,10 +19,14 @@ defmodule AlgedoniaWeb.Router do
     plug AlgedoniaWeb.Plugs.ApiAuth
   end
 
+  # Health check outside browser pipeline to bypass force_ssl (Fly checks hit HTTP directly)
+  scope "/", AlgedoniaWeb do
+    get "/health", HealthController, :index
+  end
+
   scope "/", AlgedoniaWeb do
     pipe_through :browser
 
-    get "/health", HealthController, :index
     get "/", PageController, :home
     get "/auth/github", AuthController, :github
     get "/auth/callback", AuthController, :callback

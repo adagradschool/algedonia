@@ -11,7 +11,7 @@ defmodule AlgedoniaWeb.Endpoint do
     same_site: "Lax"
   ]
 
-  socket "/daemon", AlgedoniaWeb.DaemonSocket, websocket: true
+  socket "/daemon", AlgedoniaWeb.DaemonSocket, websocket: [check_origin: false]
 
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],

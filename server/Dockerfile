@@ -5,9 +5,9 @@
 # - https://hub.docker.com/r/hexpm/elixir/tags
 # - https://hub.docker.com/_/debian/tags
 
-ARG ELIXIR_VERSION=1.18
-ARG OTP_VERSION=27.3.4.2
-ARG DEBIAN_VERSION=bookworm-20250224-slim
+ARG ELIXIR_VERSION=1.18.4
+ARG OTP_VERSION=28.3.3
+ARG DEBIAN_VERSION=bookworm-20260223-slim
 
 ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
 ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
@@ -15,7 +15,7 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 FROM ${BUILDER_IMAGE} AS builder
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git \
+  && apt-get install -y --no-install-recommends build-essential git nodejs npm \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -39,6 +39,7 @@ COPY lib lib
 RUN mix compile
 
 COPY assets assets
+RUN cd assets && npm install
 RUN mix assets.deploy
 
 COPY config/runtime.exs config/

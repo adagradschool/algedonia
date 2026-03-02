@@ -13,7 +13,6 @@ kill_timeout = "5s"
   PHX_HOST = "algedonia.fly.dev"
   PHX_SERVER = "true"
   PORT = "4000"
-  ECTO_IPV6 = "true"
   POOL_SIZE = "10"
 
 [http_service]
@@ -34,4 +33,4 @@ kill_timeout = "5s"
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 256
+  memory_mb = 512
