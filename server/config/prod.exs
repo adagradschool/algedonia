@@ -7,15 +7,9 @@ import Config
 # before starting your production server.
 config :algedonia, AlgedoniaWeb.Endpoint, cache_static_manifest: "priv/static/cache_manifest.json"
 
-# Force using SSL in production. This also sets the "strict-security-transport" header,
-# known as HSTS. If you have a health check endpoint, you may want to exclude it below.
-# Note `:force_ssl` is required to be set at compile-time.
-config :algedonia, AlgedoniaWeb.Endpoint,
-  force_ssl: [rewrite_on: [:x_forwarded_proto]],
-  exclude: [
-    # paths: ["/health"],
-    hosts: ["localhost", "127.0.0.1"]
-  ]
+# HTTPS redirection is handled by Fly.io proxy (force_https = true in fly.toml).
+# Do not use force_ssl here — Fly's internal health checks hit HTTP directly
+# and would get 301-redirected, causing health check failures.
 
 # Configure Swoosh API Client
 config :swoosh, api_client: Swoosh.ApiClient.Req
