@@ -182,6 +182,217 @@ Daemon capacity is capped by a `--capacity` flag (default: 3 concurrent loops).
 
 A browser user costs almost nothing (~50 KB). A daemon costs ~8 MB per running loop. You're bottlenecked by concurrent loops, not concurrent users. The current 512 MB Fly VM can barely fit the BEAM idle + 3 loops. A 4 GB Hetzner box handles a team of 10-20 comfortably for €8.49/mo.
 
+## Software optimizations to reduce compute
+
+Audited all GenServers, PubSub broadcast chains, and query patterns. Found 7 concrete issues — fixing these would meaningfully reduce CPU/memory/DB pressure independent of hosting choice.
+
+### 1. Ticket board re-queries everything on every change (biggest win)
+
+**File:** `ticket_live/index.ex:149-151`
+
+Every `ticket_created`, `ticket_updated`, or `ticket_deleted` broadcast triggers `stream_tickets()`, which runs:
+- `Tickets.search_tickets_grouped()` — fetches ALL tickets, groups by status, applies filters in Elixir
+- `Dags.active_loop_info_for_tickets(ticket_ids)` — queries active loops for every ticket
+
+With 5 users on the ticket board, a single ticket status change = 5 concurrent full-table re-queries + 5 loop info queries.
+
+**Fix:** Use the broadcast payload for incremental stream updates.
+
+```elixir
+# Before (current)
+def handle_info({event, _ticket}, socket)
+    when event in [:ticket_created, :ticket_updated, :ticket_deleted] do
+  {:noreply, stream_tickets(socket)}
+end
+
+# After
+def handle_info({:ticket_created, ticket}, socket) do
+  {:noreply, stream_insert(socket, stream_name(ticket.status), ticket)}
+end
+
+def handle_info({:ticket_updated, ticket}, socket) do
+  socket =
+    socket
+    |> stream_delete_by_dom_id(ticket_dom_id(ticket))  # remove from old status stream
+    |> stream_insert(stream_name(ticket.status), ticket)
+  {:noreply, socket}
+end
+
+def handle_info({:ticket_deleted, ticket}, socket) do
+  {:noreply, stream_delete(socket, stream_name(ticket.status), ticket)}
+end
+```
+
+This eliminates the DB round-trips entirely for the common case. Only re-query on mount or filter change.
+
+### 2. N+1 in `active_loop_info_for_tickets` fallback path
+
+**File:** `dags.ex:207-226`
+
+The fallback branch calls `Loops.get_loop(lid)` inside `Map.new(fallback, fn ...)` — one query per ticket that has no active loop. With 30 completed tickets, that's 30 individual `SELECT * FROM loops WHERE id = $1` queries.
+
+**Fix:** Batch the fallback into the query that already fetched the loop IDs.
+
+```elixir
+# Before (current — N+1)
+Map.new(fallback, fn {tid, lid} ->
+  case Loops.get_loop(lid) do ...
+end)
+
+# After (single query)
+fallback_loop_ids = Map.values(fallback)
+fallback_loops =
+  from(l in Loop, where: l.id in ^fallback_loop_ids, select: {l.id, l})
+  |> Repo.all()
+  |> Map.new()
+
+Map.new(fallback, fn {tid, lid} ->
+  case Map.get(fallback_loops, lid) do ...
+end)
+```
+
+### 3. DagLive.Show ignores broadcast payload, re-queries 3 tables
+
+**File:** `dag_live/show.ex:52-54, 63-74`
+
+When `{:dag_updated, dag}` or `{:loop_status_changed, loop}` arrives, the handler calls `load_dag_data()` which runs 3 queries:
+- `Dags.get_dag_by_ticket(ticket_id)` — SELECT dag
+- `Dags.list_loops_for_dag(dag.id)` — SELECT all loops
+- `Dags.list_dependencies_for_dag(dag.id)` — SELECT all deps via subquery
+
+The broadcast payload already contains the DAG or loop data.
+
+**Fix:** For `:loop_status_changed`, update the single loop in the existing assigns instead of re-querying everything.
+
+```elixir
+def handle_info({:loop_status_changed, updated_loop}, socket) do
+  loops =
+    Enum.map(socket.assigns.loops, fn loop ->
+      if loop.id == updated_loop.id, do: updated_loop, else: loop
+    end)
+
+  graph_data = build_graph_data(loops, socket.assigns.dependencies)
+
+  {:noreply,
+   socket
+   |> assign(:loops, loops)
+   |> assign(:graph_data, graph_data)
+   |> push_event("dag_render", graph_data)}
+end
+
+# Only full re-query on structural changes
+def handle_info({:dag_created, _dag}, socket) do
+  {:noreply, load_dag_data(socket, socket.assigns.ticket.id) |> maybe_push_render()}
+end
+```
+
+### 4. MonitorLive re-queries all daemons to count them on every heartbeat
+
+**File:** `monitor_live/index.ex:25-36`
+
+Every `daemon_heartbeat` (every 10s per daemon) and `daemon_status_changed` triggers `Daemons.list_daemons() |> length()`. With 5 daemons heartbeating every 10s = ~3 full-table queries per second just to compute a count.
+
+**Fix:** Track the count locally.
+
+```elixir
+# On :daemon_status_changed — count actually might change
+def handle_info({:daemon_status_changed, daemon}, socket) do
+  {:noreply,
+   socket
+   |> stream_insert(:daemons, daemon)
+   |> update(:daemon_count, &adjust_count(&1, daemon))}
+end
+
+# On :daemon_heartbeat — count never changes, just update the row
+def handle_info({:daemon_heartbeat, daemon}, socket) do
+  {:noreply, stream_insert(socket, :daemons, daemon)}
+end
+```
+
+### 5. Comment handlers discard payload and re-query full list
+
+**Files:** `loop_live/show.ex:329-331`, `ticket_live/index.ex:154-160`
+
+Both LiveViews handle `{:comment_created, comment}` by ignoring the comment and re-querying all comments for the ticket.
+
+**Fix:** Use the payload.
+
+```elixir
+def handle_info({:comment_created, comment}, socket) do
+  {:noreply, update(socket, :comments, &(&1 ++ [comment]))}
+end
+
+def handle_info({:comment_deleted, comment}, socket) do
+  {:noreply, update(socket, :comments, &Enum.reject(&1, fn c -> c.id == comment.id end))}
+end
+
+def handle_info({:comment_updated, comment}, socket) do
+  {:noreply,
+   update(socket, :comments, fn comments ->
+     Enum.map(comments, &if(&1.id == comment.id, do: comment, else: &1))
+   end)}
+end
+```
+
+### 6. TaskLoopOrchestrator `task_history` leaks memory
+
+**File:** `task_loop_orchestrator.ex` — `task_history` map
+
+History entries accumulate for every loop that has ever run. Each entry contains strings (session_id, feedback, verdict) — a few KB each. After 1000 loop attempts, this is several MB of dead state that's never cleaned up.
+
+**Fix:** Prune completed loop history from GenServer state. The history is only needed for the UI while the loop is active.
+
+```elixir
+# In the handler where a loop reaches terminal state (passed/failed):
+defp cleanup_loop_state(state, loop_id) do
+  state
+  |> update_in([:task_history], &Map.delete(&1, loop_id))
+  |> update_in([:checker_handoff_repairs], &Map.delete(&1, loop_id))
+  |> update_in([:task_run_config], &Map.delete(&1, loop_id))
+end
+```
+
+If you need history after loop completion, persist to a `loop_steps` table on each state transition and query from DB on demand.
+
+### 7. `list_dependencies_for_dag` uses a subquery instead of a join
+
+**File:** `dags.ex:305-311`
+
+```elixir
+# Current — subquery for loop IDs, then filter deps
+loop_ids = from(l in Loop, where: l.dag_id == ^dag_id, select: l.id)
+LoopDependency
+|> where([d], d.upstream_loop_id in subquery(loop_ids))
+```
+
+This misses deps where only the downstream loop is in the DAG (unlikely but possible), and uses a subquery where a join would let Postgres use indexes better.
+
+**Fix:** Join through the DAG directly, or since `list_loops_for_dag` is always called right before, pass the loop IDs in.
+
+```elixir
+def list_dependencies_for_dag(dag_id) do
+  from(d in LoopDependency,
+    join: l in Loop, on: d.upstream_loop_id == l.id,
+    where: l.dag_id == ^dag_id
+  )
+  |> Repo.all()
+end
+```
+
+### Impact summary
+
+| Fix | Queries eliminated per event | CPU saved | Effort |
+|-----|------------------------------|-----------|--------|
+| #1 Incremental ticket streams | 2 queries × N users | High | Medium |
+| #2 Batch fallback loop query | Up to N individual SELECTs | Medium | Small |
+| #3 Use payload in DagLive | 3 queries per status change | Medium | Small |
+| #4 Drop daemon count re-query | ~3 queries/sec steady state | Medium | Tiny |
+| #5 Use comment payload | 1 query × N users per comment | Low | Tiny |
+| #6 Prune orchestrator history | Memory leak prevention | Low (ongoing) | Small |
+| #7 Join instead of subquery | Marginal query improvement | Low | Tiny |
+
+Fixes #1-4 are the high-value targets. Together they'd cut DB queries by roughly 70-80% during normal operation.
+
 ## Recommendation
 
 **Short term (this week):** Try bumping Fly to `performance-1x` (change `fly.toml` vm section). If that fixes the speed, the problem was just resource starvation and you can decide whether $62/mo is acceptable.
