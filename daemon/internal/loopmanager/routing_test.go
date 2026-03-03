@@ -61,18 +61,21 @@ func TestHandleStartLoopOverviewRouting(t *testing.T) {
 
 func TestHandleStartLoopDefaultAgentType(t *testing.T) {
 	// When agent_type is empty and role is set, should default to defaultCodingAgent()
+	t.Setenv("ALGEDONIA_DEFAULT_CODING_AGENT", "claude_code")
 	script := "#!/bin/sh\necho 'done'\n"
 	reg, dir := setupMockAgent(t, "claude", script)
 
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, reg, dir)
+	configureScopedWorktree(t, mgr, "scope")
 
 	ctx := context.Background()
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
 		"loop_id": "default-agent-test",
 		"role":    "maker",
 		// agent_type intentionally omitted
-		"task":    "do something",
-		"workdir": dir,
+		"task":           "do something",
+		"workspace_slug": "scope",
+		"ticket_id":      "deadbeef",
 	})
 	if err != nil {
 		t.Fatalf("HandleStartLoop: %v", err)
@@ -98,15 +101,17 @@ func TestHandleStartLoopWorkdirDefault(t *testing.T) {
 	reg, dir := setupMockAgent(t, "claude", script)
 
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, reg, dir)
+	configureScopedWorktree(t, mgr, "scope")
 
 	ctx := context.Background()
-	// workdir empty — should fall back to repoRoot (dir)
+	// workdir is resolved from workspace_slug + ticket_id to the ticket worktree.
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id":    "workdir-test",
-		"role":       "maker",
-		"agent_type": "claude_code",
-		"task":       "do something",
-		// workdir intentionally omitted
+		"loop_id":        "workdir-test",
+		"role":           "maker",
+		"agent_type":     "claude_code",
+		"task":           "do something",
+		"workspace_slug": "scope",
+		"ticket_id":      "feedcafe",
 	})
 	if err != nil {
 		t.Fatalf("HandleStartLoop: %v", err)
@@ -123,6 +128,23 @@ func TestHandleStartLoopWorkdirDefault(t *testing.T) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestHandleStartLoopRoleMissingScope(t *testing.T) {
+	script := "#!/bin/sh\necho 'done'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, reg, dir)
+
+	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{
+		"loop_id":    "missing-scope",
+		"role":       "maker",
+		"agent_type": "claude_code",
+		"task":       "do something",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing workspace_slug/ticket_id")
 	}
 }
 

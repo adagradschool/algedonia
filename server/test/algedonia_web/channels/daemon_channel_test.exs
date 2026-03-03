@@ -20,9 +20,11 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
   end
 
   describe "join" do
-    test "succeeds with matching daemon_id", %{socket: socket} do
-      assert {:ok, %{status: "ok"}, _socket} =
+    test "succeeds with matching daemon_id and returns workspaces", %{socket: socket} do
+      assert {:ok, %{status: "ok", workspaces: workspaces}, _socket} =
                subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      assert is_list(workspaces)
     end
 
     test "fails with mismatched daemon_id", %{socket: socket} do
@@ -30,43 +32,63 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
                subscribe_and_join(socket, "daemon:wrong-id", %{})
     end
 
-    test "includes github_repo_url when workspace has one", %{socket: socket} do
+    test "includes user's workspaces with repo URLs in join reply" do
+      user = Algedonia.Factory.insert_user!()
+      token = Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{user_id: user.id})
+
+      {:ok, socket} =
+        connect(DaemonSocket, %{
+          "token" => token,
+          "daemon_id" => @daemon_id,
+          "daemon_name" => @daemon_name
+        })
+
       workspace =
         Algedonia.Factory.insert_workspace!(%{
           slug: "ws-with-repo",
           github_repo_url: "https://github.com/example/repo"
         })
 
-      assert {:ok, reply, _socket} =
-               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{
-                 "workspace_slug" => workspace.slug
-               })
+      Algedonia.Factory.insert_membership!(workspace, user)
 
-      assert reply.status == "ok"
-      assert reply.github_repo_url == "https://github.com/example/repo"
-      assert reply.workspace_slug == "ws-with-repo"
-    end
-
-    test "omits github_repo_url when workspace has none", %{socket: socket} do
-      workspace = Algedonia.Factory.insert_workspace!(%{slug: "ws-no-repo"})
-
-      assert {:ok, reply, _socket} =
-               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{
-                 "workspace_slug" => workspace.slug
-               })
-
-      assert reply.status == "ok"
-      assert reply.workspace_slug == "ws-no-repo"
-      refute Map.has_key?(reply, :github_repo_url)
-    end
-
-    test "omits workspace fields when no workspace_slug provided", %{socket: socket} do
       assert {:ok, reply, _socket} =
                subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
 
       assert reply.status == "ok"
-      refute Map.has_key?(reply, :github_repo_url)
-      refute Map.has_key?(reply, :workspace_slug)
+      ws = Enum.find(reply.workspaces, &(&1.slug == "ws-with-repo"))
+      assert ws
+      assert ws.github_repo_url == "https://github.com/example/repo"
+    end
+
+    test "includes workspaces without repo URLs" do
+      user = Algedonia.Factory.insert_user!()
+      token = Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{user_id: user.id})
+
+      {:ok, socket} =
+        connect(DaemonSocket, %{
+          "token" => token,
+          "daemon_id" => @daemon_id,
+          "daemon_name" => @daemon_name
+        })
+
+      workspace = Algedonia.Factory.insert_workspace!(%{slug: "ws-no-repo"})
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      assert {:ok, reply, _socket} =
+               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      assert reply.status == "ok"
+      ws = Enum.find(reply.workspaces, &(&1.slug == "ws-no-repo"))
+      assert ws
+      refute Map.has_key?(ws, :github_repo_url)
+    end
+
+    test "returns empty workspaces when user has none", %{socket: socket} do
+      assert {:ok, reply, _socket} =
+               subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      assert reply.status == "ok"
+      assert is_list(reply.workspaces)
     end
   end
 
@@ -93,39 +115,46 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       {:ok, socket: socket}
     end
 
-    test "stores ready status for daemon", %{socket: socket} do
+    test "stores ready status for daemon and workspace", %{socket: socket} do
       ref =
         push(socket, "repo_clone_status", %{
           "status" => "ready",
+          "workspace_slug" => "my-ws",
           "path" => "/tmp/repos/ws"
         })
 
       refute_reply ref, _
 
-      status = Algedonia.Daemons.get_repo_status(@daemon_name)
+      status = Algedonia.Daemons.get_repo_status(@daemon_name, "my-ws")
       assert status["status"] == "ready"
       assert status["path"] == "/tmp/repos/ws"
     end
 
-    test "stores error status for daemon", %{socket: socket} do
+    test "stores error status for daemon and workspace", %{socket: socket} do
       ref =
         push(socket, "repo_clone_status", %{
           "status" => "error",
+          "workspace_slug" => "err-ws",
           "message" => "clone failed"
         })
 
       refute_reply ref, _
 
-      status = Algedonia.Daemons.get_repo_status(@daemon_name)
+      status = Algedonia.Daemons.get_repo_status(@daemon_name, "err-ws")
       assert status["status"] == "error"
       assert status["message"] == "clone failed"
     end
 
     test "stores not_configured status", %{socket: socket} do
-      ref = push(socket, "repo_clone_status", %{"status" => "not_configured"})
+      ref =
+        push(socket, "repo_clone_status", %{
+          "status" => "not_configured",
+          "workspace_slug" => "nc-ws"
+        })
+
       refute_reply ref, _
 
-      assert Algedonia.Daemons.repo_ready?(@daemon_name)
+      assert Algedonia.Daemons.repo_ready?(@daemon_name, "nc-ws")
     end
   end
 
@@ -137,9 +166,43 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       {:ok, socket: socket}
     end
 
-    test "updates heartbeat with payload", %{socket: socket} do
+    test "updates heartbeat with payload and pushes workspace sync", %{socket: socket} do
       ref = push(socket, "heartbeat", %{"capacity" => 5, "running_loops" => 1})
       assert_reply ref, :ok
+      assert_push "workspaces_sync", %{workspaces: []}
+    end
+
+    test "pushes user workspaces on heartbeat" do
+      user = Algedonia.Factory.insert_user!()
+
+      workspace =
+        Algedonia.Factory.insert_workspace!(%{
+          slug: "heartbeat-ws",
+          github_repo_url: "https://github.com/example/heartbeat-repo"
+        })
+
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      token = Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{user_id: user.id})
+      daemon_id = "test-heartbeat-daemon-#{System.unique_integer([:positive])}"
+      daemon_name = "test-heartbeat-name-#{System.unique_integer([:positive])}"
+
+      {:ok, socket} =
+        connect(DaemonSocket, %{
+          "token" => token,
+          "daemon_id" => daemon_id,
+          "daemon_name" => daemon_name
+        })
+
+      {:ok, _reply, socket} = subscribe_and_join(socket, "daemon:#{daemon_id}", %{})
+
+      ref = push(socket, "heartbeat", %{"capacity" => 5, "running_loops" => 1})
+      assert_reply ref, :ok
+
+      assert_push "workspaces_sync", %{workspaces: workspaces}
+      ws = Enum.find(workspaces, &(&1.slug == "heartbeat-ws"))
+      assert ws
+      assert ws.github_repo_url == "https://github.com/example/heartbeat-repo"
     end
   end
 
@@ -363,6 +426,50 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       )
 
       assert_push "start_loop", %{"loop_id" => "loop-push-test", "command" => "echo"}
+    end
+  end
+
+  describe "cleanup_worktree push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards cleanup_worktree broadcast to daemon", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_cleanup_worktree(
+        @daemon_id,
+        "ticket-123",
+        "my-workspace"
+      )
+
+      assert_push "cleanup_worktree", %{
+        "ticket_id" => "ticket-123",
+        "workspace_slug" => "my-workspace"
+      }
+    end
+  end
+
+  describe "open_editor push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards open_editor broadcast to daemon", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_open_editor(
+        @daemon_id,
+        "ticket-456",
+        "editor-workspace"
+      )
+
+      assert_push "open_editor", %{
+        "ticket_id" => "ticket-456",
+        "workspace_slug" => "editor-workspace"
+      }
     end
   end
 end

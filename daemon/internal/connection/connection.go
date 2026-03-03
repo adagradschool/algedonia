@@ -30,7 +30,6 @@ type Client struct {
 	serverURL string
 	token     string
 	name      string
-	workspace string
 	capacity  int
 	ref       atomic.Int64
 	joinRef   string
@@ -46,12 +45,11 @@ type Client struct {
 }
 
 // NewClient creates a new connection client.
-func NewClient(serverURL, token, name, workspace string, capacity int) *Client {
+func NewClient(serverURL, token, name string, capacity int) *Client {
 	return &Client{
 		serverURL: serverURL,
 		token:     token,
 		name:      name,
-		workspace: workspace,
 		capacity:  capacity,
 		handlers:  make(map[string]func(ctx context.Context, payload map[string]interface{}) error),
 	}
@@ -142,9 +140,6 @@ func (c *Client) run(ctx context.Context) error {
 	c.joinRef = c.nextRef()
 	joinPayload := map[string]interface{}{
 		"display_name": c.name,
-	}
-	if c.workspace != "" {
-		joinPayload["workspace_slug"] = c.workspace
 	}
 
 	if err := c.send(ctx, conn, c.topic(), "phx_join", joinPayload, c.joinRef); err != nil {

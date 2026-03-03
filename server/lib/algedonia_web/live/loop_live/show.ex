@@ -171,6 +171,20 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, DiffTab.handle_refresh(socket)}
   end
 
+  def handle_event("open_editor", _params, socket) do
+    with {:ok, daemon} <- resolve_daemon(socket) do
+      ticket_id = socket.assigns[:ticket] && socket.assigns.ticket.id
+
+      DaemonChannel.push_open_editor(
+        daemon.name,
+        ticket_id,
+        socket.assigns.workspace_slug
+      )
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_event("open_inline_comment", params, socket) do
     {:noreply, assign(socket, :inline_comment_form, params)}
   end
@@ -401,6 +415,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   defp start_ad_hoc_loop(socket, daemon_name) do
     task = ContextHelper.ad_hoc_task(socket)
+    ticket_id = socket.assigns[:ticket] && socket.assigns.ticket.id
 
     opts =
       %{}
@@ -409,6 +424,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> maybe_put("model", socket.assigns[:selected_model])
       |> maybe_put("effort", socket.assigns[:selected_effort])
       |> maybe_put("task", task)
+      |> maybe_put("workspace_slug", socket.assigns[:workspace_slug])
+      |> maybe_put("ticket_id", ticket_id)
 
     DaemonChannel.push_start_loop(daemon_name, socket.assigns.loop_id, opts)
 

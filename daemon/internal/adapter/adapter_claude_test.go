@@ -26,7 +26,9 @@ func TestClaudeCodeAdapterStartWithMockBinary(t *testing.T) {
 	defer os.Setenv("PATH", origPath)
 
 	a := &ClaudeCodeAdapter{}
-	proc, err := a.Start(dir, "test task", nil)
+	proc, err := a.Start(dir, "test task", map[string]string{
+		"workspace_slug": "scope",
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -87,7 +89,9 @@ func TestClaudeCodeAdapterAttachPTY(t *testing.T) {
 	defer os.Setenv("PATH", origPath)
 
 	a := &ClaudeCodeAdapter{}
-	proc, err := a.Start(dir, "", nil)
+	proc, err := a.Start(dir, "", map[string]string{
+		"workspace_slug": "scope",
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -119,7 +123,9 @@ func TestClaudeCodeAdapterKill(t *testing.T) {
 	defer os.Setenv("PATH", origPath)
 
 	a := &ClaudeCodeAdapter{}
-	proc, err := a.Start(dir, "", nil)
+	proc, err := a.Start(dir, "", map[string]string{
+		"workspace_slug": "scope",
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -148,8 +154,18 @@ func TestClaudeCodeCLIConstruction(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeAdapterStartRequiresWorkspaceSlug(t *testing.T) {
+	dir := t.TempDir()
+	a := &ClaudeCodeAdapter{}
+	if _, err := a.Start(dir, "task", nil); err == nil {
+		t.Fatal("expected Start to fail when workspace_slug is missing")
+	}
+}
+
 func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 	dir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	script := "#!/bin/sh\nsleep 60\n"
 	if err := os.WriteFile(dir+"/claude", []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -161,9 +177,10 @@ func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 
 	a := &ClaudeCodeAdapter{}
 	proc, err := a.Start(dir, "", map[string]string{
-		"loop_id": "loop-hook-1",
-		"role":    "checker",
-		"workdir": dir,
+		"workspace_slug": "scope",
+		"loop_id":        "loop-hook-1",
+		"role":           "checker",
+		"workdir":        dir,
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -177,7 +194,7 @@ func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		markerPath := filepath.Join(dir, ".algedonia", "runtime", "loop-hook-1", "attempt_complete.json")
+		markerPath := filepath.Join(home, ".algedonia", "workspaces", "scope", "runtime", "loop-hook-1", "attempt_complete.json")
 		_ = os.MkdirAll(filepath.Dir(markerPath), 0o755)
 		data, _ := json.Marshal(map[string]string{
 			"loop_id":   "loop-hook-1",
@@ -211,9 +228,11 @@ func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 
 func TestClaudeCodeAdapterWaitPrefersMarkerOverNonZeroExit(t *testing.T) {
 	dir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	script := `#!/bin/sh
-mkdir -p "$ALGEDONIA_WORKDIR/.algedonia/runtime/$ALGEDONIA_LOOP_ID"
-cat > "$ALGEDONIA_WORKDIR/.algedonia/runtime/$ALGEDONIA_LOOP_ID/attempt_complete.json" <<'EOF'
+mkdir -p "$ALGEDONIA_RUNTIME_DIR/$ALGEDONIA_LOOP_ID"
+cat > "$ALGEDONIA_RUNTIME_DIR/$ALGEDONIA_LOOP_ID/attempt_complete.json" <<'EOF'
 {"loop_id":"loop-hook-race","role":"maker","source":"test"}
 EOF
 exit 1
@@ -228,9 +247,10 @@ exit 1
 
 	a := &ClaudeCodeAdapter{}
 	proc, err := a.Start(dir, "", map[string]string{
-		"loop_id": "loop-hook-race",
-		"role":    "maker",
-		"workdir": dir,
+		"workspace_slug": "scope",
+		"loop_id":        "loop-hook-race",
+		"role":           "maker",
+		"workdir":        dir,
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

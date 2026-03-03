@@ -177,7 +177,9 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 			if len(payload) == 1 {
 				continue
 			}
-			_ = s.manager.SendInput(loopID, payload[1:])
+			if err := s.manager.SendInput(loopID, payload[1:]); err != nil {
+				log.Printf("terminal ws input rejected for loop %s: %v", loopID, err)
+			}
 		case frameTypeControl:
 			if len(payload) == 1 {
 				continue
@@ -187,7 +189,9 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if ctrl.Type == "resize" {
-				_ = s.manager.ResizeLoop(loopID, ctrl.Cols, ctrl.Rows)
+				if err := s.manager.ResizeLoop(loopID, ctrl.Cols, ctrl.Rows); err != nil {
+					log.Printf("terminal ws resize rejected for loop %s: %v", loopID, err)
+				}
 			}
 		}
 	}

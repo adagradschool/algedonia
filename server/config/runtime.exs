@@ -1,5 +1,9 @@
 import Config
 
+if config_env() in [:dev, :test] do
+  Dotenvy.source([".env", System.get_env()])
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -47,6 +51,10 @@ if System.get_env("SUPABASE_PROJECT_URL") do
     project_url: System.get_env("SUPABASE_PROJECT_URL"),
     publishable_key: System.get_env("SUPABASE_PUBLISHABLE_KEY"),
     gh_auth_callback: System.get_env("SUPABASE_GH_AUTH_CALLBACK")
+
+  config :algedonia, :daemon_releases,
+    supabase_bucket_url:
+      System.get_env("SUPABASE_PROJECT_URL") <> "/storage/v1/object/public/releases"
 end
 
 if System.get_env("GITHUB_CLIENT_ID") do

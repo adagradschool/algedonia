@@ -206,9 +206,17 @@
       </div>
       <div
         :if={@ticket_count == 0}
-        class="text-center text-fg-muted py-12 text-sm"
+        class="flex flex-col items-center justify-center py-16 space-y-3"
       >
-        No issues found.
+        <.icon name="hero-ticket" class="size-10 text-fg-muted" />
+        <h3 class="text-sm font-semibold text-fg">No issues yet</h3>
+        <p class="text-xs text-fg-muted">Create your first issue to get started.</p>
+        <.link
+          patch={~p"/w/#{@workspace_slug}/tickets/new"}
+          class="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-accent-indigo hover:bg-accent-indigo-hover text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          + New issue
+        </.link>
       </div>
     </div>
 

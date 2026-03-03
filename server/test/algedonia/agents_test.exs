@@ -33,9 +33,9 @@ defmodule Algedonia.AgentsTest do
       assert Agents.normalize_agent_atom(:claude_code) == :claude_code
     end
 
-    test "defaults unknown values to claude_code" do
-      assert Agents.normalize_agent_atom("unknown") == :claude_code
-      assert Agents.normalize_agent_atom(nil) == :claude_code
+    test "defaults unknown values to codex" do
+      assert Agents.normalize_agent_atom("unknown") == :codex
+      assert Agents.normalize_agent_atom(nil) == :codex
     end
   end
 end

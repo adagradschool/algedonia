@@ -150,7 +150,7 @@ defmodule Algedonia.PromptBuilderTest do
     end
   end
 
-  describe "checker_task/2" do
+  describe "checker_task/3" do
     test "builds checker prompt with handoff format" do
       loop = %{
         id: Ecto.UUID.generate(),
@@ -166,7 +166,7 @@ defmodule Algedonia.PromptBuilderTest do
         rubric: nil
       }
 
-      result = PromptBuilder.checker_task(loop, ticket)
+      result = PromptBuilder.checker_task(loop, ticket, "testspace")
 
       assert result =~ "Ticket: Feature"
       assert result =~ "REQUIRED HANDOFF FORMAT"
@@ -176,14 +176,14 @@ defmodule Algedonia.PromptBuilderTest do
     end
   end
 
-  describe "checker_handoff_repair_task/3" do
+  describe "checker_handoff_repair_task/4" do
     test "builds repair prompt with error and round number" do
       loop = %{
         id: Ecto.UUID.generate(),
         current_attempt: 1
       }
 
-      result = PromptBuilder.checker_handoff_repair_task(loop, "missing json", 2)
+      result = PromptBuilder.checker_handoff_repair_task(loop, "missing json", 2, "testspace")
 
       assert result =~ "repair round 2"
       assert result =~ "missing json"

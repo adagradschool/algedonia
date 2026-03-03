@@ -17,7 +17,24 @@
     </header>
 
     <div class="p-6">
-      <div class="bg-surface-panel border border-border rounded-xl overflow-hidden">
+      <div
+        :if={@daemon_count == 0}
+        class="flex flex-col items-center justify-center py-16 space-y-3"
+      >
+        <.icon name="hero-signal" class="size-10 text-fg-muted" />
+        <h3 class="text-sm font-semibold text-fg">No daemons connected</h3>
+        <p class="text-xs text-fg-muted">Install the daemon to start running agents.</p>
+        <div class="mt-2 bg-surface-raised rounded-lg p-3">
+          <code class="text-xs text-fg font-mono">
+            curl -fsSL {AlgedoniaWeb.Endpoint.url()}/install.sh | sh
+          </code>
+        </div>
+      </div>
+
+      <div
+        :if={@daemon_count > 0}
+        class="bg-surface-panel border border-border rounded-xl overflow-hidden"
+      >
         <table class="min-w-full">
           <thead class="bg-surface-raised border-b border-border">
             <tr>

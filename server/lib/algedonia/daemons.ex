@@ -109,35 +109,36 @@ defmodule Algedonia.Daemons do
   end
 
   @doc """
-  Stores the repo clone status for a daemon.
+  Stores the repo clone status for a daemon and workspace.
   """
-  @spec set_repo_status(binary(), map()) :: :ok
-  def set_repo_status(daemon_name, status_payload) do
+  @spec set_repo_status(binary(), binary(), map()) :: :ok
+  def set_repo_status(daemon_name, workspace_slug, status_payload) do
     ensure_repo_status_table()
-    :ets.insert(@repo_status_table, {daemon_name, status_payload})
-    broadcast({:repo_clone_status, daemon_name, status_payload})
+    :ets.insert(@repo_status_table, {{daemon_name, workspace_slug}, status_payload})
+    broadcast({:repo_clone_status, daemon_name, workspace_slug, status_payload})
     :ok
   end
 
   @doc """
-  Returns the repo clone status for a daemon, or nil.
+  Returns the repo clone status for a daemon and workspace, or nil.
   """
-  @spec get_repo_status(binary()) :: map() | nil
-  def get_repo_status(daemon_name) do
+  @spec get_repo_status(binary(), binary()) :: map() | nil
+  def get_repo_status(daemon_name, workspace_slug) do
     ensure_repo_status_table()
+    key = {daemon_name, workspace_slug}
 
-    case :ets.lookup(@repo_status_table, daemon_name) do
-      [{^daemon_name, status}] -> status
+    case :ets.lookup(@repo_status_table, key) do
+      [{^key, status}] -> status
       [] -> nil
     end
   end
 
   @doc """
-  Returns true if the daemon's repo is ready or not required.
+  Returns true if the daemon's repo is ready for the given workspace, or not required.
   """
-  @spec repo_ready?(binary()) :: boolean()
-  def repo_ready?(daemon_name) do
-    case get_repo_status(daemon_name) do
+  @spec repo_ready?(binary(), binary()) :: boolean()
+  def repo_ready?(daemon_name, workspace_slug) do
+    case get_repo_status(daemon_name, workspace_slug) do
       %{"status" => "ready"} -> true
       %{"status" => "not_configured"} -> true
       _ -> false

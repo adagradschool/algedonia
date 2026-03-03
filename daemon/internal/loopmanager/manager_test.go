@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +14,32 @@ import (
 
 	"github.com/algedonia/daemon/internal/adapter"
 )
+
+type testWorktreeManager struct{}
+
+func (testWorktreeManager) EnsureWorktree(_ context.Context, workspaceDir, ticketPrefix string) (string, error) {
+	wtPath := filepath.Join(workspaceDir, "worktrees", ticketPrefix)
+	if err := os.MkdirAll(wtPath, 0o755); err != nil {
+		return "", err
+	}
+	return wtPath, nil
+}
+
+func (testWorktreeManager) RemoveWorktree(_ context.Context, workspaceDir, ticketPrefix string) error {
+	wtPath := filepath.Join(workspaceDir, "worktrees", ticketPrefix)
+	if err := os.RemoveAll(wtPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func configureScopedWorktree(t *testing.T, mgr *Manager, workspaceSlug string) {
+	t.Helper()
+	baseDir := t.TempDir()
+	mgr.SetWorkspaceBaseDir(baseDir)
+	mgr.SetWorktreeManager(testWorktreeManager{})
+	_ = os.MkdirAll(filepath.Join(baseDir, workspaceSlug), 0o755)
+}
 
 type sentEvent struct {
 	Event   string
@@ -467,6 +494,8 @@ func TestSendFuncError(t *testing.T) {
 func setupMockAgent(t *testing.T, agentName, script string) (*adapter.Registry, string) {
 	t.Helper()
 	dir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	scriptPath := filepath.Join(dir, agentName)
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		t.Fatal(err)
@@ -489,7 +518,7 @@ func TestStartLoopWithAdapter(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "adapter-loop", "claude_code", "maker", dir, "do a thing", "", "", 1)
+	err := mgr.StartLoopWithAdapter(ctx, "adapter-loop", "claude_code", "maker", dir, "", "scope", "do a thing", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}
@@ -533,14 +562,16 @@ func TestHandleStartLoopWithRole(t *testing.T) {
 	reg, dir := setupMockAgent(t, "claude", script)
 
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+	configureScopedWorktree(t, mgr, "scope")
 
 	ctx := context.Background()
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id":    "role-test",
-		"role":       "maker",
-		"agent_type": "claude_code",
-		"workdir":    dir,
-		"task":       "implement feature X",
+		"loop_id":        "role-test",
+		"role":           "maker",
+		"agent_type":     "claude_code",
+		"workspace_slug": "scope",
+		"ticket_id":      "deadbeef",
+		"task":           "implement feature X",
 	})
 	if err != nil {
 		t.Fatalf("HandleStartLoop with role: %v", err)
@@ -561,6 +592,73 @@ func TestHandleStartLoopWithRole(t *testing.T) {
 	}
 }
 
+func TestHandleGetDiffIncludesUntrackedFiles(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+	baseDir := t.TempDir()
+	workspaceSlug := "scope"
+	ticketID := "44471e33-dc54-4b79-8abb-c3dc772e3c2a"
+	worktreePath := filepath.Join(baseDir, workspaceSlug, "worktrees", "44471e33")
+
+	mgr.SetWorkspaceBaseDir(baseDir)
+	mgr.SetWorktreeManager(testWorktreeManager{})
+
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+
+	runGitCmd(t, worktreePath, "init")
+	runGitCmd(t, worktreePath, "config", "user.email", "test@example.com")
+	runGitCmd(t, worktreePath, "config", "user.name", "Test User")
+
+	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitCmd(t, worktreePath, "add", "README.md")
+	runGitCmd(t, worktreePath, "commit", "-m", "initial")
+
+	if err := os.MkdirAll(filepath.Join(worktreePath, ".algedonia"), 0o755); err != nil {
+		t.Fatalf("mkdir .algedonia: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, ".algedonia", "rubrics.md"), []byte("# Rubrics\n"), 0o644); err != nil {
+		t.Fatalf("write untracked rubrics.md: %v", err)
+	}
+
+	err := mgr.HandleGetDiff(context.Background(), map[string]interface{}{
+		"loop_id":        "loop-diff-untracked",
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+	})
+	if err != nil {
+		t.Fatalf("HandleGetDiff: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var payload map[string]interface{}
+	for _, event := range events {
+		if event.Event == "diff_result" && event.Payload["loop_id"] == "loop-diff-untracked" {
+			payload = event.Payload
+			break
+		}
+	}
+	if payload == nil {
+		t.Fatal("expected diff_result event")
+	}
+
+	if _, ok := payload["error"]; ok {
+		t.Fatalf("unexpected diff error: %v", payload["error"])
+	}
+
+	diffText, _ := payload["diff"].(string)
+	if !strings.Contains(diffText, ".algedonia/rubrics.md") {
+		t.Fatalf("expected untracked .algedonia file in diff, got: %q", diffText)
+	}
+}
+
 func TestHandleStartLoopWithoutRole(t *testing.T) {
 	// Backward compatible — no role = legacy raw process path
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
@@ -578,6 +676,16 @@ func TestHandleStartLoopWithoutRole(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 }
 
+func runGitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
+	}
+}
+
 func TestDecomposeOutputParsing(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
@@ -592,7 +700,7 @@ func TestDecomposeOutputParsing(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "decompose-loop", "claude_code", "decompose", dir, "decompose this ticket", "", "", 1)
+	err := mgr.StartLoopWithAdapter(ctx, "decompose-loop", "claude_code", "decompose", dir, "", "scope", "decompose this ticket", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}
@@ -733,7 +841,7 @@ func TestAgentCrashReportsError(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "crash-loop", "claude_code", "maker", dir, "do a thing", "", "", 1)
+	err := mgr.StartLoopWithAdapter(ctx, "crash-loop", "claude_code", "maker", dir, "", "scope", "do a thing", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}

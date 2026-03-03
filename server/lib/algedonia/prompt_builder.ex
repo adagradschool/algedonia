@@ -47,9 +47,9 @@ defmodule Algedonia.PromptBuilder do
   Includes ticket context, task description, rubric, and the required
   handoff file IPC format instructions.
   """
-  @spec checker_task(map(), map()) :: String.t()
-  def checker_task(loop, ticket) do
-    expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt)
+  @spec checker_task(map(), map(), binary() | nil) :: String.t()
+  def checker_task(loop, ticket, workspace_slug \\ nil) do
+    expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt, workspace_slug)
     task_desc = loop.description || loop.title
 
     sections = [
@@ -82,9 +82,10 @@ defmodule Algedonia.PromptBuilder do
   Instructs the agent to only fix the handoff file contract without
   re-evaluating the codebase.
   """
-  @spec checker_handoff_repair_task(map(), String.t(), non_neg_integer()) :: String.t()
-  def checker_handoff_repair_task(loop, handoff_error, repairs) do
-    expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt)
+  @spec checker_handoff_repair_task(map(), String.t(), non_neg_integer(), binary() | nil) ::
+          String.t()
+  def checker_handoff_repair_task(loop, handoff_error, repairs, workspace_slug \\ nil) do
+    expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt, workspace_slug)
 
     """
     Handoff verifier failed for checker loop #{loop.id} (repair round #{repairs}):

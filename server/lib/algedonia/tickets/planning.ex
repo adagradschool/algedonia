@@ -105,7 +105,7 @@ defmodule Algedonia.Tickets.Planning do
        when is_integer(workspace_id) do
     workspace = Workspaces.get_workspace!(workspace_id)
 
-    if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name) do
+    if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name, workspace.slug) do
       {:error, :daemon_repo_not_ready}
     else
       :ok

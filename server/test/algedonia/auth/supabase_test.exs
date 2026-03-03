@@ -47,7 +47,9 @@ defmodule Algedonia.Auth.SupabaseTest do
         })
       end)
 
-      assert {:ok, profile} = Supabase.exchange_code_for_user("auth_code", "verifier")
+      assert {:ok, profile, _provider_token} =
+               Supabase.exchange_code_for_user("auth_code", "verifier")
+
       assert profile.github_id == 99_887
       assert profile.github_username == "octocat"
       assert profile.name == "The Octocat"

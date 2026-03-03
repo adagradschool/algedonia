@@ -33,6 +33,7 @@ import CommandPalette from "./hooks/command_palette"
 import SplitPanel from "./hooks/split_panel"
 import SidebarPanel from "./hooks/sidebar_panel"
 import DiffViewer from "./hooks/diff_viewer"
+import OsDetect from "./hooks/os_detect"
 
 const Hooks = {
   ...colocatedHooks,
@@ -44,6 +45,7 @@ const Hooks = {
   SplitPanel,
   SidebarPanel,
   DiffViewer,
+  OsDetect,
   KanbanBoard: {
     mounted() {
       this.sortables = []
@@ -108,6 +110,18 @@ const liveSocket = new LiveSocket("/live", Socket, {
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
+
+// Clipboard copy for phx:copy events
+window.addEventListener("phx:copy", (event) => {
+  const text = event.detail?.text
+  if (!text) return
+  navigator.clipboard.writeText(text)
+  const container = event.target.closest("[data-copy-container]")
+  if (container) {
+    container.classList.add("ring-1", "ring-accent-indigo")
+    setTimeout(() => container.classList.remove("ring-1", "ring-accent-indigo"), 600)
+  }
+})
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()

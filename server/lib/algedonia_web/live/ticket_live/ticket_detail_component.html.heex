@@ -223,6 +223,17 @@
               />
             </div>
             <div class="space-y-2">
+              <button
+                type="button"
+                phx-click="open_editor"
+                phx-value-id={@ticket.id}
+                class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] text-fg-muted hover:text-fg rounded-md hover:bg-surface-raised transition-colors"
+                title="Open ticket worktree in editor"
+              >
+                <.icon name="hero-code-bracket-mini" class="size-3.5" /> Open in Editor
+              </button>
+            </div>
+            <div class="space-y-2">
               <div class="flex items-center gap-2 text-[11px] text-fg-muted">
                 <.icon name="hero-bolt-mini" class="size-3.5" /> Automations
               </div>

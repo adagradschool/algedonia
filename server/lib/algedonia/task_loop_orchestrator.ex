@@ -115,6 +115,11 @@ defmodule Algedonia.TaskLoopOrchestrator do
     {:noreply, auto_start_planning_loop(ticket, state)}
   end
 
+  def handle_info({:ticket_updated, %{status: :archived} = ticket}, state) do
+    cleanup_ticket_worktree(ticket)
+    {:noreply, state}
+  end
+
   def handle_info({:ticket_updated, _ticket}, state), do: {:noreply, state}
   def handle_info({:ticket_created, _ticket}, state), do: {:noreply, state}
   def handle_info({:ticket_deleted, _ticket}, state), do: {:noreply, state}
@@ -172,9 +177,15 @@ defmodule Algedonia.TaskLoopOrchestrator do
              assigned_daemon_id: daemon.id,
              current_attempt: max(loop.current_attempt, 0) + 1
            }) do
-      loop = Loops.preload_with_ticket(loop)
+      loop = Loops.preload_with_workspace(loop)
       task = PromptBuilder.maker_task(loop, loop.dag.ticket, "")
-      run = task_run_options(opts, loop.dag.ticket)
+      ws_slug = loop.dag.ticket.workspace && loop.dag.ticket.workspace.slug
+      ticket_id = loop.dag.ticket.id
+
+      run =
+        task_run_options(opts, loop.dag.ticket)
+        |> mp("workspace_slug", ws_slug)
+        |> mp("ticket_id", ticket_id)
 
       {:ok,
        state
@@ -190,7 +201,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp handle_completion(loop_id, payload, daemon_name, state) do
     with {:ok, _} <- Ecto.UUID.cast(loop_id),
          %{role: :task} = loop <- Loops.get_loop(loop_id) do
-      loop = Loops.preload_with_ticket(loop)
+      loop = Loops.preload_with_workspace(loop)
       sid = Map.get(payload, "session_id")
       ec = Map.get(payload, "exit_code", 0)
 
@@ -249,7 +260,8 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp maker_done(loop, dn, sid, ec, state) do
     with {:ok, daemon} <- ensure_daemon(loop, dn),
          {:ok, loop} <- Loops.update_loop_status(loop, :running_checker) do
-      ct = PromptBuilder.checker_task(loop, loop.dag.ticket)
+      loop = Loops.preload_with_workspace(loop)
+      ct = PromptBuilder.checker_task(loop, loop.dag.ticket, ws_slug_for(loop))
       att = loop.current_attempt
       p = Map.merge(%{"role" => "checker", "task" => ct, "attempt" => att}, rc(state, loop.id))
       done_attrs = [session_id: sid, exit_code: ec, status: "completed"]
@@ -265,7 +277,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp checker_done(loop, payload, dn, sid, ec, state) do
-    case CheckerHandoff.validate(loop.id, loop.current_attempt, payload) do
+    case CheckerHandoff.validate(loop.id, loop.current_attempt, ws_slug_for(loop), payload) do
       {:ok, v} ->
         verdict = if(v.verdict == "pass", do: "pass", else: "fail")
         fp = Map.get(v, :feedback_path)
@@ -340,7 +352,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
     else
       case ensure_daemon(loop, dn) do
         {:ok, daemon} ->
-          task = PromptBuilder.checker_handoff_repair_task(loop, err, repairs)
+          task = PromptBuilder.checker_handoff_repair_task(loop, err, repairs, ws_slug_for(loop))
 
           pl =
             Map.merge(
@@ -393,7 +405,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp check_repo_ready(dn, loop) do
     ws = Loops.preload_with_workspace(loop).dag.ticket.workspace
 
-    if ws && ws.github_repo_url && !Daemons.repo_ready?(dn),
+    if ws && ws.github_repo_url && !Daemons.repo_ready?(dn, ws.slug),
       do: {:error, :repo_not_ready},
       else: :ok
   end
@@ -416,11 +428,46 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp clear_rc(s, id), do: %{s | task_run_config: Map.delete(s.task_run_config, id)}
   defp rc(s, id), do: Map.get(s.task_run_config, id, %{})
 
+  defp ws_slug_for(%{dag: %{ticket: %{workspace: %{slug: slug}}}}), do: slug
+  defp ws_slug_for(_), do: nil
+
   defp put_hr(s, id, n),
     do: %{s | checker_handoff_repairs: Map.put(s.checker_handoff_repairs, id, n)}
 
   defp clear_hr(s, id),
     do: %{s | checker_handoff_repairs: Map.delete(s.checker_handoff_repairs, id)}
+
+  defp cleanup_ticket_worktree(ticket) do
+    all_loops = running_loops_for_ticket(ticket.id) ++ completed_loops_for_ticket(ticket.id)
+
+    daemon_id =
+      all_loops
+      |> Enum.map(& &1.assigned_daemon_id)
+      |> Enum.reject(&is_nil/1)
+      |> List.first()
+
+    ticket = Algedonia.Repo.preload(ticket, :workspace)
+    ws_slug = ticket.workspace && ticket.workspace.slug
+
+    if daemon_id && ws_slug do
+      daemon = Daemons.get_daemon!(daemon_id)
+
+      AlgedoniaWeb.DaemonChannel.push_cleanup_worktree(
+        daemon.name,
+        ticket.id,
+        ws_slug
+      )
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp completed_loops_for_ticket(ticket_id) do
+    case Dags.get_dag_by_ticket(ticket_id) do
+      %{loops: loops} -> Enum.filter(loops, &(&1.status in [:passed, :failed]))
+      _ -> []
+    end
+  end
 
   defp guard_startable(%{status: status}) when status in [:pending, :ready], do: :ok
   defp guard_startable(_), do: {:error, :already_running}

@@ -31,6 +31,8 @@ defmodule AlgedoniaWeb.Router do
     get "/auth/github", AuthController, :github
     get "/auth/callback", AuthController, :callback
     delete "/auth/logout", AuthController, :delete
+    get "/install.sh", InstallController, :install_script
+    get "/releases/:filename", InstallController, :release
   end
 
   scope "/", AlgedoniaWeb do

@@ -23,7 +23,8 @@ defmodule Algedonia.Auth.Supabase do
         "redirect_to" => callback,
         "flow_type" => "pkce",
         "code_challenge" => code_challenge,
-        "code_challenge_method" => "S256"
+        "code_challenge_method" => "S256",
+        "scopes" => "repo"
       })
 
     url = "#{project_url}/auth/v1/authorize?#{query}"
@@ -52,24 +53,25 @@ defmodule Algedonia.Auth.Supabase do
       {:ok, %{status: 200, body: body}} ->
         extract_github_profile(body)
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, "Supabase token exchange failed (#{status}): #{inspect(body)}"}
+      {:ok, %{status: status, body: resp_body}} ->
+        {:error, "Supabase token exchange failed (#{status}): #{inspect(resp_body)}"}
 
       {:error, reason} ->
         {:error, "Supabase request failed: #{inspect(reason)}"}
     end
   end
 
-  defp extract_github_profile(%{"user" => user}) do
+  defp extract_github_profile(%{"user" => user} = body) do
     meta = user["user_metadata"] || %{}
     github_id = find_github_id(user, meta)
+    provider_token = body["provider_token"]
 
     case github_id do
       nil ->
         {:error, "No GitHub identity found in Supabase response"}
 
       id ->
-        {:ok, build_profile(id, user, meta)}
+        {:ok, build_profile(id, user, meta), provider_token}
     end
   end
 

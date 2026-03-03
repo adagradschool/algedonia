@@ -100,6 +100,23 @@ defmodule Algedonia.Workspaces.TransitionHookTest do
 
       assert Ecto.Changeset.get_field(changeset, :enabled) == true
     end
+
+    test "normalizes instruction by trimming and dedenting heredoc whitespace" do
+      changeset =
+        TransitionHook.changeset(%TransitionHook{}, %{
+          workspace_id: 1,
+          from_status: :backlog,
+          to_status: :planning,
+          instruction: """
+              First line
+                Nested line
+              Last line
+          """
+        })
+
+      assert Ecto.Changeset.get_field(changeset, :instruction) ==
+               "First line\n  Nested line\nLast line"
+    end
   end
 
   describe "CRUD operations" do
@@ -151,6 +168,26 @@ defmodule Algedonia.Workspaces.TransitionHookTest do
                Workspaces.update_transition_hook(hook, %{"instruction" => "Updated"})
 
       assert updated.instruction == "Updated"
+    end
+
+    test "create/update transition hooks normalize instruction text" do
+      workspace = default_workspace!()
+
+      assert {:ok, hook} =
+               Workspaces.create_transition_hook(workspace, %{
+                 "from_status" => "in_progress",
+                 "to_status" => "completed",
+                 "instruction" => "\n    First line\n    Second line\n"
+               })
+
+      assert hook.instruction == "First line\nSecond line"
+
+      assert {:ok, updated} =
+               Workspaces.update_transition_hook(hook, %{
+                 "instruction" => "\n      Updated line\n"
+               })
+
+      assert updated.instruction == "Updated line"
     end
 
     test "delete_transition_hook/1 removes the hook" do

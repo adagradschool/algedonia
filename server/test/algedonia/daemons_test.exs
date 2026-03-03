@@ -119,34 +119,41 @@ defmodule Algedonia.DaemonsTest do
   end
 
   describe "repo status" do
-    test "set_repo_status/2 stores and retrieves status" do
-      Daemons.set_repo_status("daemon-a", %{"status" => "ready", "path" => "/tmp/repo"})
-      status = Daemons.get_repo_status("daemon-a")
+    test "set_repo_status/3 stores and retrieves status per workspace" do
+      Daemons.set_repo_status("daemon-a", "ws-1", %{"status" => "ready", "path" => "/tmp/repo"})
+      status = Daemons.get_repo_status("daemon-a", "ws-1")
       assert status["status"] == "ready"
       assert status["path"] == "/tmp/repo"
     end
 
-    test "get_repo_status/1 returns nil for unknown daemon" do
-      assert Daemons.get_repo_status("unknown-daemon") == nil
+    test "get_repo_status/2 returns nil for unknown daemon/workspace" do
+      assert Daemons.get_repo_status("unknown-daemon", "ws-1") == nil
     end
 
-    test "repo_ready?/1 returns true for ready status" do
-      Daemons.set_repo_status("daemon-b", %{"status" => "ready"})
-      assert Daemons.repo_ready?("daemon-b")
+    test "get_repo_status/2 distinguishes workspaces for same daemon" do
+      Daemons.set_repo_status("daemon-multi", "ws-a", %{"status" => "ready"})
+      Daemons.set_repo_status("daemon-multi", "ws-b", %{"status" => "error"})
+      assert Daemons.get_repo_status("daemon-multi", "ws-a")["status"] == "ready"
+      assert Daemons.get_repo_status("daemon-multi", "ws-b")["status"] == "error"
     end
 
-    test "repo_ready?/1 returns true for not_configured status" do
-      Daemons.set_repo_status("daemon-c", %{"status" => "not_configured"})
-      assert Daemons.repo_ready?("daemon-c")
+    test "repo_ready?/2 returns true for ready status" do
+      Daemons.set_repo_status("daemon-b", "ws-1", %{"status" => "ready"})
+      assert Daemons.repo_ready?("daemon-b", "ws-1")
     end
 
-    test "repo_ready?/1 returns false for error status" do
-      Daemons.set_repo_status("daemon-d", %{"status" => "error"})
-      refute Daemons.repo_ready?("daemon-d")
+    test "repo_ready?/2 returns true for not_configured status" do
+      Daemons.set_repo_status("daemon-c", "ws-1", %{"status" => "not_configured"})
+      assert Daemons.repo_ready?("daemon-c", "ws-1")
     end
 
-    test "repo_ready?/1 returns false for unknown daemon" do
-      refute Daemons.repo_ready?("no-such-daemon")
+    test "repo_ready?/2 returns false for error status" do
+      Daemons.set_repo_status("daemon-d", "ws-1", %{"status" => "error"})
+      refute Daemons.repo_ready?("daemon-d", "ws-1")
+    end
+
+    test "repo_ready?/2 returns false for unknown daemon/workspace" do
+      refute Daemons.repo_ready?("no-such-daemon", "no-ws")
     end
   end
 

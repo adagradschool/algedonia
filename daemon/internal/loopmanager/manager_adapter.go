@@ -30,13 +30,14 @@ func buildAdapterTask(promptsDir, role, taskDesc string) string {
 
 // startAdapterProcess starts the adapter and attaches a PTY reader.
 // On AttachPTY failure the process is killed before returning.
-func (m *Manager) startAdapterProcess(ag adapter.AgentAdapter, loopID, workdir, task, model, effort, role string) (*adapter.Process, io.Reader, error) {
+func (m *Manager) startAdapterProcess(ag adapter.AgentAdapter, loopID, workdir, workspaceSlug, task, model, effort, role string) (*adapter.Process, io.Reader, error) {
 	proc, err := ag.Start(workdir, task, map[string]string{
-		"loop_id": loopID,
-		"role":    role,
-		"workdir": workdir,
-		"model":   strings.TrimSpace(model),
-		"effort":  strings.TrimSpace(effort),
+		"loop_id":        loopID,
+		"role":           role,
+		"workdir":        workdir,
+		"workspace_slug": strings.TrimSpace(workspaceSlug),
+		"model":          strings.TrimSpace(model),
+		"effort":         strings.TrimSpace(effort),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting adapter for loop %s: %w", loopID, err)
@@ -51,18 +52,19 @@ func (m *Manager) startAdapterProcess(ag adapter.AgentAdapter, loopID, workdir, 
 }
 
 // registerAdapterLoop creates a LoopProcess and inserts it into the loop map.
-func (m *Manager) registerAdapterLoop(loopID, role, workdir, promptsDir string, attempt int, ag adapter.AgentAdapter, proc *adapter.Process, chunker *Chunker, cancel context.CancelFunc, done chan struct{}) *LoopProcess {
+func (m *Manager) registerAdapterLoop(loopID, role, workdir, workspaceDir, promptsDir string, attempt int, ag adapter.AgentAdapter, proc *adapter.Process, chunker *Chunker, cancel context.CancelFunc, done chan struct{}) *LoopProcess {
 	lp := &LoopProcess{
-		LoopID:     loopID,
-		Chunker:    chunker,
-		Cancel:     cancel,
-		Done:       done,
-		adapter:    ag,
-		process:    proc,
-		role:       role,
-		promptsDir: promptsDir,
-		workdir:    workdir,
-		attempt:    attempt,
+		LoopID:       loopID,
+		Chunker:      chunker,
+		Cancel:       cancel,
+		Done:         done,
+		adapter:      ag,
+		process:      proc,
+		role:         role,
+		promptsDir:   promptsDir,
+		workdir:      workdir,
+		workspaceDir: workspaceDir,
+		attempt:      attempt,
 	}
 
 	m.mu.Lock()
@@ -151,9 +153,10 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 
 	lp.mu.Lock()
 	lpAttempt := lp.attempt
+	lpWorkspaceDir := lp.workspaceDir
 	lp.mu.Unlock()
 
-	expectedJSON, expectedFeedback := expectedCheckerHandoffPaths(loopID, lpAttempt)
+	expectedJSON, expectedFeedback := expectedCheckerHandoffPaths(loopID, lpAttempt, lpWorkspaceDir)
 	payload := map[string]interface{}{
 		"loop_id":                        loopID,
 		"exit_code":                      result.ExitCode,
@@ -163,7 +166,7 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 		"attempt":                        lpAttempt,
 	}
 
-	verdict, feedbackPath, feedback, parseErr := loadCheckerHandoff(loopID, lpAttempt)
+	verdict, feedbackPath, feedback, parseErr := loadCheckerHandoff(loopID, lpAttempt, lpWorkspaceDir)
 	if parseErr != nil {
 		m.sendEvent("error", map[string]interface{}{
 			"loop_id":     loopID,

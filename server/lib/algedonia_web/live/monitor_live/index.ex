@@ -36,7 +36,7 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
      |> stream_insert(:daemons, daemon)}
   end
 
-  def handle_info({:repo_clone_status, _daemon_id, _status}, socket) do
+  def handle_info({:repo_clone_status, _daemon_name, _ws_slug, _payload}, socket) do
     {:noreply, socket}
   end
 
