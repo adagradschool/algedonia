@@ -84,7 +84,7 @@ func (cm *CloneManager) handleExistingRepo(ctx context.Context, repoPath, repoUR
 		return "", fmt.Errorf("reading origin URL: %w", err)
 	}
 
-	if strings.TrimSpace(currentURL) == strings.TrimSpace(repoURL) {
+	if urlsEquivalent(currentURL, repoURL) {
 		return cm.fetchAll(ctx, repoPath)
 	}
 
@@ -105,8 +105,30 @@ func (cm *CloneManager) getOriginURL(ctx context.Context, repoPath string) (stri
 
 func (cm *CloneManager) fetchAll(ctx context.Context, repoPath string) (string, error) {
 	_, _, err := cm.runGit(ctx, repoPath, "fetch", "--all")
-	if err != nil {
+	if err == nil {
+		return repoPath, nil
+	}
+
+	currentURL, urlErr := cm.getOriginURL(ctx, repoPath)
+	if urlErr != nil {
 		return "", fmt.Errorf("fetching repo: %w", err)
+	}
+
+	alt, ok := alternateURL(currentURL)
+	if !ok {
+		return "", fmt.Errorf("fetching repo: %w", err)
+	}
+
+	// Switch origin to alternate URL and retry.
+	if _, _, setErr := cm.runGit(ctx, repoPath, "remote", "set-url", "origin", alt); setErr != nil {
+		return "", fmt.Errorf("fetching repo: %w", err)
+	}
+
+	_, _, retryErr := cm.runGit(ctx, repoPath, "fetch", "--all")
+	if retryErr != nil {
+		// Revert origin URL.
+		_, _, _ = cm.runGit(ctx, repoPath, "remote", "set-url", "origin", currentURL)
+		return "", fmt.Errorf("fetching repo (tried %s and %s): %w", currentURL, alt, err)
 	}
 	return repoPath, nil
 }
@@ -117,8 +139,21 @@ func (cm *CloneManager) cloneBare(ctx context.Context, repoPath, repoURL string)
 	}
 
 	_, _, err := cm.runGit(ctx, "", "clone", "--bare", repoURL, repoPath)
-	if err != nil {
+	if err == nil {
+		return repoPath, nil
+	}
+
+	alt, ok := alternateURL(repoURL)
+	if !ok {
 		return "", fmt.Errorf("cloning repo: %w", err)
+	}
+
+	// Clean up partial clone before retry.
+	_ = os.RemoveAll(repoPath)
+
+	_, _, altErr := cm.runGit(ctx, "", "clone", "--bare", alt, repoPath)
+	if altErr != nil {
+		return "", fmt.Errorf("cloning repo (tried %s and %s): %w", repoURL, alt, err)
 	}
 	return repoPath, nil
 }
@@ -132,6 +167,7 @@ func runGitCmd(ctx context.Context, gitBin, dir string, args ...string) (string,
 	if dir != "" {
 		cmd.Dir = dir
 	}
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
