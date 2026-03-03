@@ -12,13 +12,7 @@ defmodule AlgedoniaWeb.PresenceHook do
   def on_mount(:default, params, session, socket) do
     display_name = session["display_name"] || "Anonymous"
     workspace_slug = params["workspace"]
-
-    workspace =
-      if id = session["current_workspace_id"] do
-        Workspaces.get_workspace!(id)
-      else
-        nil
-      end
+    workspace = resolve_workspace(workspace_slug, session["current_workspace_id"])
 
     {current_user, user_workspaces} =
       case session["user_id"] do
@@ -103,4 +97,12 @@ defmodule AlgedoniaWeb.PresenceHook do
   defp nav_section_for(AlgedoniaWeb.DagLive.Show), do: :issues
   defp nav_section_for(AlgedoniaWeb.SettingsLive.Index), do: :settings
   defp nav_section_for(_), do: nil
+
+  defp resolve_workspace(nil, workspace_id) do
+    if workspace_id, do: Workspaces.get_workspace!(workspace_id), else: nil
+  end
+
+  defp resolve_workspace(workspace_slug, _workspace_id) do
+    Workspaces.get_workspace_by_slug(workspace_slug)
+  end
 end

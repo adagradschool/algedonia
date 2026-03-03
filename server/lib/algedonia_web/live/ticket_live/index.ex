@@ -31,14 +31,17 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         (session["current_workspace_id"] &&
            Workspaces.get_workspace!(session["current_workspace_id"]))
 
+    current_workspace_id = current_workspace && current_workspace.id
+    workspace_prefix = if current_workspace, do: current_workspace.prefix, else: "AG"
+
     {:ok,
      assign(socket,
        statuses: @statuses,
        show_shortcut_help: false,
        current_user_id: session["user_id"],
-       current_workspace_id: session["current_workspace_id"],
+       current_workspace_id: current_workspace_id,
        current_workspace: current_workspace,
-       workspace_prefix: session["current_workspace_prefix"] || "AG",
+       workspace_prefix: workspace_prefix,
        workspace_slug: workspace_slug,
        save_state: :idle,
        confirm_delete: false,

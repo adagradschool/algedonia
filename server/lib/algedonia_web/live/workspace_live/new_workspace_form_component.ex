@@ -128,6 +128,13 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent do
             </button>
           </div>
 
+          <p
+            :for={msg <- field_errors(@form, [:github_repo_url])}
+            class="mt-1 text-xs text-status-red"
+          >
+            {msg}
+          </p>
+
           <input
             :if={!@show_url_input && @github_repo_url}
             type="hidden"
@@ -150,6 +157,12 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent do
             required
             class="w-full px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm placeholder-fg-muted focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
           />
+          <p
+            :for={msg <- field_errors(@form, [:name, :slug, :prefix])}
+            class="mt-1 text-xs text-status-red"
+          >
+            {msg}
+          </p>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
@@ -170,6 +183,12 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent do
       </.form>
     </div>
     """
+  end
+
+  defp field_errors(form, fields) do
+    Enum.flat_map(fields, fn field ->
+      Enum.map(form[field].errors, &translate_error/1)
+    end)
   end
 
   defp selected_repo_name(repos, url) do
