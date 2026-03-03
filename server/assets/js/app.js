@@ -101,7 +101,7 @@ const Hooks = {
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
-  longPollFallbackMs: 2500,
+  longPollFallbackMs: 10000,
   params: {_csrf_token: csrfToken},
   hooks: Hooks,
 })
