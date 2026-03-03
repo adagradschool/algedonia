@@ -56,6 +56,11 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 		return "", fmt.Errorf("detecting default branch: %w", err)
 	}
 
+	// Fetch latest from origin so worktree starts from up-to-date main.
+	// In bare repos, the default refspec maps remote heads to local heads directly,
+	// so after fetch, `branch` points to the latest remote commit.
+	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "fetch", "origin")
+
 	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
 		return "", fmt.Errorf("creating worktrees dir: %w", err)
 	}

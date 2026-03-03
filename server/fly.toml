@@ -1,5 +1,5 @@
 app = "algedonia"
-primary_region = "iad"
+primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = "5s"
 
