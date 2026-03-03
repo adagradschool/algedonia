@@ -89,6 +89,33 @@ defmodule AlgedoniaWeb.PresenceLiveTest do
     refute render(view1) =~ "Bob"
   end
 
+  test "url workspace slug takes precedence over stale session workspace", %{
+    conn: conn,
+    workspace: workspace,
+    user: user
+  } do
+    target_workspace =
+      Algedonia.Factory.insert_workspace!(%{name: "Target Workspace", slug: "target-workspace"})
+
+    Algedonia.Factory.insert_membership!(target_workspace, user)
+
+    stale_conn =
+      Plug.Test.init_test_session(conn, %{
+        display_name: "Ada",
+        user_id: user.id,
+        current_workspace_id: workspace.id,
+        current_workspace_slug: workspace.slug,
+        current_workspace_prefix: workspace.prefix
+      })
+
+    {:ok, view, _html} = live(stale_conn, ~p"/w/#{target_workspace.slug}/tickets")
+
+    assert has_element?(
+             view,
+             "#global-command-palette[data-tickets-path='/w/#{target_workspace.slug}/tickets']"
+           )
+  end
+
   defp assert_eventually(func, attempts \\ 50) do
     if func.() do
       :ok

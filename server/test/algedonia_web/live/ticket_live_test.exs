@@ -46,6 +46,56 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert render(view) =~ "Created ticket"
     end
 
+    test "creates workspace from switcher modal and redirects to new workspace tickets", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      insert_ticket!(%{title: "Old scope ticket", workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      view
+      |> element("#workspace-switcher-dropdown button", "New workspace")
+      |> render_click()
+
+      name = "Switcher Workspace #{System.unique_integer([:positive])}"
+      slug = AlgedoniaWeb.Helpers.slugify(name)
+
+      view
+      |> form("#new-workspace-modal form", workspace: %{name: name})
+      |> render_submit()
+
+      assert_redirect(view, "/w/#{slug}/tickets")
+
+      {:ok, redirected_view, redirected_html} = live(conn, ~p"/w/#{slug}/tickets")
+
+      assert has_element?(
+               redirected_view,
+               "#global-command-palette[data-tickets-path='/w/#{slug}/tickets']"
+             )
+
+      refute redirected_html =~ "Old scope ticket"
+    end
+
+    test "workspace create failure keeps modal open and shows inline validation errors", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      view
+      |> element("#workspace-switcher-dropdown button", "New workspace")
+      |> render_click()
+
+      html =
+        view
+        |> form("#new-workspace-modal form", workspace: %{name: "Testspace"})
+        |> render_submit()
+
+      assert has_element?(view, "#new-workspace-modal")
+      assert html =~ "Workspace name"
+      assert html =~ ~r/has already been taken/i
+    end
+
     test "shows capitalized form errors", %{conn: conn, workspace: workspace} do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 

@@ -42,7 +42,7 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal do
       def handle_event("validate_new_workspace", %{"workspace" => params}, socket) do
         changeset =
           %Workspace{}
-          |> Workspaces.change_workspace(params)
+          |> Workspaces.change_workspace(NewWorkspaceModal.workspace_attrs(params, socket))
           |> Map.put(:action, :validate)
 
         {:noreply, assign(socket, :new_workspace_form, to_form(changeset))}
@@ -81,19 +81,7 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal do
       @impl true
       def handle_event("create_new_workspace", %{"workspace" => params}, socket) do
         user = socket.assigns.current_user
-        name = params["name"] || ""
-        slug = AlgedoniaWeb.Helpers.slugify(name)
-        prefix = Workspaces.prefix_for_name(name)
-
-        repo_url =
-          case String.trim(
-                 params["github_repo_url"] || socket.assigns[:new_ws_github_repo_url] || ""
-               ) do
-            "" -> nil
-            url -> url
-          end
-
-        attrs = %{name: name, slug: slug, prefix: prefix, github_repo_url: repo_url}
+        attrs = NewWorkspaceModal.workspace_attrs(params, socket)
 
         case Workspaces.create_workspace(attrs) do
           {:ok, workspace} ->
@@ -104,10 +92,11 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal do
              |> assign(:show_new_workspace_modal, false)
              |> push_navigate(to: "/w/#{workspace.slug}/tickets")}
 
-          {:error, _changeset} ->
+          {:error, changeset} ->
             {:noreply,
              socket
-             |> put_flash(:error, "Could not create workspace. Try a different name.")}
+             |> assign(:show_new_workspace_modal, true)
+             |> assign(:new_workspace_form, to_form(changeset))}
         end
       end
     end
@@ -130,5 +119,20 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal do
           {:error, _} -> []
         end
     end
+  end
+
+  @doc false
+  def workspace_attrs(params, socket) do
+    name = params["name"] || ""
+    slug = AlgedoniaWeb.Helpers.slugify(name)
+    prefix = Algedonia.Workspaces.prefix_for_name(name)
+
+    repo_url =
+      case String.trim(params["github_repo_url"] || socket.assigns[:new_ws_github_repo_url] || "") do
+        "" -> nil
+        url -> url
+      end
+
+    %{name: name, slug: slug, prefix: prefix, github_repo_url: repo_url}
   end
 end
