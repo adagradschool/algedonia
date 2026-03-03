@@ -13,28 +13,21 @@ type checkerHandoff struct {
 	FEEDBACK string `json:"FEEDBACK"`
 }
 
-func globalAlgedoniaDir() string {
-	if custom := strings.TrimSpace(os.Getenv("ALGEDONIA_HOME")); custom != "" {
-		return filepath.Clean(custom)
+func expectedCheckerHandoffPaths(loopID string, attempt int, workspaceDir string) (string, string) {
+	workspaceDir = strings.TrimSpace(workspaceDir)
+	if workspaceDir == "" {
+		return "", ""
 	}
-	home, err := os.UserHomeDir()
-	if err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".algedonia")
-	}
-	return filepath.Clean(".algedonia")
-}
-
-func checkerHandoffSuffix(loopID string, attempt int) string {
-	return filepath.ToSlash(filepath.Join(".algedonia", "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt), "checker_feedback.md"))
-}
-
-func expectedCheckerHandoffPaths(loopID string, attempt int) (string, string) {
-	base := filepath.Join(globalAlgedoniaDir(), "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt))
+	base := filepath.Join(workspaceDir, "handoffs", loopID, fmt.Sprintf("attempt-%d", attempt))
 	return filepath.Join(base, "checker_result.json"), filepath.Join(base, "checker_feedback.md")
 }
 
-func loadCheckerHandoff(loopID string, attempt int) (string, string, string, error) {
-	handoffPath, expectedFeedbackPath := expectedCheckerHandoffPaths(loopID, attempt)
+func loadCheckerHandoff(loopID string, attempt int, workspaceDir string) (string, string, string, error) {
+	handoffPath, expectedFeedbackPath := expectedCheckerHandoffPaths(loopID, attempt, workspaceDir)
+	if handoffPath == "" || expectedFeedbackPath == "" {
+		return "", "", "", fmt.Errorf("workspaceDir is required for checker handoff paths")
+	}
+
 	raw, err := os.ReadFile(handoffPath)
 	if err != nil {
 		return "", "", "", fmt.Errorf("read %s: %w", handoffPath, err)
@@ -63,12 +56,11 @@ func loadCheckerHandoff(loopID string, attempt int) (string, string, string, err
 		}
 	}
 	if !filepath.IsAbs(absFeedbackPath) {
-		absFeedbackPath = filepath.Join(globalAlgedoniaDir(), absFeedbackPath)
+		absFeedbackPath = filepath.Join(workspaceDir, absFeedbackPath)
 	}
 	absFeedbackPath = filepath.Clean(absFeedbackPath)
 	expectedFeedbackPath = filepath.Clean(expectedFeedbackPath)
-	if absFeedbackPath != expectedFeedbackPath &&
-		!strings.HasSuffix(filepath.ToSlash(absFeedbackPath), checkerHandoffSuffix(loopID, attempt)) {
+	if absFeedbackPath != expectedFeedbackPath {
 		return "", "", "", fmt.Errorf("FEEDBACK path must be %s", filepath.Clean(expectedFeedbackPath))
 	}
 

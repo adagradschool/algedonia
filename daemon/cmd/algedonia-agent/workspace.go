@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/algedonia/daemon/internal/apiclient"
@@ -95,7 +96,13 @@ func newAPIClient(workspaceOverride string) (*apiclient.Client, *config.Config, 
 		baseURL = "http://localhost:4000"
 	}
 
-	workspace := workspaceOverride
+	workspace := strings.TrimSpace(workspaceOverride)
+	if workspace == "" {
+		workspace = strings.TrimSpace(os.Getenv("ALGEDONIA_WORKSPACE"))
+	}
+	if workspace == "" {
+		workspace = strings.TrimSpace(os.Getenv("ALGEDONIA_WORKSPACE_SLUG"))
+	}
 	if workspace == "" {
 		workspace = cfg.Workspace
 	}

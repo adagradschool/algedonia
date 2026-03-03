@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/algedonia/daemon/internal/runtimepath"
 	"github.com/google/uuid"
 )
 
@@ -34,12 +35,23 @@ func (a *CodexAdapter) Start(workdir string, task string, config map[string]stri
 
 	loopID := strings.TrimSpace(config["loop_id"])
 	role := strings.TrimSpace(config["role"])
+	workspaceSlug := strings.TrimSpace(config["workspace_slug"])
+	if workspaceSlug == "" {
+		return nil, fmt.Errorf("workspace_slug is required (sets ALGEDONIA_WORKSPACE)")
+	}
+	runtimeDir, err := runtimepath.WorkspaceRuntimeDir(workspaceSlug)
+	if err != nil {
+		return nil, fmt.Errorf("resolving workspace runtime dir: %w", err)
+	}
 	if loopID != "" {
 		cmd.Env = append(cmd.Env, "ALGEDONIA_LOOP_ID="+loopID)
 	}
 	if role != "" {
 		cmd.Env = append(cmd.Env, "ALGEDONIA_ROLE="+role)
 	}
+	cmd.Env = append(cmd.Env, "ALGEDONIA_WORKSPACE="+workspaceSlug)
+	cmd.Env = append(cmd.Env, "ALGEDONIA_WORKSPACE_SLUG="+workspaceSlug)
+	cmd.Env = append(cmd.Env, "ALGEDONIA_RUNTIME_DIR="+runtimeDir)
 	if workdir != "" {
 		cmd.Env = append(cmd.Env, "ALGEDONIA_WORKDIR="+workdir)
 	}
@@ -53,7 +65,7 @@ func (a *CodexAdapter) Start(workdir string, task string, config map[string]stri
 	sessionID := uuid.New().String()
 	completionMarker := ""
 	if loopID != "" {
-		completionMarker = filepath.Join(workdir, ".algedonia", "runtime", loopID, "attempt_complete.json")
+		completionMarker = filepath.Join(runtimeDir, loopID, "attempt_complete.json")
 		_ = os.Remove(completionMarker)
 	}
 

@@ -2,6 +2,7 @@ defmodule AlgedoniaWeb.PageController do
   use AlgedoniaWeb, :controller
 
   alias Algedonia.Accounts
+  alias Algedonia.Tickets
   alias Algedonia.Workspaces
 
   def home(conn, _params) do
@@ -10,15 +11,19 @@ defmodule AlgedoniaWeb.PageController do
         render(conn, :landing, layout: false)
 
       user_id ->
-        workspaces = Accounts.list_workspaces_for_user(user_id)
+        user_id
+        |> Accounts.list_workspaces_for_user()
+        |> redirect_for_workspaces(conn)
+    end
+  end
 
-        case workspaces do
-          [workspace | _] ->
-            redirect(conn, to: ~p"/w/#{workspace.slug}/tickets")
+  defp redirect_for_workspaces([], conn), do: redirect(conn, to: ~p"/onboarding")
 
-          [] ->
-            redirect(conn, to: ~p"/onboarding")
-        end
+  defp redirect_for_workspaces([workspace | _], conn) do
+    if Tickets.list_tickets(workspace_id: workspace.id) == [] do
+      redirect(conn, to: ~p"/onboarding")
+    else
+      redirect(conn, to: ~p"/w/#{workspace.slug}/tickets")
     end
   end
 

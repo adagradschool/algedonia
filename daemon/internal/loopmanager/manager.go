@@ -17,6 +17,7 @@ import (
 
 	"github.com/algedonia/daemon/internal/adapter"
 	ptyPkg "github.com/algedonia/daemon/internal/pty"
+	"github.com/algedonia/daemon/internal/repo"
 	"github.com/algedonia/daemon/internal/terminalstream"
 )
 
@@ -32,25 +33,28 @@ type LoopProcess struct {
 	stopped bool
 
 	// adapter fields — set when started via StartLoopWithAdapter
-	adapter    adapter.AgentAdapter
-	process    *adapter.Process
-	role       string
-	promptsDir string
-	workdir    string
-	attempt    int
+	adapter      adapter.AgentAdapter
+	process      *adapter.Process
+	role         string
+	promptsDir   string
+	workdir      string
+	workspaceDir string
+	attempt      int
 }
 
 // Manager tracks running loop processes and streams their output.
 type Manager struct {
-	mu         sync.Mutex
-	loops      map[string]*LoopProcess
-	termSubs   map[string]map[uint64]chan terminalstream.Chunk
-	termStream map[string]*terminalStreamState
-	nextSubID  uint64
-	sendFunc   func(event string, payload map[string]interface{}) error
-	adapterReg *adapter.Registry
-	repoRoot   string
-	replayMax  int
+	mu               sync.Mutex
+	loops            map[string]*LoopProcess
+	termSubs         map[string]map[uint64]chan terminalstream.Chunk
+	termStream       map[string]*terminalStreamState
+	nextSubID        uint64
+	sendFunc         func(event string, payload map[string]interface{}) error
+	adapterReg       *adapter.Registry
+	repoRoot         string
+	workspaceBaseDir string
+	worktreeMgr      repo.WorktreeManager
+	replayMax        int
 }
 
 const (
@@ -75,6 +79,25 @@ func NewManager(sendFunc func(event string, payload map[string]interface{}) erro
 		repoRoot:   repoRoot,
 		replayMax:  replayMaxBytesFromEnv(os.Getenv),
 	}
+}
+
+// SetWorkspaceBaseDir sets the base directory for workspace working directories.
+func (m *Manager) SetWorkspaceBaseDir(dir string) {
+	m.workspaceBaseDir = dir
+}
+
+// SetWorktreeManager sets the worktree manager for ticket-scoped worktrees.
+func (m *Manager) SetWorktreeManager(wm repo.WorktreeManager) {
+	m.worktreeMgr = wm
+}
+
+// workdirForWorkspace returns the working directory for a workspace slug.
+// Falls back to repoRoot if no workspace base dir is set or slug is empty.
+func (m *Manager) workdirForWorkspace(slug string) string {
+	if slug != "" && m.workspaceBaseDir != "" {
+		return filepath.Join(m.workspaceBaseDir, slug)
+	}
+	return m.repoRoot
 }
 
 func (m *Manager) sendEvent(event string, payload map[string]interface{}) {
@@ -228,7 +251,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 }
 
 // StartLoopWithAdapter spawns a loop using a registered adapter.
-func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, taskDesc, model, effort string, attempt int) error {
+func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, workspaceDir, workspaceSlug, taskDesc, model, effort string, attempt int) error {
 	m.mu.Lock()
 	if _, exists := m.loops[loopID]; exists {
 		m.mu.Unlock()
@@ -248,7 +271,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	promptsDir := filepath.Join(workdir, ".algedonia", "prompts")
 	task := buildAdapterTask(promptsDir, role, taskDesc)
 
-	proc, reader, err := m.startAdapterProcess(ag, loopID, workdir, task, model, effort, role)
+	proc, reader, err := m.startAdapterProcess(ag, loopID, workdir, workspaceSlug, task, model, effort, role)
 	if err != nil {
 		return err
 	}
@@ -256,7 +279,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	_, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	chunker := m.newTerminalChunker(loopID)
-	lp := m.registerAdapterLoop(loopID, role, workdir, promptsDir, attempt, ag, proc, chunker, cancel, done)
+	lp := m.registerAdapterLoop(loopID, role, workdir, workspaceDir, promptsDir, attempt, ag, proc, chunker, cancel, done)
 
 	tee := io.TeeReader(reader, proc.Collector())
 	go readOutputLoop(tee, loopID, chunker, m.broadcastTerminal)

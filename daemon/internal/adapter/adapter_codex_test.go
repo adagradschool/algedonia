@@ -28,7 +28,9 @@ exit 0
 	defer os.Setenv("PATH", origPath)
 
 	a := &CodexAdapter{}
-	proc, err := a.Start(dir, "test task", nil)
+	proc, err := a.Start(dir, "test task", map[string]string{
+		"workspace_slug": "scope",
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -81,7 +83,9 @@ sleep 60
 	defer os.Setenv("PATH", origPath)
 
 	a := &CodexAdapter{}
-	proc, err := a.Start(dir, "", nil)
+	proc, err := a.Start(dir, "", map[string]string{
+		"workspace_slug": "scope",
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -100,5 +104,13 @@ sleep 60
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Kill did not return in time")
+	}
+}
+
+func TestCodexAdapterStartRequiresWorkspaceSlug(t *testing.T) {
+	dir := t.TempDir()
+	a := &CodexAdapter{}
+	if _, err := a.Start(dir, "task", nil); err == nil {
+		t.Fatal("expected Start to fail when workspace_slug is missing")
 	}
 }

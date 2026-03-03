@@ -132,11 +132,21 @@ defmodule Algedonia.HookExecutor do
     context = build_context(hook, ticket, from_status, to_status)
     task = build_hook_task(context)
 
-    DaemonChannel.push_start_loop(daemon_name, loop.id, %{
-      "role" => "hook",
-      "agent_type" => Agents.ticket_agent_type(ticket),
-      "task" => task
-    })
+    ws_slug =
+      if ticket.workspace_id,
+        do: Workspaces.get_workspace!(ticket.workspace_id).slug,
+        else: nil
+
+    opts =
+      %{
+        "role" => "hook",
+        "agent_type" => Agents.ticket_agent_type(ticket),
+        "ticket_id" => ticket.id,
+        "task" => task
+      }
+      |> then(fn m -> if ws_slug, do: Map.put(m, "workspace_slug", ws_slug), else: m end)
+
+    DaemonChannel.push_start_loop(daemon_name, loop.id, opts)
 
     :ok
   end
@@ -163,7 +173,7 @@ defmodule Algedonia.HookExecutor do
        when is_integer(workspace_id) do
     workspace = Workspaces.get_workspace!(workspace_id)
 
-    if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name) do
+    if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name, workspace.slug) do
       {:error, :repo_not_ready}
     else
       :ok

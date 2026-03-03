@@ -12,9 +12,21 @@ defmodule Algedonia.CheckerHandoff do
   @type payload :: map()
   @type validated :: %{verdict: String.t(), feedback: String.t(), feedback_path: String.t() | nil}
 
-  @spec expected_paths(binary(), pos_integer()) :: %{json: String.t(), feedback: String.t()}
-  def expected_paths(loop_id, attempt) when is_integer(attempt) and attempt > 0 do
-    base = Path.join(["~", ".algedonia", "handoffs", loop_id, "attempt-#{attempt}"])
+  @spec expected_paths(binary(), pos_integer(), binary()) ::
+          %{json: String.t(), feedback: String.t()}
+  def expected_paths(loop_id, attempt, workspace_slug)
+      when is_binary(workspace_slug) and workspace_slug != "" and is_integer(attempt) and
+             attempt > 0 do
+    base =
+      Path.join([
+        "~",
+        ".algedonia",
+        "workspaces",
+        workspace_slug,
+        "handoffs",
+        loop_id,
+        "attempt-#{attempt}"
+      ])
 
     %{
       json: Path.join(base, "checker_result.json"),
@@ -22,10 +34,12 @@ defmodule Algedonia.CheckerHandoff do
     }
   end
 
-  @spec validate(binary(), pos_integer(), payload()) :: {:ok, validated()} | {:error, String.t()}
-  def validate(loop_id, attempt, payload)
-      when is_binary(loop_id) and is_integer(attempt) and attempt > 0 and is_map(payload) do
-    expected = expected_paths(loop_id, attempt)
+  @spec validate(binary(), pos_integer(), binary(), payload()) ::
+          {:ok, validated()} | {:error, String.t()}
+  def validate(loop_id, attempt, workspace_slug, payload)
+      when is_binary(loop_id) and is_integer(attempt) and attempt > 0 and is_map(payload) and
+             is_binary(workspace_slug) and workspace_slug != "" do
+    expected = expected_paths(loop_id, attempt, workspace_slug)
     verdict = normalize_verdict(Map.get(payload, "verdict", ""))
     feedback = normalize_text(Map.get(payload, "feedback", ""))
     feedback_path = Map.get(payload, "feedback_path", nil)
@@ -37,6 +51,9 @@ defmodule Algedonia.CheckerHandoff do
       {:ok, %{verdict: verdict, feedback: feedback, feedback_path: feedback_path}}
     end
   end
+
+  def validate(_loop_id, _attempt, _workspace_slug, _payload),
+    do: {:error, "workspace_slug is required for checker handoff validation"}
 
   defp validate_handoff_marker(payload) do
     if payload["handoff_valid"] == true do

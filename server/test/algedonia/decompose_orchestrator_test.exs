@@ -53,6 +53,7 @@ defmodule Algedonia.DecomposeOrchestratorTest do
         assert_receive {:push, _daemon_name, _loop_id, payload}
         assert payload["role"] == "decompose"
         assert payload["agent_type"] == "claude_code"
+        assert is_binary(payload["workspace_slug"]) and payload["workspace_slug"] != ""
         assert payload["ticket"]["title"] == "My ticket"
         assert payload["ticket"]["description"] == "Do stuff"
         assert payload["ticket"]["type"] == "feature"
@@ -75,6 +76,7 @@ defmodule Algedonia.DecomposeOrchestratorTest do
       assert_receive {:push, _daemon_name, _loop_id, payload}
       assert payload["role"] == "decompose"
       assert payload["agent_type"] == "codex"
+      assert is_binary(payload["workspace_slug"]) and payload["workspace_slug"] != ""
     end
 
     test "rejects ticket not in backlog", %{orchestrator: pid} do
@@ -112,6 +114,10 @@ defmodule Algedonia.DecomposeOrchestratorTest do
       assert_receive {:push, _, _checker_loop_id, checker_payload}
       assert checker_payload["role"] == "decompose_checker"
       assert checker_payload["agent_type"] == "claude_code"
+
+      assert is_binary(checker_payload["workspace_slug"]) and
+               checker_payload["workspace_slug"] != ""
+
       assert checker_payload["ticket"]["title"] == "Checker ticket"
     end
   end
@@ -171,6 +177,7 @@ defmodule Algedonia.DecomposeOrchestratorTest do
       assert_receive {:push, _, _new_loop_id, retry_payload}
       assert retry_payload["role"] == "decompose"
       assert retry_payload["agent_type"] == "claude_code"
+      assert is_binary(retry_payload["workspace_slug"]) and retry_payload["workspace_slug"] != ""
       assert retry_payload["feedback"] == "Tasks are too coarse"
       assert retry_payload["ticket"]["title"] == "Retry ticket"
     end

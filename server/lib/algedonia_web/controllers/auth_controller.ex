@@ -16,7 +16,8 @@ defmodule AlgedoniaWeb.AuthController do
   def callback(conn, %{"code" => code}) do
     code_verifier = get_session(conn, :pkce_code_verifier)
 
-    with {:ok, profile} <- Supabase.exchange_code_for_user(code, code_verifier),
+    with {:ok, profile, provider_token} <-
+           Supabase.exchange_code_for_user(code, code_verifier),
          {:ok, user} <- Accounts.get_or_create_user_from_github(profile) do
       Workspaces.accept_pending_invitations(user)
       workspaces = Accounts.list_workspaces_for_user(user.id)
@@ -26,6 +27,7 @@ defmodule AlgedoniaWeb.AuthController do
         |> delete_session(:pkce_code_verifier)
         |> put_session(:user_id, user.id)
         |> put_session(:display_name, user.github_username)
+        |> maybe_put_github_token(provider_token)
 
       case workspaces do
         [workspace | _] ->
@@ -56,6 +58,9 @@ defmodule AlgedoniaWeb.AuthController do
     |> configure_session(drop: true)
     |> redirect(to: ~p"/")
   end
+
+  defp maybe_put_github_token(conn, nil), do: conn
+  defp maybe_put_github_token(conn, token), do: put_session(conn, :github_token, token)
 
   def device_code(conn, _params) do
     case GithubDevice.request_device_code() do

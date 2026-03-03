@@ -31,6 +31,7 @@ defmodule Algedonia.Workspaces.TransitionHook do
   def changeset(hook, attrs) do
     hook
     |> cast(attrs, [:workspace_id, :from_status, :to_status, :instruction, :enabled])
+    |> update_change(:instruction, &normalize_instruction/1)
     |> validate_required([:workspace_id, :from_status, :to_status, :instruction])
     |> validate_inclusion(:from_status, @statuses)
     |> validate_inclusion(:to_status, @statuses)
@@ -45,4 +46,60 @@ defmodule Algedonia.Workspaces.TransitionHook do
   """
   @spec statuses() :: [atom()]
   def statuses, do: @statuses
+
+  @doc """
+  Trims and dedents instruction text so heredoc indentation does not leak into UI.
+  """
+  @spec normalize_instruction(String.t() | nil) :: String.t() | nil
+  def normalize_instruction(nil), do: nil
+
+  def normalize_instruction(text) when is_binary(text) do
+    text
+    |> String.replace("\r\n", "\n")
+    |> String.split("\n", trim: false)
+    |> drop_outer_blank_lines()
+    |> dedent_lines()
+    |> Enum.join("\n")
+    |> String.trim()
+  end
+
+  def normalize_instruction(other), do: to_string(other) |> normalize_instruction()
+
+  defp dedent_lines(lines) do
+    min_indent =
+      lines
+      |> Enum.reject(&(String.trim(&1) == ""))
+      |> Enum.map(&leading_indent_width/1)
+      |> Enum.min(fn -> 0 end)
+
+    if min_indent > 0 do
+      regex = ~r/^[ \t]{0,#{min_indent}}/
+      Enum.map(lines, &Regex.replace(regex, &1, ""))
+    else
+      lines
+    end
+  end
+
+  defp leading_indent_width(line) do
+    [indent] = Regex.run(~r/^[ \t]*/, line)
+    String.length(indent)
+  end
+
+  defp drop_outer_blank_lines(lines) do
+    lines
+    |> drop_leading_blank_lines()
+    |> Enum.reverse()
+    |> drop_leading_blank_lines()
+    |> Enum.reverse()
+  end
+
+  defp drop_leading_blank_lines([line | rest]) do
+    if String.trim(line) == "" do
+      drop_leading_blank_lines(rest)
+    else
+      [line | rest]
+    end
+  end
+
+  defp drop_leading_blank_lines([]), do: []
 end

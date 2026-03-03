@@ -16,6 +16,12 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
   }
 
   @planning_workflow_instructions """
+  Project identity and naming:
+  - `.algedonia/` is Algedonia orchestration tooling config.
+  - Do not assume the workspace repository/product is named "Algedonia".
+  - Use the repository's actual identity (README, package/module metadata, existing docs) when writing project context.
+  - If ticket wording uses "Algedonia" ambiguously, treat it as the orchestration tool unless an explicit rename is requested.
+
   Planning workflow:
   1. Read the repository context before asking questions.
   2. Ask the user one clarifying question at a time and wait for a response.

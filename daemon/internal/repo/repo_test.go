@@ -53,7 +53,10 @@ func TestEnsureRepo(t *testing.T) {
 			name: "existing repo with matching URL fetches",
 			setup: func(t *testing.T, baseDir string) {
 				t.Helper()
-				dest := filepath.Join(baseDir, "ws")
+				dest := filepath.Join(baseDir, "ws", "root")
+				if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+					t.Fatal(err)
+				}
 				cmd := exec.Command("git", "clone", "--bare", originRepo, dest)
 				if out, err := cmd.CombinedOutput(); err != nil {
 					t.Fatalf("pre-clone: %v\n%s", err, out)
@@ -65,7 +68,10 @@ func TestEnsureRepo(t *testing.T) {
 			name: "mismatched URL deletes and re-clones",
 			setup: func(t *testing.T, baseDir string) {
 				t.Helper()
-				dest := filepath.Join(baseDir, "ws")
+				dest := filepath.Join(baseDir, "ws", "root")
+				if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+					t.Fatal(err)
+				}
 				// Create a repo with a different origin
 				other := initBareRepo(t)
 				cmd := exec.Command("git", "clone", "--bare", other, dest)
@@ -128,8 +134,9 @@ func TestEnsureRepo(t *testing.T) {
 				t.Errorf("got path %q, want %q", path, expected)
 			}
 
-			// Verify it's a valid bare repo
-			cmd := exec.Command("git", "-C", path, "rev-parse", "--is-bare-repository")
+			// Verify it's a valid bare repo at path/root
+			bareRepoPath := filepath.Join(path, "root")
+			cmd := exec.Command("git", "-C", bareRepoPath, "rev-parse", "--is-bare-repository")
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("not a git repo: %v\n%s", err, out)

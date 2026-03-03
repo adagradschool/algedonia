@@ -6,11 +6,14 @@ defmodule Algedonia.TicketsTest do
 
   describe "create_ticket/1" do
     test "creates a ticket with valid attrs" do
-      attrs = ticket_attrs(%{title: "New feature"})
+      attrs =
+        ticket_attrs(%{title: "New feature"})
+        |> Map.delete(:coding_agent)
+
       assert {:ok, ticket} = Tickets.create_ticket(attrs)
       assert ticket.title == "New feature"
       assert ticket.status == :backlog
-      assert ticket.coding_agent == :claude_code
+      assert ticket.coding_agent == :codex
     end
 
     test "returns error changeset with invalid attrs" do

@@ -26,9 +26,7 @@
           <h1 class="text-3xl font-bold text-fg">Algedonia</h1>
         </div>
 
-        <p class="text-fg-secondary text-lg">
-          Agentic coding orchestration with maker-checker verification loops.
-        </p>
+        <p class="text-fg-secondary text-lg">Feel the AGI</p>
 
         <a
           href={~p"/auth/github"}
@@ -43,13 +41,91 @@
           </svg>
           Sign in with GitHub
         </a>
+      </div>
 
-        <p class="text-sm text-fg-muted">
-          Or connect a daemon with
-          <code class="bg-surface-raised px-1.5 py-0.5 rounded font-mono text-xs">
-            ag login
-          </code>
-        </p>
+      <div class="max-w-2xl w-full mt-16 space-y-12">
+        <div>
+          <h2 class="text-lg font-semibold text-fg text-center mb-6">How it works</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-surface-panel border border-border rounded-xl p-5 text-center space-y-2">
+              <div class="w-9 h-9 bg-accent-indigo/20 rounded-lg flex items-center justify-center mx-auto">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  class="size-5 text-accent-indigo"
+                >
+                  <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
+                  <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
+                </svg>
+              </div>
+              <h3 class="text-sm font-semibold text-fg">Describe</h3>
+              <p class="text-xs text-fg-muted">Write a ticket describing what you want built.</p>
+            </div>
+            <div class="bg-surface-panel border border-border rounded-xl p-5 text-center space-y-2">
+              <div class="w-9 h-9 bg-accent-indigo/20 rounded-lg flex items-center justify-center mx-auto">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  class="size-5 text-accent-indigo"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M16.403 12.652a3 3 0 000-5.304 3 3 0 00-3.75-3.751 3 3 0 00-5.305 0 3 3 0 00-3.751 3.75 3 3 0 000 5.305 3 3 0 003.75 3.751 3 3 0 005.305 0 3 3 0 003.751-3.75zm-2.546-4.46a.75.75 0 00-1.214-.883l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </div>
+              <h3 class="text-sm font-semibold text-fg">Verify</h3>
+              <p class="text-xs text-fg-muted">
+                AI builds it, then a second AI verifies against your rubric.
+              </p>
+            </div>
+            <div class="bg-surface-panel border border-border rounded-xl p-5 text-center space-y-2">
+              <div class="w-9 h-9 bg-accent-indigo/20 rounded-lg flex items-center justify-center mx-auto">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  class="size-5 text-accent-indigo"
+                >
+                  <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+                  <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+                </svg>
+              </div>
+              <h3 class="text-sm font-semibold text-fg">Ship</h3>
+              <p class="text-xs text-fg-muted">
+                Review the verified diff and merge with confidence.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="bg-surface-panel border border-border rounded-xl p-5 space-y-1">
+            <h3 class="text-sm font-semibold text-fg">Verification First</h3>
+            <p class="text-xs text-fg-muted">
+              One agent builds, another verifies. Every change is checked before you see it.
+            </p>
+          </div>
+          <div class="bg-surface-panel border border-border rounded-xl p-5 space-y-1">
+            <h3 class="text-sm font-semibold text-fg">Integrated Issue Tracker</h3>
+            <p class="text-xs text-fg-muted">
+              Tickets, agents, and diffs in one place. No context switching.
+            </p>
+          </div>
+          <div class="bg-surface-panel border border-border rounded-xl p-5 space-y-1">
+            <h3 class="text-sm font-semibold text-fg">Polyagentic</h3>
+            <p class="text-xs text-fg-muted">
+              Use Claude Code, Codex, Aider, or all three at once.
+            </p>
+          </div>
+          <div class="bg-surface-panel border border-border rounded-xl p-5 space-y-1">
+            <h3 class="text-sm font-semibold text-fg">Multiplayer</h3>
+            <p class="text-xs text-fg-muted">Collaborate in real-time with your team.</p>
+          </div>
+        </div>
       </div>
     </div>
   </body>

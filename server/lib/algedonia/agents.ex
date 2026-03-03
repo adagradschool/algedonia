@@ -7,7 +7,7 @@ defmodule Algedonia.Agents do
 
   @spec default_coding_agent() :: atom()
   def default_coding_agent do
-    Application.get_env(:algedonia, :default_coding_agent, :claude_code)
+    Application.get_env(:algedonia, :default_coding_agent, :codex)
     |> normalize_agent_atom()
   end
 
@@ -20,7 +20,7 @@ defmodule Algedonia.Agents do
   def normalize_agent_atom(agent) when agent in @valid_atoms, do: agent
   def normalize_agent_atom("codex"), do: :codex
   def normalize_agent_atom("claude_code"), do: :claude_code
-  def normalize_agent_atom(_), do: :claude_code
+  def normalize_agent_atom(_), do: :codex
 
   @doc """
   Returns the agent type string for a ticket based on its `coding_agent` field.

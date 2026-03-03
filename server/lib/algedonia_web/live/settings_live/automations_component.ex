@@ -26,7 +26,9 @@ defmodule AlgedoniaWeb.SettingsLive.AutomationsComponent do
      |> assign(:workspace, assigns.workspace)
      |> assign(:hooks, hooks)
      |> assign(:show_form, false)
-     |> assign_hook_form()}
+     |> assign(:editing_hook_id, nil)
+     |> assign(:edit_form, nil)
+     |> assign_new_hook_form()}
   end
 
   @impl true
@@ -51,37 +53,29 @@ defmodule AlgedoniaWeb.SettingsLive.AutomationsComponent do
       </p>
 
       <div :if={@show_form} class="mb-4 p-4 bg-surface-panel border border-border rounded-lg">
-        <.form for={@hook_form} phx-submit="save_hook" phx-target={@myself} class="space-y-3">
+        <.form for={@new_hook_form} phx-submit="save_hook" phx-target={@myself} class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-fg-muted mb-1">From status</label>
-              <select
-                name="hook[from_status]"
-                class="w-full px-3 py-2 bg-surface border border-border rounded-lg text-fg text-sm focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
-              >
-                <option :for={{label, value} <- status_options()} value={value}>{label}</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-fg-muted mb-1">To status</label>
-              <select
-                name="hook[to_status]"
-                class="w-full px-3 py-2 bg-surface border border-border rounded-lg text-fg text-sm focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
-              >
-                <option :for={{label, value} <- status_options()} value={value}>{label}</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-fg-muted mb-1">Instruction</label>
-            <textarea
-              name="hook[instruction]"
-              rows="3"
-              required
-              placeholder="Describe what the agent should do when this transition occurs..."
-              class="w-full px-3 py-2 bg-surface border border-border rounded-lg text-fg text-sm placeholder-fg-muted focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent resize-y"
+            <.input
+              field={@new_hook_form[:from_status]}
+              type="select"
+              label="From status"
+              options={status_options()}
+            />
+            <.input
+              field={@new_hook_form[:to_status]}
+              type="select"
+              label="To status"
+              options={status_options()}
             />
           </div>
+          <.input
+            field={@new_hook_form[:instruction]}
+            type="textarea"
+            label="Instruction"
+            rows="3"
+            required
+            placeholder="Describe what the agent should do when this transition occurs..."
+          />
           <div class="flex justify-end gap-2">
             <button
               type="button"
@@ -104,23 +98,85 @@ defmodule AlgedoniaWeb.SettingsLive.AutomationsComponent do
       <div :if={@hooks != []} class="space-y-2">
         <div
           :for={hook <- @hooks}
-          class="flex items-center justify-between px-3 py-2 rounded-md bg-surface-panel"
+          class="px-3 py-2 rounded-md bg-surface-panel"
         >
-          <div class="flex-1 min-w-0">
-            <span class="text-xs font-medium text-fg">
-              {format_status(hook.from_status)} → {format_status(hook.to_status)}
-            </span>
-            <p class="text-xs text-fg-muted truncate mt-0.5">{hook.instruction}</p>
+          <div :if={@editing_hook_id == hook.id}>
+            <.form
+              for={@edit_form}
+              phx-submit="update_hook"
+              phx-target={@myself}
+              class="space-y-3"
+            >
+              <input type="hidden" name="hook_id" value={hook.id} />
+              <div class="grid grid-cols-2 gap-3">
+                <.input
+                  field={@edit_form[:from_status]}
+                  type="select"
+                  label="From status"
+                  options={status_options()}
+                />
+                <.input
+                  field={@edit_form[:to_status]}
+                  type="select"
+                  label="To status"
+                  options={status_options()}
+                />
+              </div>
+              <.input
+                field={@edit_form[:instruction]}
+                type="textarea"
+                label="Instruction"
+                rows="4"
+                required
+              />
+              <div class="flex justify-end gap-2">
+                <button
+                  type="button"
+                  phx-click="cancel_edit_hook"
+                  phx-target={@myself}
+                  class="px-3 py-1.5 text-xs font-medium text-fg-muted hover:text-fg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="px-4 py-1.5 bg-accent-indigo hover:bg-accent-indigo-hover text-white font-medium rounded-lg transition-colors text-xs"
+                >
+                  Save
+                </button>
+              </div>
+            </.form>
           </div>
-          <button
-            type="button"
-            phx-click="delete_hook"
-            phx-value-id={hook.id}
-            phx-target={@myself}
-            class="ml-3 text-xs text-fg-muted hover:text-red-400 transition-colors flex-shrink-0"
-          >
-            Delete
-          </button>
+          <div :if={@editing_hook_id != hook.id} class="flex items-start justify-between gap-3">
+            <div class="flex-1 min-w-0">
+              <span class="text-xs font-medium text-fg">
+                {format_status(hook.from_status)} → {format_status(hook.to_status)}
+              </span>
+              <p class="text-xs text-fg-muted mt-0.5 whitespace-pre-wrap break-words">
+                {display_instruction(hook.instruction)}
+              </p>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                phx-click="edit_hook"
+                phx-value-id={hook.id}
+                phx-target={@myself}
+                class="text-xs text-fg-muted hover:text-fg transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                phx-click="delete_hook"
+                phx-value-id={hook.id}
+                phx-target={@myself}
+                class="text-xs text-fg-muted hover:text-red-400 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -129,11 +185,11 @@ defmodule AlgedoniaWeb.SettingsLive.AutomationsComponent do
 
   @impl true
   def handle_event("show_hook_form", _params, socket) do
-    {:noreply, assign(socket, :show_form, true)}
+    {:noreply, assign(socket, show_form: true, editing_hook_id: nil, edit_form: nil)}
   end
 
   def handle_event("cancel_hook_form", _params, socket) do
-    {:noreply, assign(socket, show_form: false) |> assign_hook_form()}
+    {:noreply, assign(socket, show_form: false) |> assign_new_hook_form()}
   end
 
   def handle_event("save_hook", %{"hook" => params}, socket) do
@@ -146,12 +202,57 @@ defmodule AlgedoniaWeb.SettingsLive.AutomationsComponent do
         {:noreply,
          socket
          |> assign(hooks: hooks, show_form: false)
-         |> assign_hook_form()
+         |> assign_new_hook_form()
          |> put_flash(:info, "Automation added.")}
 
       {:error, %Ecto.Changeset{} = cs} ->
         msg = changeset_error_message(cs)
         {:noreply, put_flash(socket, :error, msg)}
+    end
+  end
+
+  def handle_event("edit_hook", %{"id" => id}, socket) do
+    with %TransitionHook{} = hook <- Workspaces.get_transition_hook(id),
+         true <- hook.workspace_id == socket.assigns.workspace.id do
+      {:noreply,
+       socket
+       |> assign(:show_form, false)
+       |> assign(:editing_hook_id, hook.id)
+       |> assign(:edit_form, to_form(TransitionHook.changeset(hook, %{}), as: "hook"))}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_edit_hook", _params, socket) do
+    {:noreply, assign(socket, editing_hook_id: nil, edit_form: nil)}
+  end
+
+  def handle_event("update_hook", %{"hook_id" => id, "hook" => params}, socket) do
+    with %TransitionHook{} = hook <- Workspaces.get_transition_hook(id),
+         true <- hook.workspace_id == socket.assigns.workspace.id do
+      case Workspaces.update_transition_hook(hook, params) do
+        {:ok, _} ->
+          hooks = Workspaces.list_transition_hooks(socket.assigns.workspace.id)
+
+          {:noreply,
+           socket
+           |> assign(:hooks, hooks)
+           |> assign(:editing_hook_id, nil)
+           |> assign(:edit_form, nil)
+           |> put_flash(:info, "Automation updated.")}
+
+        {:error, %Ecto.Changeset{} = cs} ->
+          msg = changeset_error_message(cs)
+
+          {:noreply,
+           socket
+           |> assign(:editing_hook_id, hook.id)
+           |> assign(:edit_form, to_form(cs, as: "hook"))
+           |> put_flash(:error, msg)}
+      end
+    else
+      _ -> {:noreply, socket}
     end
   end
 
@@ -165,21 +266,33 @@ defmodule AlgedoniaWeb.SettingsLive.AutomationsComponent do
       {:noreply,
        socket
        |> assign(:hooks, hooks)
+       |> assign(
+         :editing_hook_id,
+         if(socket.assigns.editing_hook_id == hook.id,
+           do: nil,
+           else: socket.assigns.editing_hook_id
+         )
+       )
+       |> assign(
+         :edit_form,
+         if(socket.assigns.editing_hook_id == hook.id, do: nil, else: socket.assigns.edit_form)
+       )
        |> put_flash(:info, "Automation removed.")}
     else
       {:noreply, socket}
     end
   end
 
-  defp assign_hook_form(socket) do
+  defp assign_new_hook_form(socket) do
     changeset = TransitionHook.changeset(%TransitionHook{}, %{})
-    assign(socket, :hook_form, to_form(changeset, as: "hook"))
+    assign(socket, :new_hook_form, to_form(changeset, as: "hook"))
   end
 
   defp status_options, do: @status_options
 
   defp format_status(:in_progress), do: "In Progress"
   defp format_status(status), do: status |> Atom.to_string() |> String.capitalize()
+  defp display_instruction(text), do: TransitionHook.normalize_instruction(text) || ""
 
   defp changeset_error_message(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->

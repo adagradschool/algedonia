@@ -4,12 +4,18 @@ defmodule AlgedoniaWeb.DaemonChannel do
   """
   use Phoenix.Channel
 
-  alias Algedonia.Daemons
+  alias Algedonia.{Accounts, Daemons}
   alias Algedonia.{DecomposeOrchestrator, HookExecutor, Loops, TaskLoopOrchestrator}
   alias Algedonia.Terminals
-  alias Algedonia.Workspaces
 
-  intercept ["start_loop", "stop_loop", "stdin_input", "get_diff"]
+  intercept [
+    "start_loop",
+    "stop_loop",
+    "stdin_input",
+    "get_diff",
+    "cleanup_worktree",
+    "open_editor"
+  ]
 
   @impl true
   def join("daemon:" <> daemon_id, payload, socket) do
@@ -27,31 +33,23 @@ defmodule AlgedoniaWeb.DaemonChannel do
     case Daemons.register_daemon(%{name: name, display_name: display_name}) do
       {:ok, daemon} ->
         socket = assign(socket, :daemon_db_id, daemon.id)
-        reply = workspace_reply(Map.get(payload, "workspace_slug"))
-        {:ok, Map.put(reply, :status, "ok"), socket}
+        workspaces = workspaces_for_user(socket.assigns[:user_id])
+        {:ok, %{status: "ok", workspaces: workspaces}, socket}
 
       {:error, changeset} ->
         {:error, %{reason: "registration_failed", errors: inspect(changeset.errors)}}
     end
   end
 
-  defp workspace_reply(nil), do: %{}
-  defp workspace_reply(""), do: %{}
+  defp workspaces_for_user(nil), do: []
 
-  defp workspace_reply(slug) do
-    case Workspaces.get_workspace_by_slug(slug) do
-      nil ->
-        %{}
-
-      workspace ->
-        base = %{workspace_slug: workspace.slug}
-
-        if workspace.github_repo_url do
-          Map.put(base, :github_repo_url, workspace.github_repo_url)
-        else
-          base
-        end
-    end
+  defp workspaces_for_user(user_id) do
+    user_id
+    |> Accounts.list_workspaces_for_user()
+    |> Enum.map(fn ws ->
+      base = %{slug: ws.slug}
+      if ws.github_repo_url, do: Map.put(base, :github_repo_url, ws.github_repo_url), else: base
+    end)
   end
 
   @impl true
@@ -65,6 +63,10 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
     case Daemons.update_heartbeat(daemon, attrs) do
       {:ok, _daemon} ->
+        push(socket, "workspaces_sync", %{
+          workspaces: workspaces_for_user(socket.assigns[:user_id])
+        })
+
         {:reply, :ok, socket}
 
       {:error, _changeset} ->
@@ -140,7 +142,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("repo_clone_status", payload, socket) do
-    Daemons.set_repo_status(socket.assigns.daemon_name, payload)
+    workspace_slug = Map.get(payload, "workspace_slug", "")
+    Daemons.set_repo_status(socket.assigns.daemon_name, workspace_slug, payload)
     {:noreply, socket}
   end
 
@@ -194,10 +197,9 @@ defmodule AlgedoniaWeb.DaemonChannel do
   @doc """
   Pushes a get_diff command to the daemon to fetch the current git diff for a loop.
   """
-  def push_get_diff(daemon_name, loop_id) do
-    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "get_diff", %{
-      "loop_id" => loop_id
-    })
+  def push_get_diff(daemon_name, loop_id, opts \\ %{}) do
+    payload = Map.merge(%{"loop_id" => loop_id}, opts)
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "get_diff", payload)
   end
 
   @doc """
@@ -208,6 +210,26 @@ defmodule AlgedoniaWeb.DaemonChannel do
     AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "stdin_input", %{
       "loop_id" => loop_id,
       "data" => data
+    })
+  end
+
+  @doc """
+  Pushes a cleanup_worktree command to the daemon to remove a ticket's worktree.
+  """
+  def push_cleanup_worktree(daemon_name, ticket_id, workspace_slug) do
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "cleanup_worktree", %{
+      "ticket_id" => ticket_id,
+      "workspace_slug" => workspace_slug
+    })
+  end
+
+  @doc """
+  Pushes an open_editor command to the daemon to open the ticket worktree in an editor.
+  """
+  def push_open_editor(daemon_name, ticket_id, workspace_slug) do
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "open_editor", %{
+      "ticket_id" => ticket_id,
+      "workspace_slug" => workspace_slug
     })
   end
 

@@ -21,7 +21,21 @@ defmodule AlgedoniaWeb.PageControllerTest do
     assert redirected_to(conn) == "/onboarding"
   end
 
-  test "GET / redirects to workspace when logged in with workspace", %{conn: conn} do
+  test "GET / redirects to workspace when logged in with workspace and tickets", %{conn: conn} do
+    user = Algedonia.Factory.insert_user!()
+    workspace = Algedonia.Factory.insert_workspace!(%{slug: "myws", name: "My WS"})
+    Algedonia.Factory.insert_membership!(workspace, user)
+    Algedonia.Factory.insert_ticket!(%{workspace_id: workspace.id, title: "Test ticket"})
+
+    conn =
+      conn
+      |> init_test_session(%{user_id: user.id})
+      |> get(~p"/")
+
+    assert redirected_to(conn) == "/w/myws/tickets"
+  end
+
+  test "GET / redirects to onboarding when workspace has no tickets", %{conn: conn} do
     user = Algedonia.Factory.insert_user!()
     workspace = Algedonia.Factory.insert_workspace!(%{slug: "myws", name: "My WS"})
     Algedonia.Factory.insert_membership!(workspace, user)
@@ -31,6 +45,6 @@ defmodule AlgedoniaWeb.PageControllerTest do
       |> init_test_session(%{user_id: user.id})
       |> get(~p"/")
 
-    assert redirected_to(conn) == "/w/myws/tickets"
+    assert redirected_to(conn) == "/onboarding"
   end
 end

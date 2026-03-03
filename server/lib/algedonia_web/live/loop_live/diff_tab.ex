@@ -144,16 +144,39 @@ defmodule AlgedoniaWeb.LoopLive.DiffTab do
       socket
     else
       case resolve_daemon(socket) do
-        {:ok, daemon} ->
-          DaemonChannel.push_get_diff(daemon.name, socket.assigns.loop_id)
-
-          socket
-          |> assign(:diff_request_pending, true)
-          |> assign(:diff_loading, socket.assigns.diff_content == nil)
-
-        {:error, _} ->
-          assign(socket, :diff_loading, false)
+        {:ok, daemon} -> fetch_diff_from_daemon(socket, daemon)
+        {:error, _} -> assign(socket, :diff_loading, false)
       end
+    end
+  end
+
+  defp fetch_diff_from_daemon(socket, daemon) do
+    case diff_scope(socket) do
+      {:ok, workspace_slug, ticket_id} ->
+        opts = %{"workspace_slug" => workspace_slug, "ticket_id" => ticket_id}
+        DaemonChannel.push_get_diff(daemon.name, socket.assigns.loop_id, opts)
+
+        socket
+        |> assign(:diff_request_pending, true)
+        |> assign(:diff_loading, socket.assigns.diff_content == nil)
+
+      :error ->
+        socket
+        |> assign(:diff_request_pending, false)
+        |> assign(:diff_loading, false)
+        |> assign(:diff_error, "Diff requires workspace and ticket context")
+    end
+  end
+
+  defp diff_scope(socket) do
+    workspace_slug = socket.assigns[:workspace_slug]
+    ticket_id = socket.assigns[:ticket] && socket.assigns.ticket.id
+
+    if is_binary(workspace_slug) and workspace_slug != "" and is_binary(ticket_id) and
+         ticket_id != "" do
+      {:ok, workspace_slug, ticket_id}
+    else
+      :error
     end
   end
 

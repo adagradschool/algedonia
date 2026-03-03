@@ -140,6 +140,54 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       refute render(view) =~ "Run tests"
     end
 
+    test "edits an existing hook", %{conn: conn, workspace: workspace} do
+      {:ok, hook} =
+        Algedonia.Workspaces.create_transition_hook(workspace, %{
+          "from_status" => "backlog",
+          "to_status" => "planning",
+          "instruction" => "Initial instruction"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      view
+      |> element("button[phx-click=edit_hook][phx-value-id='#{hook.id}']")
+      |> render_click()
+
+      view
+      |> form("form[phx-submit=update_hook]",
+        hook: %{
+          from_status: "planning",
+          to_status: "in_progress",
+          instruction: "Updated instruction with more detail"
+        }
+      )
+      |> render_submit()
+
+      html = render(view)
+      assert html =~ "Planning"
+      assert html =~ "In Progress"
+      assert html =~ "Updated instruction with more detail"
+      refute html =~ "Initial instruction"
+    end
+
+    test "renders instruction text with wrapping styles (not truncate)", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, _hook} =
+        Algedonia.Workspaces.create_transition_hook(workspace, %{
+          "from_status" => "in_progress",
+          "to_status" => "completed",
+          "instruction" => "First line\nSecond line with extra detail"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      assert has_element?(view, "p.whitespace-pre-wrap.break-words", "First line")
+      assert render(view) =~ "Second line with extra detail"
+    end
+
     test "rejects duplicate from/to pair", %{conn: conn, workspace: workspace} do
       {:ok, _hook} =
         Algedonia.Workspaces.create_transition_hook(workspace, %{

@@ -1,7 +1,8 @@
 defmodule AlgedoniaWeb.OnboardingHook do
   @moduledoc """
   LiveView on_mount hook for the onboarding flow.
-  Loads current_user from session; redirects if not logged in.
+  Loads current_user and github_token from session; redirects if not logged in.
+  Also loads existing workspace for resume logic.
   """
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [redirect: 2]
@@ -19,7 +20,15 @@ defmodule AlgedoniaWeb.OnboardingHook do
             {:halt, redirect(socket, to: "/")}
 
           user ->
-            {:cont, assign(socket, :current_user, user)}
+            workspaces = Accounts.list_workspaces_for_user(user.id)
+
+            socket =
+              socket
+              |> assign(:current_user, user)
+              |> assign(:github_token, session["github_token"])
+              |> assign(:existing_workspace, List.first(workspaces))
+
+            {:cont, socket}
         end
     end
   end

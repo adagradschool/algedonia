@@ -74,11 +74,19 @@ defmodule Algedonia.HookExecutorTest do
       assert_receive %Phoenix.Socket.Broadcast{
                        topic: "daemon:hook-auto-start",
                        event: "start_loop",
-                       payload: %{"loop_id" => loop_id, "role" => "hook", "task" => task}
+                       payload: %{
+                         "loop_id" => loop_id,
+                         "role" => "hook",
+                         "task" => task,
+                         "ticket_id" => ticket_id,
+                         "workspace_slug" => workspace_slug
+                       }
                      },
                      1_000
 
       assert is_binary(loop_id)
+      assert ticket_id == ticket.id
+      assert workspace_slug == workspace.slug
       assert task =~ "Automation hook execution."
       assert task =~ "Auto-run transition check"
 
@@ -280,10 +288,17 @@ defmodule Algedonia.HookExecutorTest do
       assert_receive %Phoenix.Socket.Broadcast{
                        topic: "daemon:hook-transition-auto",
                        event: "start_loop",
-                       payload: %{"loop_id" => loop_id, "role" => "hook"}
+                       payload: %{
+                         "loop_id" => loop_id,
+                         "role" => "hook",
+                         "ticket_id" => ticket_id,
+                         "workspace_slug" => workspace_slug
+                       }
                      },
                      1_000
 
+      assert ticket_id == ticket.id
+      assert workspace_slug == workspace.slug
       assert Loops.get_loop!(loop_id).status == :running_maker
     end
 

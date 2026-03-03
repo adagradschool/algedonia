@@ -1,4 +1,4 @@
-// Package repo manages git bare-repo clone and fetch operations.
+// Package repo manages git clone and fetch operations for workspace repos.
 package repo
 
 import (
@@ -15,16 +15,16 @@ import (
 // GitTimeout is the default timeout for git commands.
 const GitTimeout = 120 * time.Second
 
-// RepoManager abstracts bare-repo clone and fetch operations.
+// RepoManager abstracts clone and fetch operations.
 type RepoManager interface {
-	// EnsureRepo clones or fetches a bare repo for the given workspace.
-	// Returns the path to the bare repo directory.
+	// EnsureRepo clones or fetches a repo for the given workspace.
+	// Returns the path to the repo directory.
 	EnsureRepo(ctx context.Context, workspaceSlug, repoURL string) (string, error)
 }
 
 // CloneManager implements RepoManager using the git CLI.
 type CloneManager struct {
-	// BaseDir is the parent directory for workspace bare repos.
+	// BaseDir is the parent directory for workspace repos.
 	// Defaults to ~/.algedonia/workspaces if empty.
 	BaseDir string
 
@@ -41,23 +41,30 @@ func NewCloneManager(baseDir, gitBin string) *CloneManager {
 }
 
 // EnsureRepo clones or fetches a bare repository for the workspace.
-// If the directory exists with a matching origin URL, it fetches.
-// If the origin URL differs, it deletes and re-clones.
-// If the directory does not exist, it clones fresh.
+// The bare repo lives at <baseDir>/<slug>/root so that worktrees can
+// be placed alongside it at <baseDir>/<slug>/worktrees/<prefix>.
+// Returns the workspace directory (<baseDir>/<slug>), not the bare repo path.
 func (cm *CloneManager) EnsureRepo(ctx context.Context, workspaceSlug, repoURL string) (string, error) {
 	baseDir, err := cm.resolveBaseDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving base dir: %w", err)
 	}
 
-	repoPath := filepath.Join(baseDir, workspaceSlug)
+	workspaceDir := filepath.Join(baseDir, workspaceSlug)
+	repoPath := filepath.Join(workspaceDir, "root")
 
 	info, err := os.Stat(repoPath)
 	if err == nil && info.IsDir() {
-		return cm.handleExistingRepo(ctx, repoPath, repoURL)
+		if _, err := cm.handleExistingRepo(ctx, repoPath, repoURL); err != nil {
+			return "", err
+		}
+		return workspaceDir, nil
 	}
 
-	return cm.cloneBare(ctx, repoPath, repoURL)
+	if _, err := cm.cloneBare(ctx, repoPath, repoURL); err != nil {
+		return "", err
+	}
+	return workspaceDir, nil
 }
 
 func (cm *CloneManager) resolveBaseDir() (string, error) {
@@ -116,11 +123,12 @@ func (cm *CloneManager) cloneBare(ctx context.Context, repoPath, repoURL string)
 	return repoPath, nil
 }
 
-func (cm *CloneManager) runGit(ctx context.Context, dir string, args ...string) (string, string, error) {
+// runGitCmd executes a git command with a timeout. Shared by CloneManager and WorktreeManager.
+func runGitCmd(ctx context.Context, gitBin, dir string, args ...string) (string, string, error) {
 	gitCtx, cancel := context.WithTimeout(ctx, GitTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(gitCtx, cm.GitBin, args...)
+	cmd := exec.CommandContext(gitCtx, gitBin, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -135,4 +143,8 @@ func (cm *CloneManager) runGit(ctx context.Context, dir string, args ...string) 
 			fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), stderr.String(), nil
+}
+
+func (cm *CloneManager) runGit(ctx context.Context, dir string, args ...string) (string, string, error) {
+	return runGitCmd(ctx, cm.GitBin, dir, args...)
 }

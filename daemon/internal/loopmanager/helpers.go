@@ -143,7 +143,7 @@ func defaultCodingAgent() string {
 	case "codex":
 		return "codex"
 	default:
-		return "claude_code"
+		return "codex"
 	}
 }
 

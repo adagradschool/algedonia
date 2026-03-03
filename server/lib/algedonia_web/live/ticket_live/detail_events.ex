@@ -167,6 +167,24 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     end
   end
 
+  def handle("open_editor", %{"id" => ticket_id}, socket) do
+    alias AlgedoniaWeb.Helpers
+
+    case Helpers.resolve_daemon(socket) do
+      {:ok, daemon} ->
+        AlgedoniaWeb.DaemonChannel.push_open_editor(
+          daemon.name,
+          ticket_id,
+          socket.assigns.workspace_slug
+        )
+
+        {:noreply, socket}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "No online daemon available")}
+    end
+  end
+
   def handle("export_markdown", %{"id" => id}, socket) do
     ticket = Tickets.get_ticket!(id)
     slug = socket.assigns.workspace_slug

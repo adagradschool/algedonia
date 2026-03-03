@@ -22,6 +22,7 @@ import (
 	"github.com/algedonia/daemon/internal/connection"
 	"github.com/algedonia/daemon/internal/loopmanager"
 	"github.com/algedonia/daemon/internal/repo"
+	"github.com/algedonia/daemon/internal/runtimepath"
 	"github.com/algedonia/daemon/internal/terminalws"
 	"github.com/spf13/cobra"
 )
@@ -135,8 +136,7 @@ func newLoginCmd() *cobra.Command {
 			sigCh := make(chan os.Signal, 1)
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-			workspace := cfg.Workspace
-			client := connection.NewClient(serverURL, token, name, workspace, capacity)
+			client := connection.NewClient(serverURL, token, name, capacity)
 
 			registry := adapter.DefaultRegistry()
 			repoRoot, err := os.Getwd()
@@ -144,14 +144,23 @@ func newLoginCmd() *cobra.Command {
 				return fmt.Errorf("getting working directory: %w", err)
 			}
 			mgr := loopmanager.NewManager(client.SendEvent, registry, repoRoot)
+			home, _ := os.UserHomeDir()
+			if home != "" {
+				mgr.SetWorkspaceBaseDir(filepath.Join(home, ".algedonia", "workspaces"))
+			}
+			wtMgr := repo.NewWorktreeManager("")
+			mgr.SetWorktreeManager(wtMgr)
 			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
 			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)
 			client.RegisterHandler("get_diff", mgr.HandleGetDiff)
+			client.RegisterHandler("cleanup_worktree", mgr.HandleCleanupWorktree)
+			client.RegisterHandler("open_editor", mgr.HandleOpenEditor)
 			client.SetRunningLoopsFn(mgr.RunningCount)
 
 			cloneMgr := repo.NewCloneManager("", "")
 			client.OnJoin(makeJoinCallback(cloneMgr, client))
+			client.RegisterHandler("workspaces_sync", makeWorkspaceSyncHandler(cloneMgr, client))
 
 			verifyURL := strings.TrimRight(httpBaseURL(serverURL), "/") + "/api/terminal/verify"
 			terminalVerifier := terminalws.NewAPITokenVerifier(verifyURL, token)
@@ -171,7 +180,7 @@ func newLoginCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&serverURL, "server-url", "ws://localhost:4000/daemon/websocket", "Phoenix server WebSocket URL")
+	cmd.Flags().StringVar(&serverURL, "server-url", defaultServerWebsocketURL(), "Phoenix server WebSocket URL")
 	cmd.Flags().StringVar(&name, "name", "", "Daemon name (default: hostname)")
 	cmd.Flags().IntVar(&capacity, "capacity", 3, "Max concurrent loops")
 	cmd.Flags().BoolVar(&installClaudeHooks, "install-claude-hooks", true, "Install/refresh Claude Stop hook for attempt completion markers")
@@ -183,27 +192,64 @@ func newLoginCmd() *cobra.Command {
 
 func makeJoinCallback(cloneMgr repo.RepoManager, client *connection.Client) connection.JoinCallback {
 	return func(ctx context.Context, response map[string]interface{}) {
-		repoURL, _ := response["github_repo_url"].(string)
-		slug, _ := response["workspace_slug"].(string)
+		log.Printf("Join response payload: %+v", response)
+		syncWorkspaces(ctx, response, cloneMgr, client)
+	}
+}
 
-		if repoURL == "" || slug == "" {
-			sendCloneStatus(client, "not_configured", "", "")
-			return
+func makeWorkspaceSyncHandler(
+	cloneMgr repo.RepoManager,
+	client *connection.Client,
+) func(ctx context.Context, payload map[string]interface{}) error {
+	return func(ctx context.Context, payload map[string]interface{}) error {
+		syncWorkspaces(ctx, payload, cloneMgr, client)
+		return nil
+	}
+}
+
+func syncWorkspaces(
+	ctx context.Context,
+	payload map[string]interface{},
+	cloneMgr repo.RepoManager,
+	client *connection.Client,
+) {
+	workspaces, _ := payload["workspaces"].([]interface{})
+	if len(workspaces) == 0 {
+		sendCloneStatus(client, "", "not_configured", "", "")
+		return
+	}
+
+	for _, raw := range workspaces {
+		ws, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		slug, _ := ws["slug"].(string)
+		repoURL, _ := ws["github_repo_url"].(string)
+
+		if slug == "" {
+			continue
+		}
+		if repoURL == "" {
+			sendCloneStatus(client, slug, "not_configured", "", "")
+			continue
 		}
 
 		path, err := cloneMgr.EnsureRepo(ctx, slug, repoURL)
 		if err != nil {
-			sendCloneStatus(client, "error", "", err.Error())
-			return
+			sendCloneStatus(client, slug, "error", "", err.Error())
+			continue
 		}
 
-		log.Printf("Bare repo ready at %s", path)
-		sendCloneStatus(client, "ready", path, "")
+		sendCloneStatus(client, slug, "ready", path, "")
 	}
 }
 
-func sendCloneStatus(client *connection.Client, status, path, message string) {
-	payload := map[string]interface{}{"status": status}
+func sendCloneStatus(client *connection.Client, workspaceSlug, status, path, message string) {
+	payload := map[string]interface{}{
+		"status":         status,
+		"workspace_slug": workspaceSlug,
+	}
 	if path != "" {
 		payload["path"] = path
 	}
@@ -245,18 +291,14 @@ func newClaudeHookCmd() *cobra.Command {
 			if loopID == "" {
 				return nil
 			}
-
-			workdir := strings.TrimSpace(os.Getenv("ALGEDONIA_WORKDIR"))
-			if workdir == "" {
-				cwd, err := os.Getwd()
-				if err != nil {
-					return nil
-				}
-				workdir = cwd
+			workspace := strings.TrimSpace(os.Getenv("ALGEDONIA_WORKSPACE"))
+			if workspace == "" {
+				log.Printf("Skipping attempt-complete marker: ALGEDONIA_WORKSPACE is required for loop=%s source=claude-stop-hook", loopID)
+				return nil
 			}
 			role := strings.TrimSpace(os.Getenv("ALGEDONIA_ROLE"))
 
-			_ = writeAttemptCompleteMarker(workdir, loopID, role, "claude-stop-hook", nil)
+			_ = writeAttemptCompleteMarker(workspace, loopID, role, "claude-stop-hook", nil)
 			return nil
 		},
 	}
@@ -289,42 +331,43 @@ func newCodexNotifyCmd() *cobra.Command {
 			if loopID == "" {
 				return nil
 			}
-
-			workdir := strings.TrimSpace(os.Getenv("ALGEDONIA_WORKDIR"))
-			if workdir == "" {
-				cwd, err := os.Getwd()
-				if err != nil {
-					return nil
-				}
-				workdir = cwd
+			workspace := strings.TrimSpace(os.Getenv("ALGEDONIA_WORKSPACE"))
+			if workspace == "" {
+				log.Printf("Skipping attempt-complete marker: ALGEDONIA_WORKSPACE is required for loop=%s source=codex-notify", loopID)
+				return nil
 			}
 
 			role := strings.TrimSpace(os.Getenv("ALGEDONIA_ROLE"))
-			_ = writeAttemptCompleteMarker(workdir, loopID, role, "codex-notify", notification)
+			_ = writeAttemptCompleteMarker(workspace, loopID, role, "codex-notify", notification)
 			return nil
 		},
 	}
 }
 
 func writeAttemptCompleteMarker(
-	workdir, loopID, role, source string,
+	workspace, loopID, role, source string,
 	extra map[string]interface{},
 ) error {
-	if strings.TrimSpace(workdir) == "" || strings.TrimSpace(loopID) == "" {
+	if strings.TrimSpace(workspace) == "" || strings.TrimSpace(loopID) == "" {
 		return nil
 	}
-	if strings.EqualFold(strings.TrimSpace(role), "planning") {
+	normalizedRole := strings.ToLower(strings.TrimSpace(role))
+	if !roleSupportsCompletionMarker(normalizedRole) {
+		log.Printf("Skipping attempt-complete marker for role=%q loop=%s source=%s", normalizedRole, loopID, source)
 		return nil
 	}
 
-	markerPath := filepath.Join(workdir, ".algedonia", "runtime", loopID, "attempt_complete.json")
+	markerPath, err := runtimepath.AttemptCompleteMarkerPath(workspace, loopID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
 		return err
 	}
 
 	payload := map[string]interface{}{
 		"loop_id":   loopID,
-		"role":      role,
+		"role":      normalizedRole,
 		"source":    source,
 		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -337,6 +380,15 @@ func writeAttemptCompleteMarker(
 		return err
 	}
 	return os.WriteFile(markerPath, data, 0o644)
+}
+
+func roleSupportsCompletionMarker(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "maker", "checker", "task", "hook":
+		return true
+	default:
+		return false
+	}
 }
 
 const (
@@ -464,6 +516,43 @@ func runDeviceFlow(serverURL string) (string, error) {
 
 	fmt.Println("Authenticated successfully!")
 	return token, nil
+}
+
+func defaultServerWebsocketURL() string {
+	return normalizeServerWebsocketURL(defaultServerURL)
+}
+
+func normalizeServerWebsocketURL(raw string) string {
+	const fallback = "ws://localhost:4000/daemon/websocket"
+
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		return fallback
+	}
+
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	case "ws", "wss":
+		// keep scheme
+	default:
+		return fallback
+	}
+
+	if strings.TrimSpace(u.Path) == "" || u.Path == "/" {
+		u.Path = "/daemon/websocket"
+	}
+
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // httpBaseURL derives an HTTP base URL from the WebSocket server URL.

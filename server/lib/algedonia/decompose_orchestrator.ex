@@ -5,7 +5,7 @@ defmodule Algedonia.DecomposeOrchestrator do
   """
   use GenServer
 
-  alias Algedonia.{Agents, Daemons, Dags, Loops, Tickets}
+  alias Algedonia.{Agents, Daemons, Dags, Loops, Tickets, Workspaces}
   alias Algedonia.PromptBuilder
 
   @max_decompose_attempts 3
@@ -81,6 +81,7 @@ defmodule Algedonia.DecomposeOrchestrator do
         "role" => "decompose",
         "agent_type" => Agents.ticket_agent_type(ticket),
         "ticket_id" => ticket_id,
+        "workspace_slug" => workspace_slug(ticket),
         "ticket" => ticket_context(ticket)
       })
 
@@ -139,6 +140,7 @@ defmodule Algedonia.DecomposeOrchestrator do
         "role" => "decompose_checker",
         "agent_type" => Agents.ticket_agent_type(ticket),
         "ticket_id" => ticket_id,
+        "workspace_slug" => workspace_slug(ticket),
         "ticket" => ticket_context(ticket),
         "proposed_dag" => dag_data
       })
@@ -201,6 +203,7 @@ defmodule Algedonia.DecomposeOrchestrator do
         "role" => "decompose",
         "agent_type" => Agents.ticket_agent_type(ticket),
         "ticket_id" => ticket_id,
+        "workspace_slug" => workspace_slug(ticket),
         "ticket" => ticket_context(ticket),
         "feedback" => feedback
       })
@@ -290,4 +293,10 @@ defmodule Algedonia.DecomposeOrchestrator do
   defp default_push(daemon_name, loop_id, opts) do
     AlgedoniaWeb.DaemonChannel.push_start_loop(daemon_name, loop_id, opts)
   end
+
+  defp workspace_slug(%{workspace_id: workspace_id}) when is_integer(workspace_id) do
+    Workspaces.get_workspace!(workspace_id).slug
+  end
+
+  defp workspace_slug(_), do: nil
 end
