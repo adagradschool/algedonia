@@ -548,11 +548,11 @@ defmodule AlgedoniaWeb.OnboardingLive do
       "from_status" => "in_progress",
       "to_status" => "completed",
       "instruction" => """
-      Create a new git branch named after the ticket (e.g., `AG-1-set-up-algedonia-config`).
+      Create a new git branch named after the ticket.
       Commit all changes to that branch.
-      Push the branch and create a pull request with the ticket title as the PR title
-      and the ticket description as the PR body.
-      Add a comment to the ticket with the PR URL.
+      Push the branch and create a pull request.
+      Verify that the CI passes.
+      Add a comment to the ticket with the PR URL using `ag` CLI.
       """,
       "enabled" => true
     })

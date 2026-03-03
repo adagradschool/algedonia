@@ -44,6 +44,7 @@ defmodule AlgedoniaWeb.PresenceHook do
       |> assign(:workspace_slug, workspace_slug)
       |> assign(:current_workspace, workspace)
       |> assign(:user_workspaces, user_workspaces)
+      |> assign(:github_token, session["github_token"])
       |> assign(:show_new_workspace_modal, false)
       |> attach_hook(:current_path, :handle_params, fn _params, uri, socket ->
         {:cont, assign(socket, :current_path, URI.parse(uri).path)}

@@ -19,7 +19,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   @detail_events ~w(autosave_ticket autosave_ticket_markdown
     submit_comment submit_reply start_reply edit_comment update_comment
     cancel_edit delete_comment start_work plan_ticket open_planning_session
-    export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now)
+    open_editor export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now)
 
   @impl true
   def mount(params, session, socket) do

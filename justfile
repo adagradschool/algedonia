@@ -103,9 +103,12 @@ nuke:
 release-daemon:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ -f .env ]; then
+        set -a; source .env; set +a
+    fi
     : "${SUPABASE_PROJECT_URL:?Set SUPABASE_PROJECT_URL}"
     : "${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY}"
-    DEFAULT_SERVER_WS_URL="${DAEMON_SERVER_WS_URL:-ws://localhost:4000/daemon/websocket}"
+    DEFAULT_SERVER_WS_URL="${DAEMON_SERVER_WS_URL:-wss://algedonia.fly.dev/daemon/websocket}"
     TARGETS="darwin_amd64 darwin_arm64 linux_amd64 linux_arm64"
     for target in $TARGETS; do
         os="${target%_*}"
