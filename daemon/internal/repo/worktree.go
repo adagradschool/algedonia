@@ -50,16 +50,15 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 		_ = os.RemoveAll(wtPath)
 	}
 
-	// Detect default branch
+	// Fetch latest from origin before detecting default branch, so that
+	// local refs are up-to-date and we can validate the branch exists.
+	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "fetch", "origin")
+
+	// Detect default branch (validates ref exists after fetch)
 	branch, err := wm.defaultBranch(ctx, bareRepo)
 	if err != nil {
 		return "", fmt.Errorf("detecting default branch: %w", err)
 	}
-
-	// Fetch latest from origin so worktree starts from up-to-date main.
-	// In bare repos, the default refspec maps remote heads to local heads directly,
-	// so after fetch, `branch` points to the latest remote commit.
-	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "fetch", "origin")
 
 	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
 		return "", fmt.Errorf("creating worktrees dir: %w", err)
@@ -97,15 +96,47 @@ func (wm *GitWorktreeManager) RemoveWorktree(ctx context.Context, workspaceDir, 
 	return nil
 }
 
-// defaultBranch returns the default branch name for a bare repo via symbolic-ref.
+// defaultBranch returns the default branch name for a bare repo.
+// It reads HEAD's symbolic-ref and verifies the ref exists. If the ref
+// doesn't exist (e.g. HEAD points to "main" but the remote uses "master"),
+// it falls back to querying the remote's HEAD, then tries common defaults.
 func (wm *GitWorktreeManager) defaultBranch(ctx context.Context, bareRepo string) (string, error) {
 	stdout, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "symbolic-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	ref := strings.TrimSpace(stdout)
-	// refs/heads/main -> main
-	return strings.TrimPrefix(ref, "refs/heads/"), nil
+	branch := strings.TrimPrefix(strings.TrimSpace(stdout), "refs/heads/")
+
+	// Verify the branch ref actually exists (it may not if HEAD was set by
+	// init.defaultBranch but the remote uses a different default).
+	if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/heads/"+branch); err == nil {
+		return branch, nil
+	}
+
+	// Branch from symbolic-ref doesn't exist; detect from remote HEAD.
+	if out, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "ls-remote", "--symref", "origin", "HEAD"); err == nil {
+		// Output: "ref: refs/heads/master\tHEAD\n<sha>\tHEAD\n"
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "ref:") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					remote := strings.TrimPrefix(fields[1], "refs/heads/")
+					if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/heads/"+remote); err == nil {
+						return remote, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Last resort: try common defaults.
+	for _, fallback := range []string{"main", "master"} {
+		if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/heads/"+fallback); err == nil {
+			return fallback, nil
+		}
+	}
+
+	return "", fmt.Errorf("no valid default branch found in %s", bareRepo)
 }
 
 // TicketPrefix returns the first 8 hex characters of a UUID (hyphens stripped).

@@ -158,6 +158,57 @@ func TestDefaultBranchDetection(t *testing.T) {
 	}
 }
 
+func TestDefaultBranchFallbackOnMismatch(t *testing.T) {
+	wsDir := setupBareInWorkspaceDir(t)
+	bareRepo := filepath.Join(wsDir, "root")
+
+	// Detect what the actual branch is, then point HEAD to a non-existent ref.
+	wm := NewWorktreeManager("")
+	actualBranch, err := wm.defaultBranch(context.Background(), bareRepo)
+	if err != nil {
+		t.Fatalf("detecting actual branch: %v", err)
+	}
+
+	// Point HEAD to a branch that doesn't exist (simulates init.defaultBranch mismatch)
+	fakeBranch := "nonexistent-branch"
+	cmd := exec.Command("git", "-C", bareRepo, "symbolic-ref", "HEAD", "refs/heads/"+fakeBranch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("setting symbolic-ref: %v\n%s", err, out)
+	}
+
+	// defaultBranch should fall back to the actual branch
+	got, err := wm.defaultBranch(context.Background(), bareRepo)
+	if err != nil {
+		t.Fatalf("defaultBranch with mismatched HEAD: %v", err)
+	}
+	if got != actualBranch {
+		t.Errorf("expected fallback to %q, got %q", actualBranch, got)
+	}
+}
+
+func TestEnsureWorktreeMismatchedHEAD(t *testing.T) {
+	wsDir := setupBareInWorkspaceDir(t)
+	bareRepo := filepath.Join(wsDir, "root")
+
+	// Point HEAD to "main" but the actual branch is "master" (or vice versa)
+	cmd := exec.Command("git", "-C", bareRepo, "symbolic-ref", "HEAD", "refs/heads/doesnotexist")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("setting symbolic-ref: %v\n%s", err, out)
+	}
+
+	wm := NewWorktreeManager("")
+	path, err := wm.EnsureWorktree(context.Background(), wsDir, "mismatch1")
+	if err != nil {
+		t.Fatalf("EnsureWorktree with mismatched HEAD should succeed: %v", err)
+	}
+
+	// Verify worktree was created
+	gitFile := filepath.Join(path, ".git")
+	if _, err := os.Stat(gitFile); err != nil {
+		t.Fatalf(".git file missing: %v", err)
+	}
+}
+
 func TestTicketPrefix(t *testing.T) {
 	tests := []struct {
 		input string
