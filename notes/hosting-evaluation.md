@@ -379,6 +379,50 @@ def list_dependencies_for_dag(dag_id) do
 end
 ```
 
+### 8. `requeue_running_task_loops_for_daemon` — N updates + N preloads + N broadcasts
+
+**File:** `loops.ex:167-193`
+
+When a daemon disconnects, this fetches all its running loops, then loops through each one calling `update_loop()` (1 UPDATE) + `Repo.preload(:dag)` (1 SELECT) + `PubSub.broadcast` per loop. Each broadcast then triggers DagLive subscribers to re-query 3 more tables (issue #3).
+
+**Fix:** Batch the update and preload.
+
+```elixir
+def requeue_running_task_loops_for_daemon(daemon_id) do
+  {_count, loops} =
+    from(l in Loop,
+      where: l.assigned_daemon_id == ^daemon_id and l.role == :task and
+             l.status in [:running_maker, :running_checker],
+      select: l
+    )
+    |> Repo.update_all(set: [status: :pending, assigned_daemon_id: nil])
+
+  loops = Repo.preload(loops, dag: :ticket)
+
+  Enum.each(loops, fn loop ->
+    PubSub.broadcast(Algedonia.PubSub, "dag:#{loop.dag.ticket_id}", {:loop_status_changed, loop})
+  end)
+
+  loops
+end
+```
+
+### 9. `dispatch_hook_loop` re-fetches workspace per hook
+
+**File:** `hook_executor.ex:135-138`
+
+Each hook execution calls `Workspaces.get_workspace!(ticket.workspace_id).slug` even though the workspace is the same for all hooks on the same ticket.
+
+**Fix:** Fetch workspace once in `fire_hooks` and pass slug through.
+
+### 10. Count queries using `list |> length()` instead of `Repo.aggregate`
+
+**Files:** `onboarding_live.ex` (ticket count), `monitor_live/index.ex` (daemon count)
+
+Both load all records into memory just to count them.
+
+**Fix:** Add `count_tickets/1` and `count_daemons/0` functions using `Repo.aggregate(Schema, :count)`.
+
 ### Impact summary
 
 | Fix | Queries eliminated per event | CPU saved | Effort |
@@ -390,6 +434,9 @@ end
 | #5 Use comment payload | 1 query × N users per comment | Low | Tiny |
 | #6 Prune orchestrator history | Memory leak prevention | Low (ongoing) | Small |
 | #7 Join instead of subquery | Marginal query improvement | Low | Tiny |
+| #8 Batch daemon requeue | N updates + N preloads → 1+1 | Medium | Small |
+| #9 Cache workspace in hook executor | 1 query per hook → 1 total | Low | Tiny |
+| #10 Use count aggregates | Full table load → COUNT(*) | Low | Tiny |
 
 Fixes #1-4 are the high-value targets. Together they'd cut DB queries by roughly 70-80% during normal operation.
 
