@@ -10,7 +10,7 @@ Scoring model: `Priority score = Impact + Leverage + Effort-to-start`.
 
 1. Split TaskLoopOrchestrator God GenServer into role/state coordinators (`#6`)
 - Area: server
-- Evidence: `server/lib/algedonia/task_loop_orchestrator.ex` (477 LOC), TODO branch at lines 214-215, direct `Algedonia.Repo.preload/2` at line 449.
+- Evidence: `server/lib/algedonia/task_loop_orchestrator.ex` (477 LOC), pending branch at lines 214-215, direct `Algedonia.Repo.preload/2` at line 449.
 - Rationale: Critical orchestration lifecycle logic is centralized; defects here affect correctness and throughput broadly.
 - First remediation slice: Extract cleanup and handoff-repair flows into companion modules with behavior seams; keep API stable.
 
@@ -50,9 +50,9 @@ Scoring model: `Priority score = Impact + Leverage + Effort-to-start`.
 - Rationale: Argument drift across loop types can produce inconsistent behavior and higher security/correctness risk.
 - First remediation slice: Build a shared command-arg builder and migrate all launch paths.
 
-8. Complete `decompose_checker` orchestration path and remove untracked TODO (`#13`)
+8. Complete `decompose_checker` orchestration path and remove untracked pending marker (`#13`)
 - Area: server
-- Evidence: `task_loop_orchestrator.ex` TODO at lines 214-215; current fallback effectively no-ops for that role.
+- Evidence: `task_loop_orchestrator.ex` has a pending marker at lines 214-215; current fallback effectively no-ops for that role.
 - Rationale: Unimplemented role path can silently skip expected transitions in the execution pipeline.
 - First remediation slice: Implement explicit success/error handling for `:decompose_checker` with regression tests.
 
