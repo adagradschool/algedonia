@@ -65,8 +65,12 @@ defmodule Algedonia.Daemons do
         |> Repo.update()
     end
     |> tap(fn
-      {:ok, daemon} -> broadcast({:daemon_status_changed, daemon})
-      _ -> :ok
+      {:ok, daemon} ->
+        Loops.requeue_running_task_loops_for_daemon(daemon.id)
+        broadcast({:daemon_status_changed, daemon})
+
+      _ ->
+        :ok
     end)
   end
 

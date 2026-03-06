@@ -20,6 +20,26 @@ defmodule Algedonia.DaemonsTest do
       assert daemon.id == existing.id
       assert daemon.status == :online
     end
+
+    test "requeues running task loops on reconnect" do
+      daemon = Factory.insert_daemon!(%{name: "reconnect-daemon", status: :offline})
+      ticket = Factory.insert_ticket!()
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running,
+          current_attempt: 1,
+          assigned_daemon_id: daemon.id
+        })
+
+      assert {:ok, _daemon} = Daemons.register_daemon(%{name: "reconnect-daemon"})
+
+      updated_loop = Algedonia.Loops.get_loop!(loop.id)
+      assert updated_loop.status == :pending
+      assert is_nil(updated_loop.assigned_daemon_id)
+    end
   end
 
   describe "update_heartbeat/2" do
