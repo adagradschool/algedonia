@@ -428,16 +428,25 @@ defmodule AlgedoniaWeb.TicketLiveTest do
           workspace_id: workspace.id
         })
 
-      insert_loop!(%{
-        ticket_id: ticket.id,
-        role: :task,
-        status: :running,
-        current_attempt: 2
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running,
+          current_attempt: 2
+        })
+
+      Algedonia.Loops.create_step(%{
+        loop_id: loop.id,
+        role: "maker",
+        attempt: 2,
+        status: "running",
+        started_at: DateTime.utc_now()
       })
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Running #2")
+      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Maker #2")
     end
 
     test "board shows inspect for completed ticket with loop", %{
