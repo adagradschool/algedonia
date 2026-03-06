@@ -281,7 +281,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_redirect(
         view,
-        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{"plan-" <> String.slice(ticket.id, 0, 8)}?#{%{role: "planning", agent_type: "claude_code"}}"
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(ticket.id, 0, 8)}?#{%{role: "planning", agent_type: "claude_code"}}"
       )
 
       assert Tickets.get_ticket!(ticket.id).status == :planning

@@ -60,7 +60,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:comments, list_ticket_comments(socket.assigns[:ticket]))
       |> OverviewHelper.init_assigns()
       |> DiffTab.init_assigns()
-      |> HistoryHelper.assign_history(TaskLoopOrchestrator.get_loop_history(loop_id))
+      |> HistoryHelper.assign_history(loop_history(socket))
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
 
@@ -464,4 +464,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   defp list_ticket_comments(%{id: id}), do: Tickets.list_comments(id)
   defp list_ticket_comments(_), do: []
+
+  defp loop_history(%{assigns: %{loop_record: %{id: id}}}),
+    do: TaskLoopOrchestrator.get_loop_history(id)
+
+  defp loop_history(_), do: []
 end

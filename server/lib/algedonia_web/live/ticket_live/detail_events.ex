@@ -296,7 +296,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   defp planning_path(socket, ticket) do
     slug = socket.assigns.workspace_slug
-    ref = "plan-" <> short_id(ticket.id)
+    ref = short_id(ticket.id)
 
     ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{ref}?#{%{role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
   end
