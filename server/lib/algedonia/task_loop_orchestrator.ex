@@ -3,7 +3,6 @@ defmodule Algedonia.TaskLoopOrchestrator do
   use GenServer
 
   alias Algedonia.{Agents, CheckerHandoff, Daemons, Loops, PromptBuilder, Tickets}
-  alias Algedonia.TaskLoopHistory, as: H
 
   @max_handoff_repairs 2
 
@@ -48,9 +47,11 @@ defmodule Algedonia.TaskLoopOrchestrator do
     )
   end
 
-  @doc "Returns in-memory history for a loop's maker/checker spin-ups."
+  @doc "Returns DB-persisted history for a loop's maker/checker steps."
   @spec get_loop_history(binary(), keyword()) :: [map()]
-  def get_loop_history(lid, opts \\ []), do: call_if_alive(opts, {:get_loop_history, lid}, [])
+  def get_loop_history(lid, opts \\ []) do
+    call_if_alive(opts, {:get_loop_history, lid}, [])
+  end
 
   @doc "Returns the currently running step terminal id for a loop."
   @spec current_step_terminal_id(binary(), keyword()) :: binary() | nil
@@ -72,7 +73,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   @impl true
   def init(s) do
     Tickets.subscribe()
-    {:ok, Map.merge(s, %{task_history: %{}, checker_handoff_repairs: %{}, task_run_config: %{}})}
+    {:ok, Map.merge(s, %{checker_handoff_repairs: %{}, task_run_config: %{}})}
   end
 
   @impl true
@@ -97,14 +98,34 @@ defmodule Algedonia.TaskLoopOrchestrator do
     end
   end
 
-  def handle_call({:get_loop_history, lid}, _from, st),
-    do: {:reply, Map.get(st.task_history, lid, []), st}
+  def handle_call({:get_loop_history, lid}, _from, st) do
+    steps =
+      lid
+      |> Loops.list_steps_for_loop()
+      |> Enum.map(&step_to_map/1)
 
-  def handle_call({:current_step_terminal_id, lid}, _from, st),
-    do: {:reply, H.current_running_id(st, lid), st}
+    {:reply, steps, st}
+  end
 
-  def handle_call({:latest_step_terminal_id, lid}, _from, st),
-    do: {:reply, H.latest_id(st, lid), st}
+  def handle_call({:current_step_terminal_id, lid}, _from, st) do
+    id =
+      case Loops.current_running_step(lid) do
+        nil -> nil
+        step -> step.id
+      end
+
+    {:reply, id, st}
+  end
+
+  def handle_call({:latest_step_terminal_id, lid}, _from, st) do
+    id =
+      case Loops.latest_step(lid) do
+        nil -> nil
+        step -> step.id
+      end
+
+    {:reply, id, st}
+  end
 
   @impl true
   def handle_info({:ticket_updated, %{status: :halted} = ticket}, state) do
@@ -152,7 +173,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp running_loops_for_ticket(ticket_id) do
     ticket_id
     |> Loops.list_loops_for_ticket()
-    |> Enum.filter(&(&1.status in [:running_maker, :running_checker]))
+    |> Enum.filter(&(&1.status == :running))
   end
 
   defp daemon_name_for(%{assigned_daemon_id: id}) when not is_nil(id) do
@@ -168,7 +189,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
          :ok <- check_repo_ready(daemon.name, loop),
          {:ok, loop} <-
            Loops.update_loop(loop, %{
-             status: :running_maker,
+             status: :running,
              assigned_daemon_id: daemon.id,
              current_attempt: max(loop.current_attempt, 0) + 1
            }) do
@@ -182,10 +203,18 @@ defmodule Algedonia.TaskLoopOrchestrator do
         |> mp("workspace_slug", ws_slug)
         |> mp("ticket_id", ticket_id)
 
+      {:ok, _step} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: loop.current_attempt,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
       {:ok,
        state
        |> put_rc(loop.id, run)
-       |> H.append(loop.id, H.new_entry("maker", loop.current_attempt, "running"))
        |> push(daemon.name, loop.id, Map.merge(%{"role" => "maker", "task" => task}, run))}
     else
       %{role: _} -> {:error, :not_task_loop}
@@ -200,9 +229,9 @@ defmodule Algedonia.TaskLoopOrchestrator do
       sid = Map.get(payload, "session_id")
       ec = Map.get(payload, "exit_code", 0)
 
-      case loop.status do
-        :running_maker -> maker_done(loop, daemon_name, sid, ec, state)
-        :running_checker -> checker_done(loop, payload, daemon_name, sid, ec, state)
+      case Loops.current_phase(loop.id) do
+        "maker" -> maker_done(loop, daemon_name, sid, ec, state)
+        "checker" -> checker_done(loop, payload, daemon_name, sid, ec, state)
         _ -> {:ok, state}
       end
     else
@@ -218,27 +247,28 @@ defmodule Algedonia.TaskLoopOrchestrator do
       ec = Map.get(payload, "exit_code", 1)
       message = Map.get(payload, "message", "agent exited with code #{ec}")
 
-      case loop.status do
-        :running_maker ->
-          attrs = [session_id: sid, exit_code: ec, status: "failed", error: message]
-          state = H.complete_last(state, loop.id, "maker", loop.current_attempt, attrs)
+      case Loops.current_phase(loop.id) do
+        "maker" ->
+          Loops.complete_last_running(loop.id, "maker", loop.current_attempt, %{
+            session_id: sid,
+            exit_code: ec,
+            status: "failed",
+            error: message
+          })
+
           do_retry(loop, "Maker run failed: #{message}", daemon_name, state)
 
-        :running_checker ->
-          attrs = [
+        "checker" ->
+          Loops.complete_last_running(loop.id, "checker", loop.current_attempt, %{
             session_id: sid,
             exit_code: ec,
             verdict: "fail",
             feedback: "Checker run failed: #{message}",
             status: "failed",
             error: message
-          ]
+          })
 
-          state =
-            state
-            |> clear_hr(loop.id)
-            |> H.complete_last(loop.id, "checker", loop.current_attempt, attrs)
-
+          state = clear_hr(state, loop.id)
           do_retry(loop, "Checker run failed: #{message}", daemon_name, state)
 
         _ ->
@@ -250,21 +280,32 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp maker_done(loop, dn, sid, ec, state) do
-    with {:ok, daemon} <- ensure_daemon(loop, dn),
-         {:ok, loop} <- Loops.update_loop_status(loop, :running_checker) do
-      loop = Loops.preload_with_workspace(loop)
-      ct = PromptBuilder.checker_task(loop, loop.ticket, ws_slug_for(loop))
-      att = loop.current_attempt
-      p = Map.merge(%{"role" => "checker", "task" => ct, "attempt" => att}, rc(state, loop.id))
-      done_attrs = [session_id: sid, exit_code: ec, status: "completed"]
+    case ensure_daemon(loop, dn) do
+      {:ok, daemon} ->
+        loop = Loops.preload_with_workspace(loop)
+        ct = PromptBuilder.checker_task(loop, loop.ticket, ws_slug_for(loop))
+        att = loop.current_attempt
+        p = Map.merge(%{"role" => "checker", "task" => ct, "attempt" => att}, rc(state, loop.id))
 
-      {:ok,
-       state
-       |> H.complete_last(loop.id, "maker", att, done_attrs)
-       |> H.append(loop.id, H.new_entry("checker", att, "running"))
-       |> push(daemon.name, loop.id, p)}
-    else
-      _ -> {:error, :transition_failed}
+        Loops.complete_last_running(loop.id, "maker", att, %{
+          session_id: sid,
+          exit_code: ec,
+          status: "completed"
+        })
+
+        {:ok, _step} =
+          Loops.create_step(%{
+            loop_id: loop.id,
+            role: "checker",
+            attempt: att,
+            status: "running",
+            started_at: DateTime.utc_now()
+          })
+
+        {:ok, push(state, daemon.name, loop.id, p)}
+
+      _ ->
+        {:error, :transition_failed}
     end
   end
 
@@ -274,20 +315,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
         verdict = if(v.verdict == "pass", do: "pass", else: "fail")
         fp = Map.get(v, :feedback_path)
 
-        a = [
+        Loops.complete_last_running(loop.id, "checker", loop.current_attempt, %{
           session_id: sid,
           exit_code: ec,
           verdict: verdict,
           feedback: v.feedback,
           feedback_path: fp,
           status: "completed"
-        ]
+        })
 
-        state =
-          state
-          |> clear_hr(loop.id)
-          |> H.complete_last(loop.id, "checker", loop.current_attempt, a)
-
+        state = clear_hr(state, loop.id)
         apply_verdict(verdict, loop, v.feedback, dn, state)
 
       {:error, err} ->
@@ -318,7 +355,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
       with {:ok, daemon} <- ensure_daemon(loop, dn),
            {:ok, loop} <-
              Loops.update_loop(loop, %{
-               status: :running_maker,
+               status: :running,
                current_attempt: loop.current_attempt + 1
              }) do
         loop = Loops.preload_with_ticket(loop)
@@ -326,10 +363,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
         pl = Map.merge(%{"role" => "maker", "task" => p}, rc(state, loop.id))
 
-        {:ok,
-         state
-         |> H.append(loop.id, H.new_entry("maker", loop.current_attempt, "running"))
-         |> push(daemon.name, loop.id, pl)}
+        {:ok, _step} =
+          Loops.create_step(%{
+            loop_id: loop.id,
+            role: "maker",
+            attempt: loop.current_attempt,
+            status: "running",
+            started_at: DateTime.utc_now()
+          })
+
+        {:ok, push(state, daemon.name, loop.id, pl)}
       else
         _ -> {:error, :retry_failed}
       end
@@ -361,14 +404,14 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp fail_hr(state, loop, sid, err) do
-    a = [
+    Loops.complete_last_running(loop.id, "checker", loop.current_attempt, %{
       session_id: sid,
       verdict: "fail",
       feedback: "Invalid checker handoff: #{err}",
       status: "handoff_invalid"
-    ]
+    })
 
-    state |> clear_hr(loop.id) |> H.complete_last(loop.id, "checker", loop.current_attempt, a)
+    clear_hr(state, loop.id)
   end
 
   defp maybe_complete_ticket(loop) do
@@ -460,9 +503,26 @@ defmodule Algedonia.TaskLoopOrchestrator do
     |> Enum.filter(&(&1.status in [:passed, :failed]))
   end
 
-  defp guard_startable(%{status: status}) when status in [:pending, :ready], do: :ok
+  defp guard_startable(%{status: :pending}), do: :ok
   defp guard_startable(_), do: {:error, :already_running}
 
   defp default_push(dn, lid, opts),
     do: AlgedoniaWeb.DaemonChannel.push_start_loop(dn, lid, opts)
+
+  defp step_to_map(step) do
+    %{
+      id: step.id,
+      role: step.role,
+      attempt: step.attempt,
+      status: step.status,
+      session_id: step.session_id,
+      exit_code: step.exit_code,
+      verdict: step.verdict,
+      feedback: step.feedback,
+      feedback_path: step.feedback_path,
+      error: step.error,
+      started_at: step.started_at,
+      finished_at: step.finished_at
+    }
+  end
 end

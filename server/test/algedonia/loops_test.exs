@@ -46,8 +46,8 @@ defmodule Algedonia.LoopsTest do
       loop = insert_loop!()
       Loops.subscribe_ticket_loops(loop.ticket_id)
 
-      assert {:ok, updated} = Loops.update_loop_status(loop, :running_maker)
-      assert updated.status == :running_maker
+      assert {:ok, updated} = Loops.update_loop_status(loop, :running)
+      assert updated.status == :running
       assert_receive {:loop_status_changed, _}
     end
   end
@@ -76,6 +76,145 @@ defmodule Algedonia.LoopsTest do
       assert_raise Ecto.NoResultsError, fn ->
         Loops.get_loop_with_ticket!(Ecto.UUID.generate())
       end
+    end
+  end
+
+  describe "create_step/1" do
+    test "creates a step with valid attrs" do
+      loop = insert_loop!()
+
+      assert {:ok, step} =
+               Loops.create_step(%{
+                 loop_id: loop.id,
+                 role: "maker",
+                 attempt: 1,
+                 status: "running",
+                 started_at: DateTime.utc_now()
+               })
+
+      assert step.role == "maker"
+      assert step.attempt == 1
+      assert step.status == "running"
+    end
+
+    test "fails without required fields" do
+      assert {:error, changeset} = Loops.create_step(%{})
+      assert errors_on(changeset).loop_id
+      assert errors_on(changeset).role
+    end
+  end
+
+  describe "complete_step/2" do
+    test "completes a step with verdict and feedback" do
+      loop = insert_loop!()
+
+      {:ok, step} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "checker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      assert {:ok, completed} =
+               Loops.complete_step(step, %{
+                 status: "completed",
+                 verdict: "pass",
+                 feedback: "All good"
+               })
+
+      assert completed.status == "completed"
+      assert completed.verdict == "pass"
+      assert completed.finished_at
+    end
+  end
+
+  describe "list_steps_for_loop/1" do
+    test "returns steps ordered by started_at" do
+      loop = insert_loop!()
+      now = DateTime.utc_now()
+
+      {:ok, _s1} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "completed",
+          started_at: DateTime.add(now, -10, :second)
+        })
+
+      {:ok, _s2} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "checker",
+          attempt: 1,
+          status: "running",
+          started_at: now
+        })
+
+      steps = Loops.list_steps_for_loop(loop.id)
+      assert length(steps) == 2
+      assert hd(steps).role == "maker"
+      assert List.last(steps).role == "checker"
+    end
+  end
+
+  describe "current_phase/1" do
+    test "returns latest step role" do
+      loop = insert_loop!()
+
+      {:ok, _} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "completed",
+          started_at: DateTime.add(DateTime.utc_now(), -10, :second)
+        })
+
+      {:ok, _} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "checker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      assert Loops.current_phase(loop.id) == "checker"
+    end
+
+    test "returns nil when no steps" do
+      assert is_nil(Loops.current_phase(Ecto.UUID.generate()))
+    end
+  end
+
+  describe "complete_last_running/4" do
+    test "completes the matching running step" do
+      loop = insert_loop!()
+
+      {:ok, _} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      assert {:ok, completed} =
+               Loops.complete_last_running(loop.id, "maker", 1, %{
+                 status: "completed",
+                 exit_code: 0
+               })
+
+      assert completed.status == "completed"
+      assert completed.exit_code == 0
+    end
+
+    test "returns :not_found when no matching step" do
+      assert :not_found = Loops.complete_last_running(Ecto.UUID.generate(), "maker", 1, %{})
     end
   end
 

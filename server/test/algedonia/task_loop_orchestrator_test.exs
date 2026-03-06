@@ -326,7 +326,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert loop_id == loop.id
 
       reloaded = Algedonia.Loops.get_loop!(loop.id)
-      assert reloaded.status == :running_checker
+      assert reloaded.status == :running
     end
 
     test "maker completion records history", %{orchestrator: pid} do
@@ -373,7 +373,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert loop_id == loop.id
 
       reloaded = Algedonia.Loops.get_loop!(loop.id)
-      assert reloaded.status == :running_maker
+      assert reloaded.status == :running
       assert reloaded.current_attempt == 2
     end
   end
@@ -478,7 +478,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert task =~ "Missing error handling"
 
       reloaded = Algedonia.Loops.get_loop!(loop.id)
-      assert reloaded.status == :running_maker
+      assert reloaded.status == :running
       assert reloaded.current_attempt == 2
     end
   end
@@ -581,7 +581,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
 
       reloaded = Algedonia.Loops.get_loop!(loop_id)
-      assert reloaded.status == :running_maker
+      assert reloaded.status == :running
       assert reloaded.current_attempt == 2
     end
   end
@@ -657,14 +657,14 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   end
 
   describe "start_loop status guard" do
-    test "returns {:error, :already_running} for running_maker loop", %{orchestrator: pid} do
+    test "returns {:error, :already_running} for running loop", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
 
       loop =
         insert_loop!(%{
           ticket_id: ticket.id,
           role: :task,
-          status: :running_maker,
+          status: :running,
           max_attempts: 3
         })
 
@@ -711,7 +711,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         insert_loop!(%{
           ticket_id: ticket.id,
           role: :task,
-          status: :running_maker,
+          status: :running,
           assigned_daemon_id: daemon.id,
           max_attempts: 3,
           current_attempt: 1
@@ -760,7 +760,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
 
       reloaded = Algedonia.Loops.get_loop!(loop.id)
-      assert reloaded.status == :running_maker
+      assert reloaded.status == :running
     end
 
     test "planning ticket with no daemon does not crash", %{orchestrator: pid} do
@@ -799,26 +799,41 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   end
 
   describe "step terminal ids" do
-    test "returns current and latest step ids from loop history", %{orchestrator: pid} do
-      loop_id = "loop-#{System.unique_integer([:positive])}"
+    test "returns current and latest step ids from DB", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :running})
 
-      maker_step = %{id: "maker-step-1", role: "maker", attempt: 1, status: "completed"}
-      checker_step = %{id: "checker-step-1", role: "checker", attempt: 1, status: "running"}
+      {:ok, maker_step} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "completed",
+          started_at: ~U[2026-01-01 00:01:00Z]
+        })
 
-      :sys.replace_state(pid, fn state ->
-        put_in(state, [:task_history, loop_id], [maker_step, checker_step])
-      end)
+      {:ok, checker_step} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "checker",
+          attempt: 1,
+          status: "running",
+          started_at: ~U[2026-01-01 00:02:00Z]
+        })
 
-      assert TaskLoopOrchestrator.current_step_terminal_id(loop_id, name: pid) ==
-               checker_step.id
+      assert GenServer.call(pid, {:current_step_terminal_id, loop.id}) == checker_step.id
+      assert GenServer.call(pid, {:latest_step_terminal_id, loop.id}) == checker_step.id
 
-      assert TaskLoopOrchestrator.latest_step_terminal_id(loop_id, name: pid) == checker_step.id
+      # Verify maker step is in history
+      history = get_history(pid, loop.id)
+      assert length(history) == 2
+      assert Enum.any?(history, &(&1.id == maker_step.id))
     end
 
-    test "returns nil ids when loop has no history", %{orchestrator: pid} do
-      loop_id = "empty-#{System.unique_integer([:positive])}"
-      assert TaskLoopOrchestrator.current_step_terminal_id(loop_id, name: pid) == nil
-      assert TaskLoopOrchestrator.latest_step_terminal_id(loop_id, name: pid) == nil
+    test "returns nil ids when loop has no steps", %{orchestrator: pid} do
+      loop_id = Ecto.UUID.generate()
+      assert GenServer.call(pid, {:current_step_terminal_id, loop_id}) == nil
+      assert GenServer.call(pid, {:latest_step_terminal_id, loop_id}) == nil
     end
   end
 end

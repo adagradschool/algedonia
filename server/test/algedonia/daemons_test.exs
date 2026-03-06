@@ -51,7 +51,7 @@ defmodule Algedonia.DaemonsTest do
         Factory.insert_loop!(%{
           ticket_id: ticket.id,
           role: :task,
-          status: :running_maker,
+          status: :running,
           current_attempt: 2,
           assigned_daemon_id: daemon.id
         })
@@ -81,7 +81,7 @@ defmodule Algedonia.DaemonsTest do
         Factory.insert_loop!(%{
           ticket_id: ticket.id,
           role: :task,
-          status: :running_checker,
+          status: :running,
           current_attempt: 3,
           assigned_daemon_id: daemon.id
         })

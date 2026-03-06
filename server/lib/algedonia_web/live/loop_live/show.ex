@@ -361,7 +361,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
       socket.assigns.loop_record &&
         socket.assigns.loop_record.role == :task &&
-          socket.assigns.loop_record.status in [:pending, :ready] ->
+          socket.assigns.loop_record.status == :pending ->
         true
 
       true ->

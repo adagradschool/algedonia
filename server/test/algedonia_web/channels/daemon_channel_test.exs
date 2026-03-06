@@ -265,7 +265,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         Algedonia.Factory.insert_loop!(%{
           ticket_id: ticket.id,
           role: :hook,
-          status: :running_maker
+          status: :running
         })
 
       ref =
@@ -319,10 +319,19 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         Algedonia.Factory.insert_loop!(%{
           ticket_id: ticket.id,
           role: :task,
-          status: :running_maker,
+          status: :running,
           current_attempt: 1,
           max_attempts: 3,
           assigned_daemon_id: daemon.id
+        })
+
+      {:ok, _step} =
+        Algedonia.Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
         })
 
       loop_id = loop.id
@@ -348,7 +357,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         Algedonia.Factory.insert_loop!(%{
           ticket_id: ticket.id,
           role: :hook,
-          status: :running_maker
+          status: :running
         })
 
       ref =

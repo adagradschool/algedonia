@@ -4,11 +4,11 @@ defmodule Algedonia.Loops do
   """
   import Ecto.Query
 
-  alias Algedonia.Loops.Loop
+  alias Algedonia.Loops.{Loop, LoopStep}
   alias Algedonia.Repo
 
   @status_to_stage %{
-    running_checker: "checker",
+    running: "running",
     passed: "completed",
     failed: "failed"
   }
@@ -176,7 +176,7 @@ defmodule Algedonia.Loops do
     |> where(
       [l],
       l.assigned_daemon_id == ^daemon_id and l.role == :task and
-        l.status in [:running_maker, :running_checker]
+        l.status == :running
     )
     |> Repo.all()
     |> Enum.map(fn loop ->
@@ -266,7 +266,7 @@ defmodule Algedonia.Loops do
   def active_loop_info_for_tickets([]), do: %{}
 
   def active_loop_info_for_tickets(ticket_ids) do
-    terminal = [:passed, :failed, :escalated, :skipped, :resolved]
+    terminal = [:passed, :failed]
 
     active =
       from(l in Loop,
@@ -288,7 +288,7 @@ defmodule Algedonia.Loops do
       Map.new(fallback, fn {tid, lid} ->
         case get_loop(lid) do
           nil ->
-            {tid, %{loop_id: lid, stage: "maker", attempt: 1}}
+            {tid, %{loop_id: lid, stage: "pending", attempt: 1}}
 
           loop ->
             {tid,
@@ -336,7 +336,7 @@ defmodule Algedonia.Loops do
   Returns the stage string for a loop status.
   """
   @spec stage_for_status(atom()) :: String.t()
-  def stage_for_status(status), do: Map.get(@status_to_stage, status, "maker")
+  def stage_for_status(status), do: Map.get(@status_to_stage, status, "pending")
 
   @doc """
   Subscribes to loop-status events for a ticket.
@@ -352,6 +352,134 @@ defmodule Algedonia.Loops do
   @spec subscribe(binary()) :: :ok | {:error, term()}
   def subscribe(loop_id) do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, "loop:#{loop_id}")
+  end
+
+  # -- Step functions (replaces TaskLoopHistory) --
+
+  @doc """
+  Creates a loop step and broadcasts the update.
+  """
+  @spec create_step(map()) :: {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()}
+  def create_step(attrs) do
+    %LoopStep{}
+    |> LoopStep.changeset(attrs)
+    |> Repo.insert()
+    |> tap(fn
+      {:ok, step} -> broadcast_history(step.loop_id)
+      _ -> :ok
+    end)
+  end
+
+  @doc """
+  Completes a step by updating its status and optional fields, then broadcasts.
+  """
+  @spec complete_step(LoopStep.t(), map()) :: {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()}
+  def complete_step(%LoopStep{} = step, attrs) do
+    step
+    |> LoopStep.changeset(Map.put(attrs, :finished_at, DateTime.utc_now()))
+    |> Repo.update()
+    |> tap(fn
+      {:ok, step} -> broadcast_history(step.loop_id)
+      _ -> :ok
+    end)
+  end
+
+  @doc """
+  Lists all steps for a loop, ordered by started_at ascending.
+  """
+  @spec list_steps_for_loop(binary()) :: [LoopStep.t()]
+  def list_steps_for_loop(loop_id) do
+    LoopStep
+    |> where([s], s.loop_id == ^loop_id)
+    |> order_by([s], asc: s.started_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns the currently running step for a loop, or nil.
+  """
+  @spec current_running_step(binary()) :: LoopStep.t() | nil
+  def current_running_step(loop_id) do
+    LoopStep
+    |> where([s], s.loop_id == ^loop_id and s.status == "running")
+    |> order_by([s], desc: s.started_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns the most recent step for a loop, or nil.
+  """
+  @spec latest_step(binary()) :: LoopStep.t() | nil
+  def latest_step(loop_id) do
+    LoopStep
+    |> where([s], s.loop_id == ^loop_id)
+    |> order_by([s], desc: s.started_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns the current phase for a loop by querying the latest step's role.
+  Returns nil if no steps exist.
+  """
+  @spec current_phase(binary()) :: String.t() | nil
+  def current_phase(loop_id) do
+    case latest_step(loop_id) do
+      nil -> nil
+      step -> step.role
+    end
+  end
+
+  @doc """
+  Finds the last running step matching the given role and attempt, then completes it.
+  """
+  @spec complete_last_running(binary(), String.t(), integer(), map()) ::
+          {:ok, LoopStep.t()} | :not_found
+  def complete_last_running(loop_id, role, attempt, attrs) do
+    step =
+      LoopStep
+      |> where(
+        [s],
+        s.loop_id == ^loop_id and s.role == ^role and s.attempt == ^attempt and
+          s.status == "running"
+      )
+      |> order_by([s], desc: s.started_at)
+      |> limit(1)
+      |> Repo.one()
+
+    case step do
+      nil -> :not_found
+      step -> complete_step(step, attrs)
+    end
+  end
+
+  defp broadcast_history(loop_id) do
+    history = list_steps_for_loop(loop_id)
+
+    steps_as_maps =
+      Enum.map(history, fn step ->
+        %{
+          id: step.id,
+          role: step.role,
+          attempt: step.attempt,
+          status: step.status,
+          session_id: step.session_id,
+          exit_code: step.exit_code,
+          verdict: step.verdict,
+          feedback: step.feedback,
+          feedback_path: step.feedback_path,
+          error: step.error,
+          started_at: step.started_at,
+          finished_at: step.finished_at
+        }
+      end)
+
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      "loop:#{loop_id}",
+      {:loop_history_updated, steps_as_maps}
+    )
   end
 
   defp uuid?(value) when is_binary(value) do

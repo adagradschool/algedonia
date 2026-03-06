@@ -154,7 +154,7 @@ defmodule Algedonia.HookExecutor do
 
   defp mark_hook_running(loop, daemon_id) do
     Loops.update_loop(loop, %{
-      status: :running_maker,
+      status: :running,
       assigned_daemon_id: daemon_id,
       current_attempt: max(loop.current_attempt, 0) + 1
     })
