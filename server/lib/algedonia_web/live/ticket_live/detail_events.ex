@@ -9,7 +9,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   import Phoenix.Component, only: [assign: 2, to_form: 1]
   import AlgedoniaWeb.Helpers, only: [ticket_ref: 1, short_id: 1]
 
-  alias Algedonia.{Agents, Dags, Loops, Tickets, Workspaces}
+  alias Algedonia.{Agents, Loops, Tickets, Workspaces}
   alias Algedonia.Tickets.Comment
 
   @ticket_detail_fields [:description, :acceptance_criteria, :rubric]
@@ -19,7 +19,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   """
   def load_detail(socket, workspace_id, ticket_ref) do
     ticket = Tickets.get_ticket_by_ref!(workspace_id, ticket_ref)
-    if connected?(socket), do: Dags.subscribe(ticket.id)
+    if connected?(socket), do: Loops.subscribe_ticket_loops(ticket.id)
 
     assign(socket,
       page_title: ticket.title,
@@ -34,7 +34,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       reply_form: nil,
       editing_comment_id: nil,
       edit_form: nil,
-      loop_id: Dags.first_inspect_loop_id(ticket.id),
+      loop_id: Loops.first_inspect_loop_id(ticket.id),
       hook_loops: Loops.list_hook_loops_for_ticket(ticket.id),
       transition_hooks: Workspaces.list_transition_hooks(workspace_id)
     )

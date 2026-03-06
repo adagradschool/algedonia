@@ -1,6 +1,6 @@
 defmodule Algedonia.Loops.Loop do
   @moduledoc """
-  Schema for a loop — a single maker-checker unit of work within a DAG.
+  Schema for a loop — a single maker-checker unit of work for a ticket.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -23,7 +23,7 @@ defmodule Algedonia.Loops.Loop do
     :resolved
   ]
 
-  @roles [:task, :decompose, :decompose_checker, :hook]
+  @roles [:task, :hook]
 
   schema "loops" do
     field :title, :string
@@ -36,7 +36,6 @@ defmodule Algedonia.Loops.Loop do
     field :rubric, :string
     field :branch_name, :string
 
-    belongs_to :dag, Algedonia.Dags.Dag
     belongs_to :ticket, Algedonia.Tickets.Ticket
     belongs_to :assigned_daemon, Algedonia.Daemons.DaemonRegistration
 
@@ -58,10 +57,9 @@ defmodule Algedonia.Loops.Loop do
       :max_attempts,
       :rubric,
       :branch_name,
-      :dag_id,
       :ticket_id,
       :assigned_daemon_id
     ])
-    |> validate_required([:title, :dag_id])
+    |> validate_required([:title, :ticket_id])
   end
 end

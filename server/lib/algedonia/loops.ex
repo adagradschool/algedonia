@@ -7,6 +7,12 @@ defmodule Algedonia.Loops do
   alias Algedonia.Loops.Loop
   alias Algedonia.Repo
 
+  @status_to_stage %{
+    running_checker: "checker",
+    passed: "completed",
+    failed: "failed"
+  }
+
   @doc """
   Gets a single loop. Raises `Ecto.NoResultsError` if not found.
   """
@@ -53,19 +59,19 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
-  Gets a loop with its DAG and ticket preloaded. Raises if not found.
+  Gets a loop with ticket preloaded. Raises if not found.
   """
   @spec get_loop_with_ticket!(binary()) :: Loop.t()
   def get_loop_with_ticket!(id) do
-    get_loop!(id) |> Repo.preload(dag: :ticket)
+    get_loop!(id) |> Repo.preload(:ticket)
   end
 
   @doc """
-  Gets a loop by reference with DAG and ticket preloaded. Raises if not found.
+  Gets a loop by reference with ticket preloaded. Raises if not found.
   """
   @spec get_loop_with_ticket_by_ref!(binary()) :: Loop.t()
   def get_loop_with_ticket_by_ref!(ref) do
-    get_loop_by_ref!(ref) |> Repo.preload(dag: :ticket)
+    get_loop_by_ref!(ref) |> Repo.preload(:ticket)
   end
 
   @doc """
@@ -88,12 +94,12 @@ defmodule Algedonia.Loops do
     |> Repo.update()
     |> tap(fn
       {:ok, loop} ->
-        loop = Repo.preload(loop, dag: :ticket)
-        ticket_id = loop.dag.ticket_id
+        loop = Repo.preload(loop, :ticket)
+        ticket_id = loop.ticket_id
 
         Phoenix.PubSub.broadcast(
           Algedonia.PubSub,
-          "dag:#{ticket_id}",
+          "ticket_loops:#{ticket_id}",
           {:loop_status_changed, loop}
         )
 
@@ -130,22 +136,22 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
-  Preloads a loop's DAG and ticket associations.
+  Preloads a loop's ticket association.
   """
   @spec preload_ticket(Loop.t()) :: Loop.t()
-  def preload_ticket(%Loop{} = loop), do: Repo.preload(loop, dag: :ticket)
+  def preload_ticket(%Loop{} = loop), do: Repo.preload(loop, :ticket)
 
   @doc """
-  Preloads a loop with its DAG and ticket.
+  Preloads a loop with its ticket.
   """
   @spec preload_with_ticket(Loop.t()) :: Loop.t()
-  def preload_with_ticket(%Loop{} = loop), do: Repo.preload(loop, dag: :ticket)
+  def preload_with_ticket(%Loop{} = loop), do: Repo.preload(loop, :ticket)
 
   @doc """
-  Preloads a loop with its DAG, ticket, and workspace.
+  Preloads a loop with ticket and workspace.
   """
   @spec preload_with_workspace(Loop.t()) :: Loop.t()
-  def preload_with_workspace(%Loop{} = loop), do: Repo.preload(loop, dag: [ticket: :workspace])
+  def preload_with_workspace(%Loop{} = loop), do: Repo.preload(loop, ticket: :workspace)
 
   @doc """
   Lists hook loops for a ticket, ordered by insertion time.
@@ -180,16 +186,164 @@ defmodule Algedonia.Loops do
           assigned_daemon_id: nil
         })
 
-      updated = Repo.preload(updated, :dag)
-
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "dag:#{updated.dag.ticket_id}",
+        "ticket_loops:#{updated.ticket_id}",
         {:loop_status_changed, updated}
       )
 
       updated
     end)
+  end
+
+  @doc """
+  Returns all loops for a ticket, ordered by insertion time.
+  """
+  @spec list_loops_for_ticket(binary()) :: [Loop.t()]
+  def list_loops_for_ticket(ticket_id) do
+    Loop
+    |> where([l], l.ticket_id == ^ticket_id)
+    |> order_by([l], asc: l.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns all task loops for a ticket, ordered by insertion time.
+  """
+  @spec list_task_loops_for_ticket(binary()) :: [Loop.t()]
+  def list_task_loops_for_ticket(ticket_id) do
+    Loop
+    |> where([l], l.ticket_id == ^ticket_id and l.role == :task)
+    |> order_by([l], asc: l.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns the first task-loop ID for each ticket ID.
+  """
+  @spec first_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
+  def first_loop_ids_for_tickets([]), do: %{}
+
+  def first_loop_ids_for_tickets(ticket_ids) do
+    from(l in Loop,
+      where: l.role == :task and l.ticket_id in ^ticket_ids,
+      distinct: l.ticket_id,
+      order_by: [asc: l.ticket_id, asc: l.inserted_at],
+      select: {l.ticket_id, l.id}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @doc """
+  Returns the first inspectable loop ID for each ticket ID.
+  """
+  @spec first_inspect_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
+  def first_inspect_loop_ids_for_tickets([]), do: %{}
+
+  def first_inspect_loop_ids_for_tickets(ticket_ids) do
+    from(l in Loop,
+      where: l.ticket_id in ^ticket_ids and l.role != :hook,
+      order_by: [
+        asc: l.ticket_id,
+        asc: fragment("CASE WHEN ? = ? THEN 0 ELSE 1 END", l.role, ^"task"),
+        asc: l.inserted_at
+      ],
+      select: {l.ticket_id, l.id}
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {ticket_id, loop_id}, acc ->
+      Map.put_new(acc, ticket_id, loop_id)
+    end)
+  end
+
+  @doc """
+  Returns active loop info for the given ticket IDs.
+  """
+  @spec active_loop_info_for_tickets([binary()]) :: %{
+          binary() => %{loop_id: binary(), stage: String.t(), attempt: integer()}
+        }
+  def active_loop_info_for_tickets([]), do: %{}
+
+  def active_loop_info_for_tickets(ticket_ids) do
+    terminal = [:passed, :failed, :escalated, :skipped, :resolved]
+
+    active =
+      from(l in Loop,
+        where: l.ticket_id in ^ticket_ids and l.role != :hook and l.status not in ^terminal,
+        distinct: l.ticket_id,
+        order_by: [asc: l.ticket_id, asc: l.inserted_at],
+        select: {l.ticket_id, l.id, l.status, l.current_attempt}
+      )
+      |> Repo.all()
+      |> Map.new(fn {tid, lid, status, attempt} ->
+        {tid, %{loop_id: lid, stage: stage_for_status(status), attempt: max(attempt, 1)}}
+      end)
+
+    missing = ticket_ids -- Map.keys(active)
+    fallback = first_inspect_loop_ids_for_tickets(missing)
+
+    Map.merge(
+      active,
+      Map.new(fallback, fn {tid, lid} ->
+        case get_loop(lid) do
+          nil ->
+            {tid, %{loop_id: lid, stage: "maker", attempt: 1}}
+
+          loop ->
+            {tid,
+             %{
+               loop_id: lid,
+               stage: stage_for_status(loop.status),
+               attempt: max(loop.current_attempt, 1)
+             }}
+        end
+      end)
+    )
+  end
+
+  @doc """
+  Returns the first task-loop ID for a ticket.
+  """
+  @spec first_loop_id(binary()) :: binary() | nil
+  def first_loop_id(ticket_id) do
+    ticket_id
+    |> list_task_loops_for_ticket()
+    |> List.first()
+    |> case do
+      nil -> nil
+      loop -> loop.id
+    end
+  end
+
+  @doc """
+  Returns the first inspectable loop ID for a ticket.
+  """
+  @spec first_inspect_loop_id(binary()) :: binary() | nil
+  def first_inspect_loop_id(ticket_id) do
+    ticket_id
+    |> list_loops_for_ticket()
+    |> Enum.reject(&(&1.role == :hook))
+    |> Enum.sort_by(fn loop -> {if(loop.role == :task, do: 0, else: 1), loop.inserted_at} end)
+    |> List.first()
+    |> case do
+      nil -> nil
+      loop -> loop.id
+    end
+  end
+
+  @doc """
+  Returns the stage string for a loop status.
+  """
+  @spec stage_for_status(atom()) :: String.t()
+  def stage_for_status(status), do: Map.get(@status_to_stage, status, "maker")
+
+  @doc """
+  Subscribes to loop-status events for a ticket.
+  """
+  @spec subscribe_ticket_loops(binary()) :: :ok | {:error, term()}
+  def subscribe_ticket_loops(ticket_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, "ticket_loops:#{ticket_id}")
   end
 
   @doc """

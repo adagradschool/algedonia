@@ -124,8 +124,7 @@ defmodule Algedonia.HookExecutorTest do
     test "marks loop as failed and ticket as halted" do
       workspace = default_workspace!()
       ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, ticket_id: ticket.id, role: :hook})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :hook})
 
       assert {:ok, halted_ticket} = HookExecutor.handle_failure(loop, ticket)
       assert halted_ticket.status == :halted
@@ -145,8 +144,7 @@ defmodule Algedonia.HookExecutorTest do
         })
 
       ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, ticket_id: ticket.id, role: :hook})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :hook})
 
       # handle_failure uses skip_hooks: true, so no additional hooks should fire
       {:ok, _} = HookExecutor.handle_failure(loop, ticket)
@@ -161,11 +159,9 @@ defmodule Algedonia.HookExecutorTest do
     test "handle_attempt_complete marks hook loop as passed on success" do
       workspace = default_workspace!()
       ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :running_maker
@@ -180,11 +176,9 @@ defmodule Algedonia.HookExecutorTest do
     test "handle_attempt_error marks hook loop failed and halts ticket" do
       workspace = default_workspace!()
       ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :running_maker

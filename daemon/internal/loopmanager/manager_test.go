@@ -537,7 +537,7 @@ func TestStartLoopWithAdapter(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Should have gotten attempt_complete (exit code 0, non-decompose role)
+	// Should have gotten attempt_complete (exit code 0, non-checker role)
 	mu.Lock()
 	defer mu.Unlock()
 	found := false
@@ -683,61 +683,6 @@ func runGitCmd(t *testing.T, dir string, args ...string) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
-	}
-}
-
-func TestDecomposeOutputParsing(t *testing.T) {
-	var mu sync.Mutex
-	var events []sentEvent
-
-	dagJSON := `---ALGEDONIA_DAG_BEGIN---
-{"loops":[{"id":"l1","title":"Step 1","description":"Do step 1","rubric":"Works","path_hints":["a.go"]}],"dependencies":[]}
----ALGEDONIA_DAG_END---`
-
-	script := "#!/bin/sh\necho '" + dagJSON + "'\n"
-	reg, dir := setupMockAgent(t, "claude", script)
-
-	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
-
-	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "decompose-loop", "claude_code", "decompose", dir, "", "scope", "decompose this ticket", "", "", 1)
-	if err != nil {
-		t.Fatalf("StartLoopWithAdapter: %v", err)
-	}
-
-	deadline := time.After(10 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out")
-		default:
-		}
-		if mgr.RunningCount() == 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	var foundResult bool
-	for _, e := range events {
-		if e.Event == "loop_result" && e.Payload["loop_id"] == "decompose-loop" {
-			foundResult = true
-			if e.Payload["verdict"] != "pass" {
-				t.Errorf("verdict = %v, want pass", e.Payload["verdict"])
-			}
-			if e.Payload["dag"] == nil {
-				t.Error("dag is nil in loop_result")
-			}
-		}
-	}
-	if !foundResult {
-		t.Error("expected loop_result event for decompose")
-		for _, e := range events {
-			t.Logf("  event: %s %v", e.Event, e.Payload)
-		}
 	}
 }
 

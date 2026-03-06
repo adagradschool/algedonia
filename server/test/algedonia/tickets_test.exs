@@ -204,7 +204,7 @@ defmodule Algedonia.TicketsTest do
 
       assert {:error, :no_online_daemon} = Tickets.start_work(ticket)
       assert Tickets.get_ticket!(ticket.id).status == :planning
-      assert is_nil(Algedonia.Dags.get_dag_by_ticket(ticket.id))
+      assert Algedonia.Loops.list_loops_for_ticket(ticket.id) == []
     end
 
     test "fails early when daemon repo is not ready and stays planning" do
@@ -218,17 +218,15 @@ defmodule Algedonia.TicketsTest do
 
       assert {:error, :daemon_repo_not_ready} = Tickets.start_work(ticket)
       assert Tickets.get_ticket!(ticket.id).status == :planning
-      assert is_nil(Algedonia.Dags.get_dag_by_ticket(ticket.id))
+      assert Algedonia.Loops.list_loops_for_ticket(ticket.id) == []
     end
 
     test "ignores hook loops and returns a task loop" do
       insert_daemon!(%{status: :online})
       ticket = insert_ticket!(%{status: :planning})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       hook_loop =
         insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :pending,

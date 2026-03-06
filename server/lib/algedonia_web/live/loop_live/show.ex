@@ -264,7 +264,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
     page_title =
       ContextHelper.build_page_title(
-        loop.dag.ticket,
+        loop.ticket,
         prefix,
         stage,
         attempt,
@@ -274,12 +274,12 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply,
      socket
      |> assign(:loop_record, loop)
-     |> assign(:ticket, loop.dag.ticket)
+     |> assign(:ticket, loop.ticket)
      |> assign(:loop_title, loop.title)
      |> assign(:stage, stage)
      |> assign(:attempt, attempt)
      |> assign(:page_title, page_title)
-     |> assign(:rubric, loop.rubric || loop.dag.ticket.rubric || "")
+     |> assign(:rubric, loop.rubric || loop.ticket.rubric || "")
      |> TerminalHelper.assign_terminal_run()
      |> TerminalHelper.assign_terminal_ws_access()}
   end

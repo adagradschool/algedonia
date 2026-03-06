@@ -5,7 +5,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   use Phoenix.Channel
 
   alias Algedonia.{Accounts, Daemons}
-  alias Algedonia.{DecomposeOrchestrator, HookExecutor, Loops, TaskLoopOrchestrator}
+  alias Algedonia.{HookExecutor, Loops, TaskLoopOrchestrator}
   alias Algedonia.Terminals
 
   intercept [
@@ -86,11 +86,6 @@ defmodule AlgedoniaWeb.DaemonChannel do
     end
   end
 
-  def handle_in("loop_result", %{"loop_id" => loop_id} = payload, socket) do
-    DecomposeOrchestrator.handle_loop_result(loop_id, payload)
-    {:noreply, socket}
-  end
-
   def handle_in("attempt_complete", %{"loop_id" => loop_id} = payload, socket) do
     if uuid_string?(loop_id) do
       case Loops.get_loop(loop_id) do
@@ -132,10 +127,14 @@ defmodule AlgedoniaWeb.DaemonChannel do
           )
 
         _ ->
-          DecomposeOrchestrator.handle_loop_error(loop_id, payload)
+          TaskLoopOrchestrator.handle_attempt_error(loop_id, payload,
+            daemon_name: socket.assigns.daemon_name
+          )
       end
     else
-      DecomposeOrchestrator.handle_loop_error(loop_id, payload)
+      TaskLoopOrchestrator.handle_attempt_error(loop_id, payload,
+        daemon_name: socket.assigns.daemon_name
+      )
     end
 
     {:noreply, socket}

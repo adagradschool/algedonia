@@ -250,27 +250,6 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
-  describe "loop_result" do
-    setup %{socket: socket} do
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
-
-      {:ok, socket: socket}
-    end
-
-    test "routes loop_result to Orchestrator", %{socket: socket} do
-      # The Orchestrator will return :not_found since there's no active decomposition,
-      # but the message is still routed correctly (no crash)
-      ref =
-        push(socket, "loop_result", %{
-          "loop_id" => "nonexistent-loop",
-          "verdict" => "pass"
-        })
-
-      refute_reply ref, _
-    end
-  end
-
   describe "attempt_complete" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =
@@ -281,11 +260,9 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
 
     test "routes hook loop completion to HookExecutor", %{socket: socket} do
       ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
-      dag = Algedonia.Factory.insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         Algedonia.Factory.insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :running_maker
@@ -312,7 +289,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       {:ok, socket: socket}
     end
 
-    test "routes error to Orchestrator", %{socket: socket} do
+    test "routes unknown loop errors to TaskLoopOrchestrator", %{socket: socket} do
       ref =
         push(socket, "error", %{
           "loop_id" => "nonexistent-loop",
@@ -337,11 +314,10 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       daemon = Daemons.get_daemon_by_name(@daemon_name)
       assert daemon
       ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
-      dag = Algedonia.Factory.insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         Algedonia.Factory.insert_loop!(%{
-          dag_id: dag.id,
+          ticket_id: ticket.id,
           role: :task,
           status: :running_maker,
           current_attempt: 1,
@@ -367,11 +343,9 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
 
     test "routes hook loop errors to HookExecutor", %{socket: socket} do
       ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
-      dag = Algedonia.Factory.insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         Algedonia.Factory.insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :running_maker

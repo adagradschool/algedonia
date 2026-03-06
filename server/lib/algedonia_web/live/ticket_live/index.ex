@@ -5,7 +5,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   use AlgedoniaWeb, :live_view
   use AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal
 
-  alias Algedonia.{Dags, Tickets}
+  alias Algedonia.{Loops, Tickets}
   alias Algedonia.Tickets.Ticket
   alias Algedonia.Workspaces
   alias AlgedoniaWeb.TicketLive.DetailEvents
@@ -174,9 +174,6 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       else: {:noreply, socket}
   end
 
-  def handle_info({:dag_created, _dag}, socket), do: {:noreply, socket}
-  def handle_info({:dag_updated, _dag}, socket), do: {:noreply, socket}
-
   # -- Streams --
 
   defp stream_tickets(socket) do
@@ -205,7 +202,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     |> assign(
       ticket_count: count,
       tickets_by_status: grouped,
-      loop_info: Dags.active_loop_info_for_tickets(ticket_ids)
+      loop_info: Loops.active_loop_info_for_tickets(ticket_ids)
     )
   end
 end
