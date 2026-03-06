@@ -64,9 +64,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
 
-    if connected?(socket) do
-      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
-    end
+    socket = maybe_queue_scrollback(socket)
 
     {:ok, socket}
   end
@@ -133,11 +131,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
 
-    if connected?(socket) do
-      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
-    end
-
-    {:noreply, socket}
+    {:noreply, maybe_queue_scrollback(socket)}
   end
 
   def handle_event("toggle_shortcut_help", _params, socket) do
@@ -145,11 +139,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_event("terminal_request_scrollback", _params, socket) do
-    if connected?(socket) do
-      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
-    end
-
-    {:noreply, socket}
+    {:noreply, maybe_queue_scrollback(socket)}
   end
 
   def handle_event("shortcut_back", _params, socket) do
@@ -304,9 +294,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
 
-    if connected?(socket) && socket.assigns.selected_terminal_id != previous_terminal_id do
-      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
-    end
+    socket =
+      if socket.assigns.selected_terminal_id != previous_terminal_id,
+        do: maybe_queue_scrollback(socket),
+        else: socket
 
     {:noreply, socket}
   end
@@ -329,6 +320,19 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   def handle_info({event, _comment}, socket)
       when event in [:comment_created, :comment_updated, :comment_deleted] do
     {:noreply, assign(socket, :comments, list_ticket_comments(socket.assigns.ticket))}
+  end
+
+  defp maybe_queue_scrollback(socket) do
+    if connected?(socket) && should_push_scrollback?(socket) do
+      send(self(), {:send_scrollback, socket.assigns.selected_terminal_id})
+    end
+
+    socket
+  end
+
+  defp should_push_scrollback?(socket) do
+    stream_loop_id = socket.assigns[:terminal_stream_loop_id]
+    not (is_binary(stream_loop_id) and stream_loop_id != "")
   end
 
   def render_markdown(text), do: Markdown.render(text)
