@@ -431,13 +431,13 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       insert_loop!(%{
         ticket_id: ticket.id,
         role: :task,
-        status: :running_checker,
+        status: :running,
         current_attempt: 2
       })
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Checker #2")
+      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Running #2")
     end
 
     test "board shows inspect for completed ticket with loop", %{
@@ -482,7 +482,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       ticket =
         insert_ticket!(%{title: "Hook loop", status: :in_progress, workspace_id: workspace.id})
 
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :running_maker})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :running})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 

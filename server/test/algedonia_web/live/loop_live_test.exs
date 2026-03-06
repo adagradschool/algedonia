@@ -319,7 +319,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     } do
       loop =
         build_task_loop!(workspace, %{
-          status: :running_maker,
+          status: :running,
           current_attempt: 1
         })
 
@@ -343,7 +343,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
          } do
       loop =
         build_task_loop!(workspace, %{
-          status: :running_checker,
+          status: :running,
           current_attempt: 2
         })
 
@@ -421,7 +421,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     } do
       loop =
         build_task_loop!(workspace, %{
-          status: :running_checker,
+          status: :running,
           current_attempt: 1,
           max_attempts: 3
         })
@@ -648,7 +648,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     end
 
     test "renders diff content when diff_result arrives", %{conn: conn, workspace: workspace} do
-      loop = build_task_loop!(workspace, %{status: :running_maker, current_attempt: 1})
+      loop = build_task_loop!(workspace, %{status: :running, current_attempt: 1})
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop.id}")
 
       render_click(element(view, "button[phx-value-tab='diff']"))

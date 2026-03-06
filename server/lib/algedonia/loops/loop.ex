@@ -8,20 +8,7 @@ defmodule Algedonia.Loops.Loop do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses [
-    :pending,
-    :ready,
-    :assigned,
-    :running_maker,
-    :running_checker,
-    :passed,
-    :failed,
-    :escalated,
-    :needs_clarification,
-    :pending_approval,
-    :skipped,
-    :resolved
-  ]
+  @statuses [:pending, :running, :passed, :failed]
 
   @roles [:task, :hook]
 
@@ -35,9 +22,14 @@ defmodule Algedonia.Loops.Loop do
     field :max_attempts, :integer, default: 10
     field :rubric, :string
     field :branch_name, :string
+    field :checker_config, :map
+    field :land_mode, :string
+    field :pr_url, :string
 
     belongs_to :ticket, Algedonia.Tickets.Ticket
     belongs_to :assigned_daemon, Algedonia.Daemons.DaemonRegistration
+
+    has_many :steps, Algedonia.Loops.LoopStep
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -57,6 +49,9 @@ defmodule Algedonia.Loops.Loop do
       :max_attempts,
       :rubric,
       :branch_name,
+      :checker_config,
+      :land_mode,
+      :pr_url,
       :ticket_id,
       :assigned_daemon_id
     ])

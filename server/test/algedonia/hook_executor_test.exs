@@ -92,7 +92,7 @@ defmodule Algedonia.HookExecutorTest do
 
       loop = Loops.get_loop!(loop_id)
       assert loop.role == :hook
-      assert loop.status == :running_maker
+      assert loop.status == :running
       assert loop.current_attempt == 1
       assert loop.assigned_daemon_id == daemon.id
     end
@@ -164,7 +164,7 @@ defmodule Algedonia.HookExecutorTest do
         insert_loop!(%{
           ticket_id: ticket.id,
           role: :hook,
-          status: :running_maker
+          status: :running
         })
 
       :ok = HookExecutor.handle_attempt_complete(loop.id, %{"exit_code" => 0})
@@ -181,7 +181,7 @@ defmodule Algedonia.HookExecutorTest do
         insert_loop!(%{
           ticket_id: ticket.id,
           role: :hook,
-          status: :running_maker
+          status: :running
         })
 
       :ok = HookExecutor.handle_attempt_error(loop.id, %{"message" => "boom"})
@@ -293,7 +293,7 @@ defmodule Algedonia.HookExecutorTest do
 
       assert ticket_id == ticket.id
       assert workspace_slug == workspace.slug
-      assert Loops.get_loop!(loop_id).status == :running_maker
+      assert Loops.get_loop!(loop_id).status == :running
     end
 
     test "hooks do not fire when both from and to are halted" do

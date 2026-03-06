@@ -10,7 +10,7 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
   alias Algedonia.{Loops, Tickets}
 
   @status_to_stage %{
-    running_checker: "checker",
+    running: "running",
     passed: "completed",
     failed: "failed"
   }
