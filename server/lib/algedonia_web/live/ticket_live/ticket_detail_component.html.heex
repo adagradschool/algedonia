@@ -107,6 +107,16 @@
                   </li>
                   <li>
                     <button
+                      id="ticket-reset-action"
+                      phx-click="confirm_reset"
+                      class="text-xs rounded text-status-orange"
+                      type="button"
+                    >
+                      <.icon name="hero-arrow-path-mini" class="size-3 inline mr-1" />Start Over
+                    </button>
+                  </li>
+                  <li>
+                    <button
                       id="ticket-delete-action"
                       phx-click="confirm_delete"
                       class="text-xs rounded text-status-red"

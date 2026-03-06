@@ -482,6 +482,16 @@ defmodule Algedonia.Loops do
     )
   end
 
+  @doc """
+  Deletes all loops (and their steps via DB cascade) for a ticket.
+  Returns the number of deleted loops.
+  """
+  @spec delete_loops_for_ticket(binary()) :: {non_neg_integer(), nil}
+  def delete_loops_for_ticket(ticket_id) do
+    from(l in Loop, where: l.ticket_id == ^ticket_id)
+    |> Repo.delete_all()
+  end
+
   defp uuid?(value) when is_binary(value) do
     String.match?(value, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
   end

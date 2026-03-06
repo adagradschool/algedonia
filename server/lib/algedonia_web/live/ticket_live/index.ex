@@ -19,7 +19,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   @detail_events ~w(autosave_ticket autosave_ticket_markdown
     submit_comment submit_reply start_reply edit_comment update_comment
     cancel_edit delete_comment start_work plan_ticket open_planning_session
-    open_editor export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now)
+    open_editor export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now
+    confirm_reset cancel_reset confirm_reset_now)
 
   @impl true
   def mount(params, session, socket) do
@@ -45,7 +46,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
        workspace_slug: workspace_slug,
        save_state: :idle,
        confirm_delete: false,
-       delete_ticket_id: nil
+       delete_ticket_id: nil,
+       confirm_reset: false
      )}
   end
 
