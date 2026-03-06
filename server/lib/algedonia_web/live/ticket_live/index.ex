@@ -53,7 +53,15 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   def handle_params(params, _url, socket) do
     filter_state = filter_state_from_params(params)
     filters_changed? = filters_changed?(socket.assigns, filter_state)
-    socket = assign(socket, filter_state)
+
+    socket =
+      socket
+      |> assign(filter_state)
+      |> assign(
+        url_has_sort?: Map.has_key?(params, "sort_by"),
+        url_has_view?: Map.has_key?(params, "view")
+      )
+
     prior_action = socket.assigns[:last_live_action]
 
     socket =
@@ -90,12 +98,19 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   @impl true
   def handle_event("toggle_view", %{"view" => view}, socket) do
-    {:noreply, push_patch(socket, to: tickets_path(socket, view: view))}
+    {:noreply,
+     socket
+     |> push_prefs(view_mode: view, sort_by: socket.assigns.sort_by)
+     |> push_patch(to: tickets_path(socket, view: view))}
   end
 
   def handle_event("toggle_view_shortcut", _p, socket) do
     view = if socket.assigns.view_mode == :list, do: "board", else: "list"
-    {:noreply, push_patch(socket, to: tickets_path(socket, view: view))}
+
+    {:noreply,
+     socket
+     |> push_prefs(view_mode: view, sort_by: socket.assigns.sort_by)
+     |> push_patch(to: tickets_path(socket, view: view))}
   end
 
   def handle_event("toggle_shortcut_help", _p, socket) do
@@ -113,7 +128,12 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   def handle_event("sort", %{"sort_by" => sort_by}, socket) do
-    {:noreply, push_patch(socket, to: tickets_path(socket, sort_by: sort_by))}
+    view = if socket.assigns.view_mode == :list, do: "list", else: "board"
+
+    {:noreply,
+     socket
+     |> push_prefs(view_mode: view, sort_by: sort_by)
+     |> push_patch(to: tickets_path(socket, sort_by: sort_by))}
   end
 
   def handle_event("clear_filters", _p, socket) do
@@ -131,6 +151,27 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     ticket = Tickets.get_ticket!(id)
     _ = Tickets.update_ticket(ticket, %{status: parse_status(status) || ticket.status})
     {:noreply, socket}
+  end
+
+  def handle_event("restore_prefs", prefs, socket) do
+    overrides =
+      []
+      |> then(fn acc ->
+        if !socket.assigns.url_has_sort? && is_binary(prefs["sort_by"]),
+          do: [{:sort_by, prefs["sort_by"]} | acc],
+          else: acc
+      end)
+      |> then(fn acc ->
+        if !socket.assigns.url_has_view? && is_binary(prefs["view_mode"]),
+          do: [{:view, prefs["view_mode"]} | acc],
+          else: acc
+      end)
+
+    if overrides == [] do
+      {:noreply, socket}
+    else
+      {:noreply, push_patch(socket, to: tickets_path(socket, overrides))}
+    end
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
@@ -204,5 +245,12 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       tickets_by_status: grouped,
       loop_info: Loops.active_loop_info_for_tickets(ticket_ids)
     )
+  end
+
+  defp push_prefs(socket, opts) do
+    push_event(socket, "persist_prefs", %{
+      sort_by: to_string(opts[:sort_by]),
+      view_mode: to_string(opts[:view_mode])
+    })
   end
 end

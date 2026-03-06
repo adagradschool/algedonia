@@ -13,6 +13,7 @@
     phx-hook="KeyboardShortcuts"
     data-page="tickets"
   >
+    <div id="ticket-list-prefs" phx-hook="TicketListPrefs" data-workspace-slug={@workspace_slug} />
     <%!-- Header bar --%>
     <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
       <div class="flex items-center gap-4">
