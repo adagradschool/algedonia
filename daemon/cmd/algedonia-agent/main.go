@@ -46,6 +46,7 @@ func main() {
 
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newLogoutCmd())
+	rootCmd.AddCommand(newInstallCmd())
 	rootCmd.AddCommand(newUninstallCmd())
 	rootCmd.AddCommand(newClaudeHookCmd())
 	rootCmd.AddCommand(newCodexNotifyCmd())

@@ -34,14 +34,28 @@ type Client struct {
 	ref       atomic.Int64
 	joinRef   string
 
-	connMu   sync.RWMutex
-	conn     *websocket.Conn
-	connCtx  context.Context
-	writeMu  sync.Mutex
+	connMu  sync.RWMutex
+	conn    *websocket.Conn
+	connCtx context.Context
+
+	// writeMu guards direct writes before the write loop starts (join handshake).
+	writeMu sync.Mutex
+
+	// dataCh carries normal messages (terminal output, events).
+	// heartbeatCh carries heartbeats on a separate channel so they
+	// are never blocked behind a burst of terminal output.
+	dataCh      chan pendingWrite
+	heartbeatCh chan pendingWrite
+
 	handlers map[string]func(ctx context.Context, payload map[string]interface{}) error
 
 	runningLoopsFn func() int
 	onJoin         JoinCallback
+}
+
+type pendingWrite struct {
+	data  []byte
+	errCh chan error
 }
 
 // NewClient creates a new connection client.
@@ -73,15 +87,14 @@ func (c *Client) OnJoin(cb JoinCallback) {
 // SendEvent sends an event to the server on the daemon topic. Thread-safe.
 func (c *Client) SendEvent(event string, payload map[string]interface{}) error {
 	c.connMu.RLock()
-	conn := c.conn
 	ctx := c.connCtx
 	c.connMu.RUnlock()
 
-	if conn == nil {
+	if ctx == nil {
 		return fmt.Errorf("not connected")
 	}
 
-	return c.send(ctx, conn, c.topic(), event, payload, c.nextRef())
+	return c.sendData(ctx, c.topic(), event, payload, c.nextRef())
 }
 
 func (c *Client) nextRef() string {
@@ -136,13 +149,13 @@ func (c *Client) run(ctx context.Context) error {
 		c.connMu.Unlock()
 	}()
 
-	// Join channel
+	// Join channel (direct write, before write loop starts)
 	c.joinRef = c.nextRef()
 	joinPayload := map[string]interface{}{
 		"display_name": c.name,
 	}
 
-	if err := c.send(ctx, conn, c.topic(), "phx_join", joinPayload, c.joinRef); err != nil {
+	if err := c.directWrite(ctx, conn, c.topic(), "phx_join", joinPayload, c.joinRef); err != nil {
 		return fmt.Errorf("sending join: %w", err)
 	}
 
@@ -166,18 +179,28 @@ func (c *Client) run(ctx context.Context) error {
 
 	log.Printf("Connected and joined as %q", c.name)
 
-	// Reset backoff on successful connection
-	// Start heartbeat and listen loops
-	errCh := make(chan error, 2)
+	// Start the two-channel write loop: heartbeats always drain first.
+	c.dataCh = make(chan pendingWrite, 256)
+	c.heartbeatCh = make(chan pendingWrite, 16)
+	defer func() {
+		c.dataCh = nil
+		c.heartbeatCh = nil
+	}()
+
+	errCh := make(chan error, 4)
+
+	go func() {
+		errCh <- c.writeLoop(ctx, conn)
+	}()
 
 	// Phoenix-level heartbeat (keeps WebSocket alive)
 	go func() {
-		errCh <- c.phoenixHeartbeatLoop(ctx, conn)
+		errCh <- c.phoenixHeartbeatLoop(ctx)
 	}()
 
 	// App-level heartbeat (reports daemon metrics)
 	go func() {
-		errCh <- c.appHeartbeatLoop(ctx, conn)
+		errCh <- c.appHeartbeatLoop(ctx)
 	}()
 
 	// Listen for server pushes
@@ -188,7 +211,7 @@ func (c *Client) run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		// Send leave message
-		_ = c.send(ctx, conn, c.topic(), "phx_leave", map[string]interface{}{}, c.nextRef())
+		_ = c.directWrite(ctx, conn, c.topic(), "phx_leave", map[string]interface{}{}, c.nextRef())
 		conn.Close(websocket.StatusNormalClosure, "shutdown")
 		return nil
 	case err := <-errCh:
@@ -196,7 +219,108 @@ func (c *Client) run(ctx context.Context) error {
 	}
 }
 
-func (c *Client) phoenixHeartbeatLoop(ctx context.Context, conn *websocket.Conn) error {
+// writeLoop is the sole goroutine that writes to the WebSocket.
+// It always drains heartbeatCh before processing dataCh, ensuring
+// heartbeats are never starved by terminal output bursts.
+func (c *Client) writeLoop(ctx context.Context, conn *websocket.Conn) error {
+	for {
+		// Priority: always drain heartbeats first.
+		select {
+		case <-ctx.Done():
+			return nil
+		case hw := <-c.heartbeatCh:
+			hw.errCh <- conn.Write(ctx, websocket.MessageText, hw.data)
+			continue
+		default:
+		}
+
+		// No heartbeats pending — wait for either channel.
+		select {
+		case <-ctx.Done():
+			return nil
+		case hw := <-c.heartbeatCh:
+			hw.errCh <- conn.Write(ctx, websocket.MessageText, hw.data)
+		case dw := <-c.dataCh:
+			dw.errCh <- conn.Write(ctx, websocket.MessageText, dw.data)
+		}
+	}
+}
+
+// marshalMsg builds the wire-format JSON for a Phoenix message.
+func (c *Client) marshalMsg(topic, event string, payload interface{}, ref string) ([]byte, error) {
+	msg := PhoenixMessage{
+		Topic:   topic,
+		Event:   event,
+		Payload: payload,
+		Ref:     ref,
+	}
+	if topic != "phoenix" {
+		msg.JoinRef = c.joinRef
+	}
+	return json.Marshal(msg)
+}
+
+// directWrite writes to the WebSocket directly, bypassing the write loop.
+// Used only during the join handshake before the write loop is started.
+func (c *Client) directWrite(ctx context.Context, conn *websocket.Conn, topic, event string, payload interface{}, ref string) error {
+	data, err := c.marshalMsg(topic, event, payload, ref)
+	if err != nil {
+		return fmt.Errorf("marshaling message: %w", err)
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return conn.Write(ctx, websocket.MessageText, data)
+}
+
+// sendHeartbeat enqueues a message on the heartbeat channel (high priority).
+func (c *Client) sendHeartbeat(ctx context.Context, topic, event string, payload interface{}, ref string) error {
+	data, err := c.marshalMsg(topic, event, payload, ref)
+	if err != nil {
+		return fmt.Errorf("marshaling message: %w", err)
+	}
+	ch := c.heartbeatCh
+	if ch == nil {
+		return fmt.Errorf("not connected")
+	}
+	pw := pendingWrite{data: data, errCh: make(chan error, 1)}
+	select {
+	case ch <- pw:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case err := <-pw.errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// sendData enqueues a message on the data channel (normal priority).
+func (c *Client) sendData(ctx context.Context, topic, event string, payload interface{}, ref string) error {
+	data, err := c.marshalMsg(topic, event, payload, ref)
+	if err != nil {
+		return fmt.Errorf("marshaling message: %w", err)
+	}
+	ch := c.dataCh
+	if ch == nil {
+		return fmt.Errorf("not connected")
+	}
+	pw := pendingWrite{data: data, errCh: make(chan error, 1)}
+	select {
+	case ch <- pw:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case err := <-pw.errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) phoenixHeartbeatLoop(ctx context.Context) error {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -205,14 +329,14 @@ func (c *Client) phoenixHeartbeatLoop(ctx context.Context, conn *websocket.Conn)
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := c.send(ctx, conn, "phoenix", "heartbeat", map[string]interface{}{}, c.nextRef()); err != nil {
+			if err := c.sendHeartbeat(ctx, "phoenix", "heartbeat", map[string]interface{}{}, c.nextRef()); err != nil {
 				return fmt.Errorf("phoenix heartbeat: %w", err)
 			}
 		}
 	}
 }
 
-func (c *Client) appHeartbeatLoop(ctx context.Context, conn *websocket.Conn) error {
+func (c *Client) appHeartbeatLoop(ctx context.Context) error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -229,7 +353,7 @@ func (c *Client) appHeartbeatLoop(ctx context.Context, conn *websocket.Conn) err
 				"capacity":      c.capacity,
 				"running_loops": runningLoops,
 			}
-			if err := c.send(ctx, conn, c.topic(), "heartbeat", payload, c.nextRef()); err != nil {
+			if err := c.sendHeartbeat(ctx, c.topic(), "heartbeat", payload, c.nextRef()); err != nil {
 				return fmt.Errorf("app heartbeat: %w", err)
 			}
 		}
@@ -261,29 +385,6 @@ func (c *Client) listenLoop(ctx context.Context, conn *websocket.Conn) error {
 			}(msg.Event)
 		}
 	}
-}
-
-func (c *Client) send(ctx context.Context, conn *websocket.Conn, topic, event string, payload interface{}, ref string) error {
-	msg := PhoenixMessage{
-		Topic:   topic,
-		Event:   event,
-		Payload: payload,
-		Ref:     ref,
-	}
-
-	if topic != "phoenix" {
-		msg.JoinRef = c.joinRef
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshaling message: %w", err)
-	}
-
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-
-	return conn.Write(ctx, websocket.MessageText, data)
 }
 
 func (c *Client) receive(ctx context.Context, conn *websocket.Conn) (*PhoenixMessage, error) {
