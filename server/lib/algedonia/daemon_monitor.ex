@@ -8,7 +8,7 @@ defmodule Algedonia.DaemonMonitor do
   alias Algedonia.Daemons
 
   @check_interval_ms 10_000
-  @unhealthy_threshold_s 30
+  @unhealthy_threshold_s 90
   @offline_threshold_s 300
 
   def start_link(opts) do

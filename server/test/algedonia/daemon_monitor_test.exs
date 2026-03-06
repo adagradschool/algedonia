@@ -11,11 +11,11 @@ defmodule Algedonia.DaemonMonitorTest do
   end
 
   describe "health checks" do
-    test "marks daemon unhealthy after 30s without heartbeat", %{monitor: pid} do
+    test "marks daemon unhealthy after 90s without heartbeat", %{monitor: pid} do
       daemon =
         Factory.insert_daemon!(%{
           status: :online,
-          last_heartbeat_at: DateTime.add(DateTime.utc_now(), -35, :second)
+          last_heartbeat_at: DateTime.add(DateTime.utc_now(), -95, :second)
         })
 
       send(pid, :check)
