@@ -158,6 +158,7 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("cleanup_worktree", mgr.HandleCleanupWorktree)
 			client.RegisterHandler("open_editor", mgr.HandleOpenEditor)
 			client.SetRunningLoopsFn(mgr.RunningCount)
+			client.SetRunningLoopIDFn(mgr.RunningLoopIDs)
 
 			cloneMgr := repo.NewCloneManager("", "")
 			client.OnJoin(makeJoinCallback(cloneMgr, client))

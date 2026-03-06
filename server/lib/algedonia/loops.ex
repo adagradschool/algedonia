@@ -180,6 +180,8 @@ defmodule Algedonia.Loops do
     )
     |> Repo.all()
     |> Enum.map(fn loop ->
+      interrupt_running_steps(loop.id)
+
       {:ok, updated} =
         update_loop(loop, %{
           status: :pending,
@@ -194,6 +196,27 @@ defmodule Algedonia.Loops do
 
       updated
     end)
+  end
+
+  @doc """
+  Marks all running steps for a loop as interrupted.
+  """
+  def interrupt_running_steps(loop_id) do
+    now = DateTime.utc_now()
+
+    LoopStep
+    |> where([s], s.loop_id == ^loop_id and s.status == "running")
+    |> Repo.update_all(set: [status: "interrupted", finished_at: now])
+  end
+
+  @doc """
+  Returns running loops assigned to a daemon.
+  """
+  @spec list_running_loops_for_daemon(binary()) :: [Loop.t()]
+  def list_running_loops_for_daemon(daemon_id) do
+    Loop
+    |> where([l], l.assigned_daemon_id == ^daemon_id and l.status == :running)
+    |> Repo.all()
   end
 
   @doc """

@@ -296,12 +296,13 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 }
 
 // StopLoop sends SIGTERM to the process, then SIGKILL after 5 seconds.
+// Idempotent: returns nil if the loop is not found (already stopped/never started).
 func (m *Manager) StopLoop(loopID, reason string) error {
 	m.mu.Lock()
 	lp, exists := m.loops[loopID]
 	m.mu.Unlock()
 	if !exists {
-		return fmt.Errorf("loop %s not found", loopID)
+		return nil
 	}
 
 	lp.mu.Lock()
@@ -351,6 +352,17 @@ func (m *Manager) RunningCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.loops)
+}
+
+// RunningLoopIDs returns the IDs of all currently running loops.
+func (m *Manager) RunningLoopIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]string, 0, len(m.loops))
+	for id := range m.loops {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // StartOverviewLoop runs claude in pipe mode (-p) for fast headless generation.

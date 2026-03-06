@@ -170,8 +170,38 @@ defmodule Algedonia.Daemons do
   """
   def redispatch_pending_loops(daemon) do
     for loop <- Loops.list_pending_unassigned_task_loops() do
-      TaskLoopOrchestrator.start_task_loop(loop.id, daemon.name)
+      case TaskLoopOrchestrator.start_task_loop(loop.id, daemon.name) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("Failed to redispatch loop #{loop.id}: #{inspect(reason)}")
+      end
     end
+  end
+
+  @doc """
+  Reconciles server state with what the daemon reports it's running.
+  Stops orphan loops on the daemon and redispatches missing loops.
+  """
+  def reconcile_running_loops(daemon, reported_loop_ids) when is_list(reported_loop_ids) do
+    server_running =
+      daemon.id
+      |> Loops.list_running_loops_for_daemon()
+      |> Enum.map(& &1.id)
+      |> MapSet.new()
+
+    daemon_running = MapSet.new(reported_loop_ids)
+
+    # Orphans: daemon is running them but server doesn't think so
+    orphans = MapSet.difference(daemon_running, server_running)
+
+    for loop_id <- orphans do
+      AlgedoniaWeb.DaemonChannel.push_stop_loop(daemon.name, loop_id, "orphan reconciliation")
+    end
+
+    :ok
   end
 
   def subscribe do
