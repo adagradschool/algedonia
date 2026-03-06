@@ -30,6 +30,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       comment_form_id: "new_comment_0",
       confirm_delete: false,
       delete_ticket_id: nil,
+      confirm_reset: false,
       reply_to: nil,
       reply_form: nil,
       editing_comment_id: nil,
@@ -242,6 +243,37 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
      |> push_patch(to: ~p"/w/#{slug}/tickets")}
   end
 
+  def handle("confirm_reset", _params, socket) do
+    {:noreply, assign(socket, confirm_reset: true)}
+  end
+
+  def handle("cancel_reset", _params, socket) do
+    {:noreply, assign(socket, confirm_reset: false)}
+  end
+
+  def handle("confirm_reset_now", _params, socket) do
+    ticket = socket.assigns.ticket
+
+    case Tickets.reset_ticket(ticket) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> assign(
+           confirm_reset: false,
+           loop_id: nil,
+           hook_loops: []
+         )
+         |> assign_saved_ticket(updated)
+         |> put_flash(:info, "Issue reset to backlog")}
+
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> assign(confirm_reset: false)
+         |> put_flash(:error, "Unable to reset issue")}
+    end
+  end
+
   # -- Helpers --
 
   defp assign_saved_ticket(socket, ticket) do
@@ -264,7 +296,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   defp planning_path(socket, ticket) do
     slug = socket.assigns.workspace_slug
-    ref = "plan-" <> short_id(ticket.id)
+    ref = short_id(ticket.id)
 
     ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{ref}?#{%{role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
   end

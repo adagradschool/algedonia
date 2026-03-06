@@ -289,6 +289,15 @@ defmodule Algedonia.Tickets do
   defp filter_by_assignee(query, ""), do: query
   defp filter_by_assignee(query, assignee), do: where(query, [t], t.assignee == ^assignee)
 
+  @doc """
+  Resets a ticket by removing all loops/steps and setting status back to backlog.
+  """
+  @spec reset_ticket(Ticket.t()) :: {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
+  def reset_ticket(%Ticket{} = ticket) do
+    Algedonia.Loops.delete_loops_for_ticket(ticket.id)
+    update_ticket(ticket, %{status: :backlog}, skip_hooks: true)
+  end
+
   # -- Markdown export (delegated) --
 
   defdelegate export_markdown(ticket), to: Algedonia.Tickets.MarkdownExport, as: :render

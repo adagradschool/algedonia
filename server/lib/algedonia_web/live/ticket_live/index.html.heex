@@ -298,6 +298,37 @@
   </.modal>
 
   <.modal
+    :if={@confirm_reset}
+    id="ticket-reset-modal"
+    show
+    on_cancel={JS.push("cancel_reset")}
+  >
+    <div class="space-y-4">
+      <div>
+        <h3 class="text-sm font-semibold text-fg">Start over?</h3>
+        <p class="text-xs text-fg-muted mt-1">
+          This will delete all loops and steps for this issue and reset it to backlog. This cannot be undone.
+        </p>
+      </div>
+      <div class="flex items-center justify-end gap-2">
+        <button
+          phx-click="cancel_reset"
+          class="px-3 py-1.5 text-xs text-fg-muted hover:text-fg rounded-md hover:bg-surface-raised"
+        >
+          Cancel
+        </button>
+        <button
+          phx-click="confirm_reset_now"
+          class="px-3 py-1.5 text-xs text-white bg-status-orange hover:bg-status-orange/80 rounded-md"
+          phx-disable-with="Resetting..."
+        >
+          Start Over
+        </button>
+      </div>
+    </div>
+  </.modal>
+
+  <.modal
     :if={@show_new_workspace_modal}
     id="new-workspace-modal"
     show
