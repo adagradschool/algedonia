@@ -49,8 +49,9 @@ type Client struct {
 
 	handlers map[string]func(ctx context.Context, payload map[string]interface{}) error
 
-	runningLoopsFn func() int
-	onJoin         JoinCallback
+	runningLoopsFn  func() int
+	runningLoopIDFn func() []string
+	onJoin          JoinCallback
 }
 
 type pendingWrite struct {
@@ -77,6 +78,11 @@ func (c *Client) RegisterHandler(event string, handler func(ctx context.Context,
 // SetRunningLoopsFn sets the function used to report running loop count in heartbeats.
 func (c *Client) SetRunningLoopsFn(fn func() int) {
 	c.runningLoopsFn = fn
+}
+
+// SetRunningLoopIDFn sets the function used to report running loop IDs in heartbeats.
+func (c *Client) SetRunningLoopIDFn(fn func() []string) {
+	c.runningLoopIDFn = fn
 }
 
 // OnJoin registers a callback invoked after a successful channel join.
@@ -349,9 +355,14 @@ func (c *Client) appHeartbeatLoop(ctx context.Context) error {
 			if c.runningLoopsFn != nil {
 				runningLoops = c.runningLoopsFn()
 			}
+			var runningLoopIDs []string
+			if c.runningLoopIDFn != nil {
+				runningLoopIDs = c.runningLoopIDFn()
+			}
 			payload := map[string]interface{}{
-				"capacity":      c.capacity,
-				"running_loops": runningLoops,
+				"capacity":         c.capacity,
+				"running_loops":    runningLoops,
+				"running_loop_ids": runningLoopIDs,
 			}
 			if err := c.sendHeartbeat(ctx, c.topic(), "heartbeat", payload, c.nextRef()); err != nil {
 				return fmt.Errorf("app heartbeat: %w", err)

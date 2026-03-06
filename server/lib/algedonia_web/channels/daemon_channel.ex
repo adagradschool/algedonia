@@ -42,6 +42,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp workspaces_for_user(nil), do: []
+  defp workspaces_for_user(user_id) when not is_binary(user_id), do: []
 
   defp workspaces_for_user(user_id) do
     user_id
@@ -62,7 +63,16 @@ defmodule AlgedoniaWeb.DaemonChannel do
     }
 
     case Daemons.update_heartbeat(daemon, attrs) do
-      {:ok, _daemon} ->
+      {:ok, updated} ->
+        # Reconcile: stop orphan loops the daemon is running that the server doesn't expect
+        case Map.get(payload, "running_loop_ids") do
+          ids when is_list(ids) ->
+            Daemons.reconcile_running_loops(updated, ids)
+
+          _ ->
+            :ok
+        end
+
         push(socket, "workspaces_sync", %{
           workspaces: workspaces_for_user(socket.assigns[:user_id])
         })

@@ -197,12 +197,12 @@ func TestManagerStopLoop(t *testing.T) {
 	}
 }
 
-func TestManagerStopNotFound(t *testing.T) {
+func TestManagerStopNotFoundIsIdempotent(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	err := mgr.StopLoop("nonexistent", "test")
-	if err == nil {
-		t.Fatal("expected error for nonexistent loop")
+	if err != nil {
+		t.Fatalf("expected nil for nonexistent loop, got %v", err)
 	}
 }
 
