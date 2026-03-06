@@ -115,6 +115,22 @@ defmodule Algedonia.DaemonsTest do
     end
   end
 
+  describe "update_heartbeat/2 recovery" do
+    test "promotes unhealthy daemon back to online on heartbeat" do
+      daemon = Factory.insert_daemon!(%{status: :unhealthy})
+
+      assert {:ok, updated} = Daemons.update_heartbeat(daemon, %{capacity: 3, running_loops: 0})
+      assert updated.status == :online
+    end
+
+    test "leaves online daemon as online on heartbeat" do
+      daemon = Factory.insert_daemon!(%{status: :online})
+
+      assert {:ok, updated} = Daemons.update_heartbeat(daemon, %{capacity: 3, running_loops: 0})
+      assert updated.status == :online
+    end
+  end
+
   describe "list_daemons/0" do
     test "returns all daemons" do
       Factory.insert_daemon!(%{name: "d1"})

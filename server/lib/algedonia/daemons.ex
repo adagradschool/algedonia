@@ -6,6 +6,7 @@ defmodule Algedonia.Daemons do
   alias Algedonia.Daemons.DaemonRegistration
   alias Algedonia.Loops
   alias Algedonia.Repo
+  alias Algedonia.TaskLoopOrchestrator
 
   @topic "monitor"
   @repo_status_table :daemon_repo_status
@@ -75,12 +76,27 @@ defmodule Algedonia.Daemons do
   end
 
   def update_heartbeat(daemon, attrs) do
+    was_unhealthy = daemon.status == :unhealthy
+
+    updates =
+      if daemon.status in [:unhealthy, :offline],
+        do: Map.merge(attrs, %{last_heartbeat_at: DateTime.utc_now(), status: :online}),
+        else: Map.merge(attrs, %{last_heartbeat_at: DateTime.utc_now()})
+
     daemon
-    |> DaemonRegistration.changeset(Map.merge(attrs, %{last_heartbeat_at: DateTime.utc_now()}))
+    |> DaemonRegistration.changeset(updates)
     |> Repo.update()
     |> tap(fn
-      {:ok, daemon} -> broadcast({:daemon_heartbeat, daemon})
-      _ -> :ok
+      {:ok, updated} ->
+        broadcast({:daemon_heartbeat, updated})
+
+        if was_unhealthy do
+          broadcast({:daemon_status_changed, updated})
+          redispatch_pending_loops(updated)
+        end
+
+      _ ->
+        :ok
     end)
   end
 
@@ -146,6 +162,15 @@ defmodule Algedonia.Daemons do
       %{"status" => "ready"} -> true
       %{"status" => "not_configured"} -> true
       _ -> false
+    end
+  end
+
+  @doc """
+  Re-dispatches pending task loops to a daemon that just came back online.
+  """
+  def redispatch_pending_loops(daemon) do
+    for loop <- Loops.list_pending_unassigned_task_loops() do
+      TaskLoopOrchestrator.start_task_loop(loop.id, daemon.name)
     end
   end
 
