@@ -26,7 +26,6 @@ defmodule AlgedoniaWeb.AuthController do
         conn
         |> delete_session(:pkce_code_verifier)
         |> put_session(:user_id, user.id)
-        |> put_session(:display_name, user.github_username)
         |> maybe_put_github_token(provider_token)
 
       case workspaces do

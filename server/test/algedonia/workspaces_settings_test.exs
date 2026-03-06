@@ -78,7 +78,8 @@ defmodule Algedonia.WorkspacesSettingsTest do
     end
 
     test "returns error for non-existent membership" do
-      assert {:error, :not_found} = Workspaces.remove_member(-1, -1)
+      assert {:error, :not_found} =
+               Workspaces.remove_member(-1, Ecto.UUID.generate())
     end
   end
 
