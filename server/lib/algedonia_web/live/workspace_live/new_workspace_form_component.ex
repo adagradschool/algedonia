@@ -106,7 +106,7 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent do
               phx-click="new_ws_toggle_url_input"
               class="mt-2 text-xs text-accent-indigo hover:underline"
             >
-              Or paste a URL
+              Or paste a URL for private repos
             </button>
           </div>
 

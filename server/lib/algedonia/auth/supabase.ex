@@ -24,7 +24,7 @@ defmodule Algedonia.Auth.Supabase do
         "flow_type" => "pkce",
         "code_challenge" => code_challenge,
         "code_challenge_method" => "S256",
-        "scopes" => "repo"
+        "scopes" => "read:user"
       })
 
     url = "#{project_url}/auth/v1/authorize?#{query}"

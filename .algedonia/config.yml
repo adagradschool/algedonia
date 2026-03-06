@@ -1,0 +1,26 @@
+# Algedonia workspace configuration
+# This file can be committed to the repo. UI settings override where specified.
+
+tracker:
+  kind: linear
+  project_slug: null  # set via workspace settings UI or LINEAR_PROJECT_SLUG env
+  planning_states: ["Planning"]
+  active_states: ["Todo", "In Progress"]
+  review_states: ["In Review"]
+  terminal_states: ["Done", "Cancelled"]
+
+polling:
+  interval_seconds: 30
+  auto_start: true  # auto-enqueue new active tickets by priority
+
+playback:
+  concurrency: 3  # max parallel loops (ceiling, bounded by daemon capacity)
+  default_land: auto_land  # auto_land | review_gate
+  max_iterations: 5
+
+defaults:
+  base_pipeline:
+    - compile
+    - test
+    - lint-daemon
+  planning_mode: auto  # auto | always_approve | always_review

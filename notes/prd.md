@@ -1,4 +1,4 @@
-# Algedonia — Product Requirements Document (v4)
+# Algedonia — Product Requirements Document (v5)
 
 *Agentic coding orchestration built on maker-checker loops.*
 
@@ -8,21 +8,41 @@ The name comes from cybernetics (Stafford Beer). Algedonic signals are pain/plea
 
 ## Principles
 
-1. **Verification loops and DAGs are the primitives.** The maker-checker loop is the atomic unit of work. Long work is a DAG of loops, not a monolithic sprint. Plans are hypotheses; loops are reality contact. Hard budgets on time, tokens, and retries. "Admit failure" is a first-class outcome.
+1. **Loops are the primitive.** The maker-checker loop is the atomic unit of work. A maker generates code. A checker verifies it against a quality rubric. The loop iterates until the checker passes, improvements taper off, or a human is needed. Hard budgets on time, tokens, and retries. "Admit failure" is a first-class outcome.
 
-2. **Coordination via isolation.** Parallel agents work on non-overlapping files, enforced by prefix-based file locking. Conflicts become a scheduling problem, not a merge problem. Agents are adapters, not the architecture. The UI is a skin over an event/command API.
+2. **Meet teams where they are.** Teams track work in Linear, review code in GitHub, communicate in Slack. Algedonia does not replace these tools. It syncs tickets in, pushes status back, and owns only what doesn't exist elsewhere: the loop — the structured feedback cycle between "ticket created" and "PR ready." Algedonia is the engine room, not the bridge.
 
-3. **Humans collaborate, define goals and rubrics, and spot-check.** Agents do execution. Humans do goal selection, architectural decisions, quality bar, and risk acceptance — not strategy or step-by-step instructions. Translate vague requests into measurable constraints (rubrics), not prose instructions. Attention is the only scarce resource: escalations are queued one at a time, circuit breakers prevent failure floods, focus mode hides noise. Replace dopamine loops with verifier-gated loops. Sustainable, audited, compounding throughput.
+3. **Humans steer at the right altitude.** Higher than code, lower than tickets. The loop level is where humans see what the agent attempted, what verification found, and where it's stuck. Attention is the only scarce resource: escalations are queued one at a time, circuit breakers prevent failure floods. Each ticket may have different feedback loops — some use UI validation, some use unit tests, some use both. The checker config is the lever humans pull.
 
-4. **Artifacts are the product.** Users want a codebase, not chats. Every loop produces commits, diffs, logs, and receipts. Everything is replayable. Per-loop reflection extracts architectural patterns, gotchas, and useful commands into structured codebase knowledge that compounds over time and is injected into future agent contexts.
+4. **Skills are the commodity.** OpenAI's harness engineering team spent months hand-building bespoke feedback loops (Chrome DevTools for UI, per-worktree observability, custom linters as guardrails). This doesn't generalize without similar investment. Algedonia commoditizes these as skills — reusable, composable, shareable units of capability. Run a command, drive a browser, query metrics, ask another agent to review. Skills are the building blocks; planning composes them per-ticket. The platform provides the feedback loops that teams would otherwise build by hand.
 
-5. **Anti-entropy.** Tech debt is entropy — once introduced, it spreads. Every commit survives the full verification pyramid before landing. There is no "clean up later." The rubric is the membrane. Per-loop reflection accumulates codebase knowledge that tightens rubrics and maker prompts over time. Each completed loop makes the next one better.
+5. **Artifacts are the product, reflection is the flywheel.** Users want a codebase, not chats. Every loop produces commits, verdicts, and receipts. When a loop lands, the system reflects: what worked, what didn't, what human nudges were needed. Reflection outputs are actionable — update a guideline, add a skill, tighten a checker. Those outputs become tickets that enter the same system. The platform improves itself through its own primitive.
+
+6. **Anti-entropy.** Tech debt is entropy — once introduced, it spreads. Every commit survives the checker before landing. There is no "clean up later." The checker config is the membrane. Per-loop reflection accumulates codebase knowledge that tightens skills and maker prompts over time. Quality is a pre-condition, not an eventually-consistent property.
+
+7. **Open source daemon, proprietary server.** The daemon runs on the user's machine, with their credentials, touching their code. It is open source (Apache 2.0) with a clean, auditable protocol. The server — loop orchestration, skills, ticket sync, queue/playback, collaboration — is the proprietary SaaS product. The daemon is commodity infrastructure (spawn processes, capture output, manage workspaces); there's nothing defensible about it, and keeping it closed would only invite fragmentation. Open sourcing it controls the protocol, enables community-built agent adapters, skills, and deployment targets, and earns trust through transparency rather than policy.
 
 ---
 
 ## Core Bet
 
-Two agents in a loop — maker and checker — is the correct fundamental primitive for agentic coding. It beats both black-box async agents and open-ended LLM prompting. It also manages context better than single-agent approaches.
+Two agents in a loop — maker and checker — with commoditized skills and per-ticket planning is the correct fundamental primitive for agentic coding. It beats both fire-and-forget autonomous agents (Symphony) and open-ended LLM prompting. Structured verification produces measurably better output than prompt-based self-review.
+
+### Why Not Reactive Cleanup?
+
+The alternative model — exemplified by OpenAI's harness engineering — accepts that AI-generated code will contain slop and builds reactive mechanisms to catch it: cron jobs that run linters and auto-fix, flaky CI runs treated as follow-up tickets, periodic sweep tasks. Generate first, clean up later.
+
+This is a slippery slope, especially with continuous deployment:
+
+**Cleanup tickets compete with feature work.** They enter the same backlog. Under velocity pressure, they get deprioritized. At 3 agents this is manageable. At 30 agents, the cleanup backlog grows faster than any team can service it. You're running a quality deficit that widens with velocity.
+
+**Flaky CI as follow-up tickets normalizes failure.** Once "it's probably just flaky" becomes an acceptable merge rationale, CI becomes advisory, not authoritative. Every flaky test is a crack in the foundation. With continuous deployment, you're shipping through those cracks — users see the slop before the cleanup ticket is even triaged.
+
+**Reactive cleanup doesn't scale linearly.** More agents = more commits = more slop per unit time. But cleanup tasks are often harder than the original work (diagnosing root causes vs. generating new code). The ratio of slop-generated to slop-fixed tilts the wrong way as you scale.
+
+**Algedonia's position: quality is a pre-condition, not an eventually-consistent property.** The checker is a gate, not a broom. Nothing lands without passing verification. A flaky test doesn't become a follow-up ticket — it blocks the loop. The maker either fixes the flakiness or the loop escalates to a human *before anything merges*. Entropy is stopped at the boundary, not tolerated and remediated after the fact.
+
+The reactive model works when humans outnumber agents and can absorb the cleanup. It breaks when agents outnumber humans — which is the trajectory of the entire industry. Algedonia is designed for the world where 2 engineers oversee 20 agents, not the world where 3 engineers babysit 1.
 
 ---
 
@@ -31,200 +51,490 @@ Two agents in a loop — maker and checker — is the correct fundamental primit
 The maker-checker loop is the atomic unit of work.
 
 - **Maker** generates code as a diff/patch.
-- **Checker** verifies the diff against the original intent and a quality rubric. The checker has no access to the maker's reasoning. This forces independent judgment.
-- **Pass** — squash-merge the commit. **Fail** — maker retries with the checker's feedback. **Clarify** — checker halts the loop because critical requirements are missing or ambiguous; escalates to human to update the ticket before the loop can retry. **Max turns reached** — escalate to human.
+- **Checker** verifies the diff by running the ticket's checker config — a pipeline of skill invocations configured during planning. The checker has no access to the maker's reasoning. This forces independent judgment.
+- **Pass** — daemon pushes branch, creates PR, waits for CI. CI passes → merge (auto-land) or wait for human (review gate). CI fails → maker retries with CI output as feedback. **Fail** — maker retries with the checker's structured feedback. **Taper** — improvements across iterations fall below a threshold; halt and notify human with context. **Clarify** — checker halts because critical requirements are missing; escalates to human. **Max turns reached** — escalate to human.
 
 **Maker context:** Full history of attempts. Compressed summaries of older iterations. Full detail on the current iteration.
 
 **Loop termination conditions:**
 - Checker pass (success).
+- Improvement taper detected (halt, notify human with iteration history).
 - Max turns exceeded (failure, escalate to human).
 - Manual human gate (optional checkpoint).
 
 ---
 
-## Verification Pyramid
+## Skills
 
-The checker draws from five layers. Each layer produces pass/fail, a confidence score, and a cost.
+Skills are the core abstraction. A skill is a reusable, composable unit of capability — something the daemon knows how to do. Skills serve both sides of the loop: maker skills generate code, checker skills verify it.
 
-1. **Static checks** — lint, typecheck, dead code detection, complexity analysis.
-2. **Deterministic tests** — unit, integration, and regression tests.
-3. **Generative tests** — property-based tests, fuzz testing, metamorphic testing.
-4. **Runtime checks** — performance budgets, flaky test detection, security/SAST.
-5. **Semantic/product checks** — contract assertions, API behavior validation, UX constraints, business rules.
+### Skill Format
 
-**Merge gate:** A weighted threshold across layers, plus mandatory hard gates. Typecheck and critical security findings must always pass, regardless of the weighted score.
+Skills live in `.algedonia/skills/` in the repo as markdown files. Markdown is the format because both agents and humans need to read them. Structured frontmatter declares the interface; the body provides context, examples, and instructions.
 
-**Rubric generation:** The decomposition step generates initial rubrics alongside the DAG, informed by repo context and existing tooling (detecting test frameworks, linters, type checkers already in use). Each loop in the DAG gets a rubric tailored to its task. Humans can edit rubrics at any time, including mid-flight during an active loop.
+```markdown
+<!-- .algedonia/skills/test.md -->
+---
+name: test
+type: command
+run: "mix test"
+pass: exit_code_zero
+---
+Run the full test suite. Pass = all tests green.
+When tests fail, the output includes file paths and line numbers
+that the maker can use to locate the issue.
+```
+
+```markdown
+<!-- .algedonia/skills/browser-check.md -->
+---
+name: browser-check
+type: browser
+boot: "mix phx.server --port $PORT"
+wait_for: "http://localhost:$PORT/health"
+tools: [screenshot, dom_snapshot, console_logs]
+---
+Boot the app and drive a headless browser via Playwright.
+The scenario is provided per-ticket during planning — it is NOT
+defined here. This skill declares the capability; planning
+parameterizes it.
+```
+
+```markdown
+<!-- .algedonia/skills/security-review.md -->
+---
+name: security-review
+type: agent_review
+prompt: "Review this diff for security vulnerabilities and OWASP top 10"
+criteria: "No critical or high severity findings"
+---
+Agent-based security review. Uses the same agent adapter interface
+as the maker but with a review-specific prompt.
+```
+
+### Skill Types
+
+Skills map to execution types on the daemon:
+
+- **Command** — run a shell command. Pass = exit code zero. Feedback = stdout/stderr.
+- **Browser** — boot the app, drive a browser via Playwright/CDP, validate UI behavior. The scenario is parameterized per-ticket during planning.
+- **Agent review** — a second LLM reviews the diff against a prompt and criteria.
+- **Observability** — query metrics/logs endpoints, check thresholds. (Future)
+
+### The Commodity Ladder
+
+Teams adopt skills incrementally:
+1. **Command** — everyone has tests and linters. Ship day one.
+2. **Agent review** — no infrastructure, just another LLM call. Easy to add.
+3. **Browser** — requires a browser on the daemon. High value for UI work.
+4. **Observability** — requires external infra integration. Hardest, most valuable for production systems.
+
+### Ecosystem
+
+Skills are the unit of sharing. When the daemon goes open source:
+- Community-contributed skills (e.g., `playwright-visual-regression.md`, `terraform-plan-review.md`)
+- Teams share skills across repos
+- Meta-skills reference other skills (a `fullstack.md` that combines `test`, `lint`, and `browser-check`)
 
 ---
 
-## Task Decomposition
+## Planning and Checker Configuration
 
-Algedonia uses Hierarchical Task Network (HTN) style decomposition. Decomposition is itself a maker-checker loop — the same primitive used for all other work.
+Checker steps are not statically matched from templates. They are configured per-ticket during a planning phase, before the maker starts.
 
-- **Maker** produces a DAG of loops, each with a title, description, dependency edges, and a quality rubric.
-- **Checker** verifies the decomposition against a decomposition rubric (see below). The checker has no access to the maker's reasoning.
-- **Pass** — the DAG is accepted and execution begins. **Fail** — the maker retries with the checker's feedback. **Clarify** — escalate to the human (e.g., the ticket is too vague to decompose). **Max turns reached** — escalate.
+### The Planning Phase
 
-**Decomposition rubric (checked by the checker):**
-1. **Scope reduction:** Every subtask is strictly smaller than its parent (fewer files, narrower concern, less estimated context). No subtask may restate the parent task.
-2. **Leaf node criteria:** Every leaf node in the DAG satisfies both (a) context fit — the task fits within a single agent context window, and (b) verification constraint — the task has a testable, measurable outcome with a concrete rubric.
-3. **Rubric well-formedness:** Every per-loop rubric parses correctly (hard gates, weighted checks, threshold, options per Section 7.4 of the SDD).
-4. **DAG validity:** The graph is acyclic. Dependency edges are plausible (a test loop depends on the implementation loop, not vice versa).
-5. **Coverage:** The union of all leaf tasks covers the original ticket's acceptance criteria. Nothing is dropped.
+In the kanban workflow, there is an explicit **Planning** state between Backlog and Todo. This is where the checker gets configured for each ticket:
 
-Because decomposition uses the standard loop machinery, it gets retry-with-feedback, escalation, circuit breaker protection, and human intervention for free. No special case.
+1. **Ticket enters Planning** — it has a title, description, and acceptance criteria from the tracker.
+2. **Planning agent runs** — reads the ticket's acceptance criteria, looks at the repo's available skills (`.algedonia/skills/`), and decides what to do:
+   - **Straightforward ticket** (clear acceptance criteria, obvious skills): composes the checker config and moves the ticket to Todo automatically. No human gate. "Fix typo in README" → `compile + test + lint`, done.
+   - **Ambiguous ticket** (vague acceptance criteria, multiple possible approaches): interviews the user — asks clarifying questions in the tracker (as comments) or in Algedonia's UI. Once clarified, proposes a checker config for review.
+3. **Ticket moves to Todo** — now fully specified: what to build (acceptance criteria) AND how to verify it (checker steps with parameterized skills). Ready for the maker.
 
-**Execution order:** Dependency-respecting (topological sort), parallelized where no dependencies block.
+The planning agent's judgment about when to skip through vs. interview is the intelligence here, not a config toggle. Teams can tune this at the workspace level in Algedonia's settings — a spectrum from "always auto-approve" to "always require human review." The default is to let the agent decide.
 
-**Failure propagation:** Downstream loops pause when an upstream loop fails. A human resolves the failure (fix, skip, or redefine). Execution resumes from the resolution point.
+### What a Checker Config Looks Like
 
----
+The checker config is per-ticket data, not a YAML file. It's a list of skill invocations with ticket-specific parameters:
 
-## File-Level Locking
+```
+Steps:
+1. skill: compile       (no params — always "mix compile --warnings-as-errors")
+2. skill: test          (no params — always "mix test")
+3. skill: lint          (no params — always "mix credo --strict")
+4. skill: browser-check (scenario: "navigate to /settings, fill display name, submit, verify toast")
+5. skill: security-review (criteria: "no auth bypass, no XSS in form inputs")
+```
 
-Coordination overhead is a major source of waste in parallel development. Algedonia ensures parallel workers never overlap on the same files.
+Steps 1–3 are the **base pipeline** — skills that run on every ticket. They come from the project config and are prepended automatically. Steps 4–5 are ticket-specific, composed during planning.
 
-- Tickets sit in backlog with no file paths assigned (the codebase is changing).
-- When a ticket moves to ready, impact analysis runs: "what files and modules will this touch?" This produces a set of path prefixes.
-- The scheduler checks locks before spawning a loop. If another active loop holds overlapping paths, the new loop waits.
-- A loop acquires locks on start and releases them on completion.
+### Base Pipeline
 
-**Late binding is key:** Impact analysis runs at scheduling time against the current codebase state, not at ticket creation time. Two loops never produce conflicting diffs because they never touch the same files simultaneously.
+Every repo has a base pipeline: the skills that should always run regardless of the ticket. These are declared in the project config:
 
----
+```
+base_pipeline: [compile, test, lint]
+```
 
-## Isolation
+The base pipeline runs first on every loop. Planning adds ticket-specific skills on top. This ensures the immune system (compile + test + lint) is never skipped, even if planning produces an empty config.
 
-Each loop works in the shared repository directory. Prefix-based file locking ensures parallel loops never touch the same files.
+### Planning Agent
 
-On success, the loop's work is squash/rebased into the parent branch.
+The planning agent is itself a skill. When a ticket enters Planning, Algedonia can optionally run a planning skill that:
+1. Reads the ticket's acceptance criteria
+2. Reads the repo's available skills (`.algedonia/skills/`)
+3. Proposes a checker config: which skills to use and how to parameterize them
+4. The human reviews and approves (or the config auto-applies if the team trusts the planning agent)
 
-Runtime isolation is delegated to agent adapters (containers, sandboxes, etc.).
+This means planning is a loop too — the planning agent proposes, the human reviews. Same pattern all the way up.
 
----
+### Editing Mid-Loop
 
-## Escalation and Circuit Breaker
-
-When a loop exhausts its retries, it escalates to a human.
-
-- **Escalation queue:** Shows one escalation at a time (one-piece flow). Remaining escalations sit in a FIFO queue. The queue does not stop loops from running — it only manages what the human sees.
-- **Circuit breaker:** Three states — closed (loops spawn freely), open (stop spawning after N consecutive escalations), half-open (test with one loop before full resume). Manual resume required.
-- **Focus mode:** Hides everything except the current escalation.
-
----
-
-## Ticket Management
-
-Algedonia includes a built-in issue tracker.
-
-**Ticket fields:** title, description, status, type, priority, assignee, acceptance criteria.
-
-Acceptance criteria are parsed and fed to the checker as semantic checks (layer 5 of the verification pyramid).
-
-**Comments:** Tickets support threaded comments. Comments are the primary channel for team discussion, clarification requests from the checker, and human feedback during escalations.
-
-**Ticket lifecycle:** create, decompose into a DAG of loops, loops execute, all loops pass, ticket closes.
+The checker config is immutable once the loop starts, with one exception: a human can edit it via the steer panel in the Loop View. This is useful when a loop is stuck because the checker is wrong (e.g., the browser scenario doesn't match the actual UI). Edits apply to the next iteration.
 
 ---
 
-## UI Layout
+## Ticket Integration (Not a Ticket Tracker)
 
-The interface is a three-column layout with a consistent left sidebar. Information flows left to right: DAG → Loop → Artifacts.
+Algedonia does not replace Linear, GitHub Issues, or Jira. It syncs tickets in and pushes status back.
 
-**Left Sidebar:**
-- **Top section:** Navigation between views (Tickets, Monitor). The Loop Inspector is the default/primary view.
-- **Bottom section:** User settings and collaboration panel (presence, and in the future, voice calls for real-time team communication).
+### How It Works
 
-**Three views:**
+Algedonia connects to a tracker project (e.g., a Linear project). Tickets flow through the kanban: Backlog → Planning → Todo → In Progress → Done. Algedonia picks up tickets in "Todo" (checker config already set during Planning). If it's in the project and it's ready, an agent works on it.
 
-**Tickets** — Table or board of tickets showing status, assignee, and DAG progress summary.
+### Inbound Sync
+- Poll the tracker API on a fixed cadence.
+- Import tickets in active states: ticket ID, title, description, status, acceptance criteria.
+- Store as a lightweight mirror record in Postgres.
+- Tickets that move to a terminal state (Done, Cancelled) have their active loops stopped and cleaned up.
 
-**Loop Inspector** — The primary workspace. Three columns:
-- *Left panel:* DAG tree for the current ticket. Loops are shown as a flat tree with status icons, grouped by dependency depth. Parallel loops appear as siblings at the same level. Manual gates are visible as a state on the loop node. Clicking a node loads that loop's agent run. Designed for 5–10 loops per ticket — if a ticket needs more, it should be split.
-- *Center panel:* Live terminal showing the active agent run (maker or checker). This is a full interactive terminal. Steering is native terminal interaction: type to send input, esc to pause, ctrl+c to stop. No GUI buttons for pause/resume — the terminal is the interface. Both maker and checker runs are viewed identically here; the checker is just another agent run with different context (diff + rubric instead of task description).
-- *Right panel:* Tabbed context for the current loop — Diff (working changes vs base), Rubric (editable, changes apply to next attempt), Verdict (structured checker results: hard gate pass/fail, weighted check scores, overall threshold), History (attempt list, each entry showing maker summary, checker verdict, scores, duration, token usage, agent session ID for resume/replay).
+### Outbound Sync
+- Loop started → update ticket status (e.g., "In Progress").
+- Loop passed → update ticket status (e.g., "Ready for Review"), attach PR link.
+- Loop stuck → post a comment with what's blocking and iteration context.
+- Checker step results are posted as structured comments on the ticket so progress is visible without leaving the tracker.
 
-**Monitor** — Escalation queue (one-piece flow), circuit breaker status, running loops overview, daemon health.
+### What Algedonia Owns
+- Loops attached to each ticket (one or more).
+- Checker config per loop (skill invocations composed during planning).
+- Iteration history (maker output, checker feedback, per-step results).
+- Termination state and human feedback thread.
+- State transition hooks on loops (not tickets).
+
+### What the Tracker Owns
+- Backlog management, prioritization, sprint planning.
+- Ticket CRUD, workflow states, assignments.
+- Team-wide views and dashboards.
+- The decision of what gets worked on: move a ticket to "Todo" and it gets picked up. Move it to "Cancelled" and the loop stops.
+
+### Adapters
+- **Linear** — first adapter. Proven by Symphony's adoption.
+- **GitHub Issues** — second adapter.
+- Others as demand requires.
+
+### Playback Controls
+
+Algedonia borrows from music players. The Linear project is the library. Not everything in the library is playing.
+
+**Global controls:**
+- **Play / Pause** — globally start or stop picking up new work. Pause doesn't kill running loops; it just stops new ones from starting. Useful for "let me catch up on reviews before more PRs pile up."
+- **Concurrency** — how many loops run in parallel. Turn it to 1 for sequential focus, crank it up for overnight batch runs. This is a ceiling — actual parallelism is bounded by daemon capacity. If you set concurrency to 10 but only have 3 daemon slots available, you get 3. The UI shows both the configured limit and the effective limit so the coordinator knows when they're daemon-constrained vs choice-constrained.
+
+**Per-ticket controls (set via Linear labels or Algedonia UI):**
+- **Auto-land** — checker passes, daemon pushes branch, creates PR, waits for CI. If CI is green, daemon merges the PR. No human in the loop. For low-risk, well-tested changes (dependency bumps, typo fixes, refactors with good test coverage). If CI fails, the loop iterates — CI output becomes maker feedback.
+- **Review gate** — same flow, but after CI passes the PR waits for human approval before merging. The default for most feature work.
+- **Queue position** — explicit ordering. Tickets are worked in priority order by default (from Linear's priority field), but the coordinator can drag to reorder in Algedonia's queue view.
+- **Skip** — move past a stuck ticket without cancelling it. It goes back to the library.
+
+**Dependencies (from tracker):**
+Linear supports `blockedBy` relations between issues. Algedonia syncs these and respects them during dispatch:
+- A ticket is **dispatchable** only when all its blockers are in terminal states (Done, Closed, etc.).
+- Blocked tickets stay in the queue at their priority position but are skipped during dispatch. They're visually marked as blocked, showing which tickets they're waiting on.
+- When a blocking ticket's loop passes and lands, Algedonia re-evaluates its dependents. Newly unblocked tickets become dispatchable immediately.
+- This means the queue is not strictly sequential — it's a priority-ordered list with dependency constraints. Multiple non-blocked tickets dispatch in parallel up to the concurrency limit.
+
+Dependencies are read-only from Algedonia's perspective. Teams manage them in Linear. Algedonia just respects what's there.
+
+**The queue vs the library:**
+The Linear project is the library — everything that could be worked. The queue is the ordered subset that will be worked next. By default, all active-state tickets enter the queue sorted by priority. But the coordinator can:
+- Remove a ticket from the queue (back to library) without changing its Linear status.
+- Pin a ticket to the top of the queue.
+- Pause a specific ticket's loop without pausing everything.
+
+This gives teams a spectrum from full autopilot ("everything in Todo gets worked and auto-landed") to careful curation ("I pick what's next, I review every PR").
+
+### Configuration
+
+A project-level config (inspired by Symphony's `WORKFLOW.md`) defines the connection and defaults:
+
+```yaml
+tracker:
+  kind: linear
+  project_slug: "my-project-abc123"
+  active_states: [Todo, In Progress, Rework]
+  planning_states: [Planning]       # states where planning agent runs
+  terminal_states: [Done, Closed, Cancelled]
+polling:
+  interval_ms: 30000
+playback:
+  auto_start: true          # auto-queue active tickets (false = manual queue only)
+  concurrency: 3            # max parallel loops (ceiling; actual WIP ≤ daemon capacity)
+  default_land: review_gate # or auto_land
+defaults:
+  base_pipeline: [compile, test, lint]  # skills that run on every ticket
+  max_iterations: 5
+```
+
+Users create tickets in Linear as usual. Algedonia watches the project, queues work according to the playback settings, and executes it. The tracker is the library. Algedonia is the player.
 
 ---
 
-## Live Terminal and Agent Interaction
+## UI: The Loop Viewer
 
-Users can watch agents work in real-time. Terminal output from the local machine streams to the browser.
+The UI exists for one purpose: show loops and let humans steer. It is not a project management tool.
 
-Users can intervene by typing directly into a running agent session. Steering is native terminal interaction — no separate control surface. Multiple users can type into the same session simultaneously; inputs arrive in order (like SSH shared sessions, users coordinate verbally).
+Users come to Algedonia only when they want to see work happening or intervene. Everything else stays in their existing tools.
 
-Both maker and checker agents are viewed the same way: a live terminal with contextual artifacts on the right. The checker is not a special UI — it is an agent run with different inputs (diff, rubric, acceptance criteria instead of a task description).
+### Loop View (`/loops/:loop_id`)
 
-Multiple users can watch the same loop terminal simultaneously.
+The primary (and initially only) workspace.
 
----
+**Left panel — Ticket's Loops:**
+List of loops for the current ticket. Each shows status, current iteration, skill names from checker config. Click to load.
 
-## Real-Time Collaboration
+**Center panel — Loop Detail:**
+- Current iteration: checker's step-by-step verdicts (skill name, pass/fail, summary, duration). Scrollback streamed from daemon for detailed output.
+- Iteration history: collapsible timeline showing convergence (or lack thereof). Each iteration shows the verdict per step. Diffs and raw output stay on the daemon.
+- Taper indicator: visual signal of whether improvements are diminishing.
 
-Multiple users see tickets, loops, escalations, and terminal output in real-time.
+**Right panel — Steer:**
+- Feedback input: type guidance that feeds into the next maker iteration.
+- Checker config: view the skill invocations and their params. Editable — changes apply to the next iteration.
+- Acceptance criteria: synced from the ticket, editable.
 
-Presence is first-class: who is viewing what is always visible. The collaboration panel in the sidebar shows active users and supports team communication (voice calls planned for future).
+**No terminal view in v1.** The previous design showed a live agent terminal. This is deferred. The loop viewer shows structured verdict data (pass/fail per step, summaries), not raw terminal output or code. Scrollback is streamed from the daemon for users who want detail. This is the "right altitude" — higher than code scrolling by, lower than ticket status.
 
-Collaboration is native to the architecture, not bolted on.
+### Monitor (`/monitor`)
+
+- Escalation queue: one at a time, one-piece flow. Shows the stuck loop's context, iteration history, and checker feedback.
+- Circuit breaker status.
+- Active loops overview across all daemons.
+- Daemon health: each daemon shows its owner (user name + avatar), capacity, and status. Daemons are user-bound — one daemon serves all workspaces the user belongs to. The monitor filters to daemons whose users are members of the current workspace.
+
+### What We Don't Build
+- Ticket list/board views (use Linear).
+- Backlog prioritization (use Linear).
+- PR review UI (use GitHub).
+- Notification center (use Slack/email — we push notifications there).
 
 ---
 
 ## Architecture
 
-**Server application:** Owns the UI, tickets, DAGs, loop orchestration, state, collaboration, and persistence. The server is the source of truth for all state.
+Two components. Clear boundary.
 
-**Local daemon ("algedonia-agent"):** A thin process on the user's machine. Connects to the server via a persistent connection. Receives commands: spawn agent, run checker. Streams terminal output back to the server. Reports results. The daemon has no opinions — it is a remote executor. The server decides what to run, when to run it, and whether the result passed.
+**Server (Phoenix LiveView)** — the brain. Owns loop orchestration, planning, checker execution, ticket sync, UI, state, collaboration, persistence. Source of truth for all state.
 
-Network connectivity is assumed (agents require it). Local-first offline mode is not a goal.
+**Daemon (Go, open source)** — the hands. Runs on the user's machine. Receives commands from the server, executes them, reports back. Thin, auditable, trustworthy.
 
-Collaboration is built into the server's event model, not added as a separate layer.
+### The Boundary Principle
+
+The server never executes agents or touches LLM APIs. The daemon never makes orchestration decisions. The server says "run this." The daemon runs it and reports back.
+
+### Why the Daemon is Open Source
+
+The daemon is commodity infrastructure — it spawns processes, captures PTY output, manages workspaces, and reports back. There is nothing defensible about it. The value is in the server: loop orchestration, planning, skills ecosystem, ticket sync, the queue/playback model, collaboration.
+
+Open sourcing the daemon serves four purposes:
+
+1. **Trust.** The daemon runs on the user's machine with their credentials and code. Open source means anyone can audit that it never phones home, exfiltrates data, or takes undocumented actions. The protocol is public. No trust-me-bro.
+
+2. **Ecosystem.** The daemon defines the agent adapter interface. Open source means the community can add adapters for new agents (Cursor, Windsurf, whatever ships next) without waiting on us. Every new adapter makes the server more valuable.
+
+3. **Protocol stability.** A public protocol has a social cost for breaking changes. This pressure forces us to nail the interface before shipping, which is exactly the right discipline.
+
+4. **Long-tail environments.** We can't staff a team to handle every PTY quirk on NixOS, every corporate proxy issue, every agent CLI version mismatch. The community can.
+
+The server remains proprietary — it's the SaaS product. The daemon is the distribution channel.
+
+### Open Source Strategy
+
+- Build the daemon closed-source initially while the interface is unstable.
+- Open source once the protocol stabilizes — make it a launch event.
+- License: Apache 2.0 (enterprise-friendly, no AGPL fear).
+- Ship as a standalone repo with its own docs, README, and protocol spec. Not a subdirectory of the server monorepo.
+- The protocol spec is the contract. Third parties can build alternative daemons (in Rust, Python, whatever) as long as they speak the protocol.
+
+### Daemon Interface (the contract to nail first)
+
+The daemon interface is the most important design boundary. It must be:
+- **Minimal** — few commands, few events, clear semantics.
+- **Auditable** — every command and event is human-readable JSON.
+- **Safe** — the daemon never takes destructive action without an explicit command.
+
+**Server → Daemon commands:**
+- `run_maker` — spawn an agent to implement a task in a workspace.
+- `run_checker_step` — execute one checker skill invocation in a workspace.
+- `land` — push branch, create PR, wait for CI, optionally merge.
+- `stop` — terminate a running process.
+- `stdin_input` — send user input to a running process.
+
+**Daemon → Server events:**
+- `maker_result` — maker completed (exit code, files changed, duration, token usage). No code or diffs.
+- `step_result` — a checker step completed (skill name, pass/fail, summary, duration).
+- `land_result` — landing outcome (PR URL, CI status, merge SHA if auto-landed).
+- `terminal_output` — streaming PTY output.
+- `heartbeat` — capacity, running loops, available agents, bare repos, system metrics.
+- `error` — something went wrong.
+
+The daemon does not interpret results. It captures and forwards. The server decides what they mean.
+
+### Agent Adapters
+
+Agents are pluggable adapters inside the daemon. The adapter interface:
+- `Start(workdir, task, config) → Process`
+- `AttachPTY(process) → (reader, writer)`
+- `Wait(process) → ExitResult`
+- `Kill(process)`
+- `SessionID(process) → string`
+
+**Supported agents (v1):** Claude Code, Codex, Aider.
+
+Each adapter knows how to construct the CLI invocation, pass the task, and collect results. The adapter does not interpret output.
 
 ---
 
-## Agent Adapters
+## Workspace Isolation
 
-Agents are pluggable adapters. They are not the architecture — they are swappable. Makers and checkers use the same coding agents — the checker needs filesystem access, test execution, and repo context to verify independently, not just LLM reasoning over a diff.
+Each loop runs in its own workspace — a directory with a full repo checkout. No file-level locking needed; workspaces are isolated by definition.
 
-**Supported agents (v1):** Claude Code, Codex, Aider.
+- On loop start, the daemon ensures a bare clone exists and creates a worktree.
+- Workspace hooks (`before_run`) handle setup (fetch, rebase, dependency install).
+- On loop pass, the daemon pushes the branch, creates a PR, and waits for CI. Merge happens daemon-side (auto-land) or human-side (review gate).
+- Workspaces persist across iterations within a loop but are cleaned up after completion.
+
+This is simpler than the file-level locking approach in v4. Multiple loops on the same ticket may touch overlapping files, but they run sequentially (one loop at a time per ticket) or in isolated workspaces with merge-at-the-end semantics.
+
+---
+
+## Escalation and Circuit Breaker
+
+When a loop exhausts its retries or taper is detected, it escalates.
+
+- **Escalation queue:** One at a time (one-piece flow). Remaining escalations sit in FIFO. The queue does not stop loops from running.
+- **Circuit breaker:** Three states — closed (loops spawn freely), open (stop spawning after N consecutive escalations), half-open (test with one loop). Manual resume required.
+- **Focus mode:** Hides everything except the current escalation.
+
+---
+
+## Real-Time Collaboration
+
+Multiple users can view the same loop simultaneously. Presence shows who is watching what. When a loop is stuck, the team sees the same context and can discuss (in Slack, on a call) while one person types feedback into Algedonia.
+
+Collaboration is about shared visibility into loops, not about replacing team communication tools.
 
 ---
 
 ## Logging and Receipts
 
-Each loop produces:
-- A git commit (squashed).
-- A structured event log: attempt number, timestamps, scores, decisions.
-- Agent session IDs per attempt (sessions can be resumed or replayed via the agent's `--resume` flag).
+The server stores only structured verdicts — no code, no diffs, no raw output:
+- Per-iteration verdict (pass/fail/taper) with duration and token usage.
+- Per-step verdict (skill name, pass/fail, summary, duration).
+- Human feedback per iteration.
 
-Prompts are stored per-repo and versioned with the codebase.
+Detailed output (diffs, terminal scrollback, screenshots) stays on the daemon. The Loop View streams scrollback in real time; historical output is available as long as the daemon retains it. This keeps the server code-free — it orchestrates and records outcomes, never sees source code.
+
+---
+
+## Reflection and Process Improvement
+
+When a loop lands, the work isn't done. The system reflects on the loop to extract process improvements. This is the flywheel: every completed ticket makes future tickets cheaper.
+
+### What Reflection Analyzes
+
+The reflection agent has access to the full loop history:
+- **Human nudges** — every piece of feedback a human typed into the steer panel. These are the most valuable signal: each nudge means the system was missing context, a guideline, or a skill that would have avoided the intervention.
+- **Agent trajectory** — how many iterations, which checker steps failed and why, what the maker tried before converging.
+- **Checker verdicts** — which skills caught real issues vs. which were noise.
+- **Planning decisions** — was the checker config right? Were skills missing?
+
+### What Reflection Produces
+
+Reflection outputs are **concrete, actionable items** — not notes in a knowledge file. Each output becomes a ticket in the tracker that enters the same system:
+
+- **Guideline updates** — "The maker kept forgetting to mock auth in tests. Add to ARCHITECTURE.md: 'All LiveView tests require a session fixture.'" → ticket → planning → loop → lands as a doc update.
+- **New skills** — "Three tickets in a row needed a database migration check. Create a `migration-check` skill that runs `mix ecto.rollback && mix ecto.migrate` to verify reversibility." → ticket → planning → loop → lands as a new `.algedonia/skills/migration-check.md`.
+- **Skill refinements** — "The browser-check skill's boot timeout is too short for the app's cold start. Update the skill default from 30s to 60s." → ticket → loop → lands.
+- **Codebase knowledge** — "This repo uses a custom auth pattern where sessions are stored in ETS, not cookies. Future makers need to know this." → ticket → loop → lands as a knowledge update that gets injected into maker context.
+- **Checker improvements** — "The linter caught 0 real issues across 15 tickets but added 8 seconds per iteration. Consider removing from base pipeline or running only on changed files." → surfaced to the human as a recommendation, not auto-applied.
+
+### The Flywheel
+
+```
+Ticket → Planning → Loop → Land → Reflect
+                                      ↓
+                          Improvement tickets
+                                      ↓
+                    Planning → Loop → Land → Reflect
+                                                ↓
+                                    (further improvements)
+```
+
+Each cycle tightens the system: makers get better context (updated guidelines, knowledge), checkers get sharper (new skills, refined configs), and humans intervene less (the nudges they made last time are now baked in). The human nudge rate is the key metric — it should trend downward over time.
+
+### What Reflection Does NOT Do
+
+- **Auto-apply changes without a ticket.** Every improvement goes through the same planning → loop → verification flow. No backdoor commits.
+- **Create cleanup tickets for code quality.** That's the reactive model we reject. If the code has quality issues, the checker should have caught them before landing. Reflection improves the process, not the code.
+- **Generate busywork.** Reflection is selective. If a loop passed on the first iteration with no human nudges, there may be nothing to reflect on. The reflection agent should produce zero tickets when there's nothing actionable.
 
 ---
 
 ## User Journeys
 
-### Solo Developer, Feature Build
+### Solo Developer, Bug Fix
 
-1. Create a ticket: "Add JWT authentication to API."
-2. Write acceptance criteria as markdown checkboxes.
-3. Hit "Start Work." Algedonia decomposes the task into loops (schema, auth endpoint, middleware, tests).
-4. The Loop Inspector's DAG tree shows progress. Loops execute in parallel where possible.
-5. One loop fails the checker and escalates. The developer sees one card: the diff, the rejection reason, and the rubric.
-6. The developer provides clarification. The loop retries and passes.
-7. All loops green. Squash-merged commits land on the branch.
+1. Developer creates a ticket in their Linear project: "Fix onboarding drop-off at step 3."
+2. Moves it to "Planning." Algedonia's planning agent reads the acceptance criteria and the repo's skills, proposes checker config: `compile`, `test`, `browser-check` with scenario "navigate to /onboarding, complete steps 1–3, verify no drop-off."
+3. Developer reviews the checker config, tweaks the browser scenario, moves to "Todo."
+4. Algedonia picks it up. Iteration 1: maker fixes the bug, base pipeline passes, browser check finds a console error.
+5. Iteration 2: maker fixes the console error. All steps pass.
+6. PR appears on GitHub. Linear ticket moves to "Review."
+7. Developer reviews the PR in GitHub as usual.
 
-### Team, Concurrent Workstreams
+### Team, Multiple Tickets
 
-1. A PM creates tickets and assigns priorities.
-2. A developer starts work on multiple tickets. Loops spawn across DAGs.
-3. File-level locking ensures no file overlap. No merge conflicts.
-4. Two loops escalate. The queue shows one at a time.
-5. The circuit breaker fires on one ticket (bad rubric). Its loops pause. The developer fixes the acceptance criteria and resumes.
+1. PM creates and prioritizes tickets in Linear.
+2. PM moves tickets to "Planning." For each, the planning agent proposes checker configs based on acceptance criteria and available skills. Engineer reviews and moves to "Todo."
+3. Algedonia picks them up automatically. Each ticket has its own checker config — a backend refactor runs `compile + test + lint`, a frontend feature adds `browser-check` with a specific scenario.
+4. A loop on ticket A gets stuck — browser check fails repeatedly. Algedonia posts a comment on the Linear ticket: "Loop stuck: browser-check failing on /settings page after 3 iterations. [View loop →]"
+5. Engineer clicks through to Algedonia, sees iteration history, types feedback: "The settings page needs auth — mock the session in the test setup."
+6. Loop resumes, passes on the next iteration.
 
 ### Overnight Batch
 
-1. A developer queues tickets before leaving.
-2. Algedonia works through them overnight. Some complete, some escalate, some trip the circuit breaker.
-3. Morning: the dashboard shows green, amber, and red. A clear queue of decisions to make.
+1. Engineer plans several tickets (reviews checker configs), moves them to "Todo" before leaving.
+2. Algedonia works through them overnight. Some loops complete (PRs appear), some taper (improvements plateau), some escalate (stuck).
+3. Morning: Linear tickets show updated statuses. The Monitor view shows a clear queue of decisions to make. PRs are waiting for review on GitHub.
+
+---
+
+## Future Layers (Post-V1)
+
+The loop primitive is general. V1 applies it to coding. Future layers extend upward:
+
+### Smart Orchestration (V2)
+The orchestrator decides what to work on next, informed by signals beyond the ticket queue:
+- Telemetry data (error rate spike → auto-create ticket → spin up loop).
+- CI/CD signals (flaky test detected → create fix ticket).
+- Dependency alerts (security advisory → create upgrade ticket).
+State transition hooks on the ticket model enable these automations.
+
+### Product Experimentation (V3)
+A layer for PMs where product work is treated as a loop of experiments with falsifiability:
+- Hypothesis → acceptance criteria → checker config (does the metric move?).
+- Interview storage, experiment results, learning accumulation.
+- Product decisions feed down into the orchestration and execution layers.
+
+Each layer makes the layers below stickier, but each layer must work standalone first.

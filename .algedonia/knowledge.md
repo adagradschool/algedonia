@@ -6,12 +6,8 @@ The current repository root is `/Users/ada/fun/algedonia`. All relative paths in
 
 ## Architecture Patterns
 
-### Browser auth via daemon (`ag connect` opens browser)
-Users don't log in through a form. The daemon already has the project token from `ag login`, so `ag connect` opens the browser to `/auth?name=<name>&token=<token>`, which sets a session cookie with the display name. This means:
-- No password/login UI needed — the daemon is the auth source
-- Display name comes from the `--name` flag (or hostname fallback)
-- The server validates the token with `Plug.Crypto.secure_compare/2` against `:project_token` config
-- Protected routes use a `RequireDisplayName` plug that redirects unauthenticated browsers to "run `ag connect`"
+### Auth via GitHub OAuth
+Users authenticate via GitHub OAuth. The server creates/updates a `users` record on login. Daemons authenticate with user tokens — server resolves workspace membership from `workspace_memberships`.
 
 ### Presence tracking via `on_mount` hook
 Cross-cutting concerns like presence use a `live_session` with `on_mount` hooks rather than duplicating logic in each LiveView. The hook:
@@ -136,6 +132,5 @@ just server                  # Start Phoenix dev server
 
 ## Rubric Notes
 ### Session learnings (2026-02-24)
-- Invite-token auth is fully removed. Migrations must not add `invite_token` to `workspaces`, and data seeds should not reference it. The GitHub device-flow auth migration now drops the column/index defensively.
 - GoReleaser packaging expects a LICENSE file if included in `.goreleaser.yaml`; add a proprietary `LICENSE` for commercial use to avoid release failures.
 - Use `just format`, `just lint`, `just test` for full-stack checks; Elixir Mix tasks may require extra permissions for local sockets in this environment.

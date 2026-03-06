@@ -1,10 +1,17 @@
 # Code Quality Rubrics
 
-Operational rubrics for maker and checker agents. Derived from [notes/rubrics.md](../notes/rubrics.md).
+Rubric library for maker, checker, and planning agents. Derived from [notes/rubrics.md](../notes/rubrics.md).
+
+The planning agent selects which sections apply to each ticket and passes them as `params.rubrics` to the `agent-review` skill. Not every ticket is evaluated against every section.
+
+**Section IDs**: `elixir`, `go`, `protocol`, `database`
+
+Within Elixir: `liveview`, `channels`, `genserver`, `ecto` (use these as more specific rubric selections when the ticket scope is narrow).
 
 ---
 
 ## Elixir
+ID: `elixir`
 
 ### Size Limits (Soft Gates)
 
@@ -36,10 +43,14 @@ Operational rubrics for maker and checker agents. Derived from [notes/rubrics.md
 - Context modules are the test seam — no `Repo` calls outside contexts
 - Side effects injected or passed as arguments
 - LiveView `handle_event` callbacks are thin dispatchers
-- Socket assigns are minimal; use `stream` for collections
+- Socket assigns are minimal; use `stream` for collections — board/list views update incrementally, never re-fetch the full list
+- Zero N+1 queries — preload associations in the listing query, never per-item
+- All queries on tenant-scoped tables must include `WHERE workspace_id = ?`
+- PubSub topics must be workspace-scoped: `workspace:{id}:*`
 - GenServer state must be a struct, not a bare map
 - `init/1` must be fast (<100ms); defer to `handle_continue/2`
 - Persist state to PostgreSQL before responding (write-ahead)
+- Server never sees code — no diffs, raw output, or file contents in protocol messages
 
 ### Testing
 
@@ -47,14 +58,16 @@ Operational rubrics for maker and checker agents. Derived from [notes/rubrics.md
 - Every changeset: tests for valid input and each validation rule
 - LiveView mount renders without error
 - PubSub-driven updates tested via broadcast + re-render assertion
-- Use `Mox` for behavior-based mocks
-- Use `Ecto.Adapters.SQL.Sandbox`; factory module for schema builders
+- Workspace isolation tested: query workspace A data with workspace B scope returns nothing
+- Use `Mox` for behavior-based mocks (tracker API, PubSub)
+- Use `Ecto.Adapters.SQL.Sandbox`; factory module for schema builders (including workspace and user)
 - No `assert true` tautologies
 - Line coverage target: >=85% server
 
 ---
 
 ## Go
+ID: `go`
 
 ### Size Limits (Soft Gates)
 
@@ -86,6 +99,9 @@ Operational rubrics for maker and checker agents. Derived from [notes/rubrics.md
 - Single long-lived goroutine for reading, single for writing; coordinate via channels
 - Connection lifecycle is a state machine with logged transitions
 - Reconnection: exponential backoff with jitter (1s initial, 60s max)
+- Bare clone layout: `<baseDir>/<slug>/root/` for bare repo, worktrees at `<workspaceDir>/worktrees/<ticketPrefix>/`
+- Skills resolved from `.algedonia/skills/` in the repo worktree at checker step execution time
+- Landing sequence (squash, push, PR create, CI poll, merge) runs entirely on daemon — no server involvement beyond the `land` command
 
 ### Testing
 
@@ -98,20 +114,28 @@ Operational rubrics for maker and checker agents. Derived from [notes/rubrics.md
 ---
 
 ## Protocol (Server <-> Daemon)
+ID: `protocol`
 
 - JSON keys: `snake_case`
 - Timestamps: Unix milliseconds
 - Binary data: raw frames, not Base64
-- Channel authentication in `join/3`; invalid token returns `{:error, %{reason: "unauthorized"}}`
+- Channel authentication in `join/3` with user token; server resolves workspace membership
 - Validate incoming payloads; never silently drop malformed messages
+- `maker_result`: only `exit_code`, `files_changed` (paths), `duration_ms`, `token_usage` — no diffs
+- `step_result`: `skill_name`, `passed`, `summary`, `duration_ms` — no raw output
+- `land_result`: `status`, `pr_url`, `merge_sha`, `ci_output` (on failure)
+- `heartbeat`: includes `available_agents`, `bare_repos` for routing
 
 ---
 
 ## Database
+ID: `database`
 
 - Tables: `snake_case`, UUIDs for app tables (bigserial for `events` only)
 - Status fields: `Ecto.Enum` on Elixir side, `CHECK` constraints in SQL
 - Schemas mirror SDD table definitions exactly
+- All tenant-scoped tables have `workspace_id` FK with index
+- RLS policies on all tenant-scoped tables as safety net
 - Migrations are reversible (`change`) unless truly irreversible
 - Indexes on every foreign key and every column in `WHERE` clauses
 - Use `Ecto.Multi` for atomic multi-step operations
@@ -130,3 +154,6 @@ Operational rubrics for maker and checker agents. Derived from [notes/rubrics.md
 - Commented-out code checked in
 - Hardcoded server URLs or tokens
 - Package-level mutable state in Go
+- N+1 queries — per-item fetches inside loops/comprehensions
+- Unscoped tenant queries (missing `workspace_id` filter)
+- Code or file contents leaking into server-bound protocol messages
