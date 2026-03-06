@@ -36,6 +36,12 @@ defmodule Algedonia.Workspaces do
   def get_workspace!(id), do: Repo.get!(Workspace, id)
 
   @doc """
+  Gets a workspace by ID, returning nil if not found.
+  """
+  @spec get_workspace(integer()) :: Workspace.t() | nil
+  def get_workspace(id), do: Repo.get(Workspace, id)
+
+  @doc """
   Returns a changeset for a workspace, suitable for `to_form/1`.
   """
   @spec change_workspace(Workspace.t(), map()) :: Ecto.Changeset.t()

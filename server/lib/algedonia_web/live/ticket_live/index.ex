@@ -190,9 +190,16 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   # -- PubSub --
 
   @impl true
-  def handle_info({event, _ticket}, socket)
-      when event in [:ticket_created, :ticket_updated, :ticket_deleted] do
-    {:noreply, stream_tickets(socket)}
+  def handle_info({:ticket_created, ticket}, socket) do
+    {:noreply, stream_insert_ticket(socket, ticket)}
+  end
+
+  def handle_info({:ticket_updated, ticket}, socket) do
+    {:noreply, stream_update_ticket(socket, ticket)}
+  end
+
+  def handle_info({:ticket_deleted, ticket}, socket) do
+    {:noreply, stream_delete_ticket(socket, ticket)}
   end
 
   def handle_info({event, _comment}, socket)
@@ -245,6 +252,102 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       tickets_by_status: grouped,
       loop_info: Loops.active_loop_info_for_tickets(ticket_ids)
     )
+  end
+
+  defp stream_insert_ticket(socket, ticket) do
+    # Skip tickets not in the current workspace
+    if ticket.workspace_id != socket.assigns.current_workspace_id, do: throw(:skip)
+
+    loop_info = Loops.active_loop_info_for_tickets([ticket.id])
+
+    socket
+    |> stream_insert(stream_name(ticket.status), ticket)
+    |> update(:loop_info, &Map.merge(&1, loop_info))
+    |> update_ticket_count(ticket.status, +1)
+  catch
+    :skip -> socket
+  end
+
+  defp stream_update_ticket(socket, ticket) do
+    if ticket.workspace_id != socket.assigns.current_workspace_id, do: throw(:skip)
+
+    old_status = find_old_status(socket.assigns.tickets_by_status, ticket.id)
+    loop_info = Loops.active_loop_info_for_tickets([ticket.id])
+
+    socket =
+      if old_status && old_status != ticket.status do
+        socket
+        |> stream_delete(stream_name(old_status), ticket)
+        |> update_ticket_count(old_status, -1)
+        |> stream_insert(stream_name(ticket.status), ticket)
+        |> update_ticket_count(ticket.status, +1)
+      else
+        stream_insert(socket, stream_name(ticket.status), ticket)
+      end
+
+    socket
+    |> update(:loop_info, &Map.merge(&1, loop_info))
+    |> update_tickets_by_status(old_status, ticket)
+  catch
+    :skip -> socket
+  end
+
+  defp stream_delete_ticket(socket, ticket) do
+    if ticket.workspace_id != socket.assigns.current_workspace_id, do: throw(:skip)
+
+    socket
+    |> stream_delete(stream_name(ticket.status), ticket)
+    |> update(:loop_info, &Map.delete(&1, ticket.id))
+    |> update_ticket_count(ticket.status, -1)
+    |> update(:tickets_by_status, fn grouped ->
+      Map.update(grouped, ticket.status, [], fn tickets ->
+        Enum.reject(tickets, &(&1.id == ticket.id))
+      end)
+    end)
+  catch
+    :skip -> socket
+  end
+
+  defp find_old_status(tickets_by_status, ticket_id) do
+    Enum.find_value(tickets_by_status, fn {status, tickets} ->
+      if Enum.any?(tickets, &(&1.id == ticket_id)), do: status
+    end)
+  end
+
+  defp update_ticket_count(socket, status, delta) do
+    countable = [:planning, :in_progress, :backlog, :halted]
+
+    if status in countable do
+      update(socket, :ticket_count, &max(&1 + delta, 0))
+    else
+      socket
+    end
+  end
+
+  defp update_tickets_by_status(socket, old_status, ticket) do
+    update(socket, :tickets_by_status, &do_update_grouped(&1, old_status, ticket))
+  end
+
+  defp do_update_grouped(grouped, old_status, ticket) do
+    grouped
+    |> maybe_remove_from_old(old_status, ticket)
+    |> upsert_in_status(ticket)
+  end
+
+  defp maybe_remove_from_old(grouped, old_status, ticket)
+       when is_atom(old_status) and old_status != nil and old_status != ticket.status do
+    Map.update(grouped, old_status, [], &Enum.reject(&1, fn t -> t.id == ticket.id end))
+  end
+
+  defp maybe_remove_from_old(grouped, _old_status, _ticket), do: grouped
+
+  defp upsert_in_status(grouped, ticket) do
+    Map.update(grouped, ticket.status, [ticket], fn tickets ->
+      case Enum.find_index(tickets, &(&1.id == ticket.id)) do
+        nil -> [ticket | tickets]
+        idx -> List.replace_at(tickets, idx, ticket)
+      end
+    end)
   end
 
   defp push_prefs(socket, opts) do

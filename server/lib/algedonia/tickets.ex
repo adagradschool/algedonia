@@ -95,14 +95,21 @@ defmodule Algedonia.Tickets do
   def create_ticket_for_workspace(%Algedonia.Workspaces.Workspace{} = workspace, attrs) do
     number = Algedonia.Workspaces.next_ticket_number!(workspace)
 
-    %Ticket{}
-    |> Ticket.changeset(
-      attrs
-      |> Map.put("workspace_id", workspace.id)
-      |> Map.put("number", number)
-    )
-    |> Repo.insert()
-    |> broadcast(:ticket_created)
+    result =
+      %Ticket{}
+      |> Ticket.changeset(
+        attrs
+        |> Map.put("workspace_id", workspace.id)
+        |> Map.put("number", number)
+      )
+      |> Repo.insert()
+      |> broadcast(:ticket_created)
+
+    with {:ok, ticket} <- result do
+      Algedonia.Tracker.notify_create(workspace, Map.from_struct(ticket))
+    end
+
+    result
   end
 
   @doc """
@@ -123,12 +130,27 @@ defmodule Algedonia.Tickets do
       |> Repo.update()
       |> broadcast(:ticket_updated)
 
-    with {:ok, updated} <- result,
-         false <- Keyword.get(opts, :skip_hooks, false) do
-      maybe_fire_hooks(ticket, old_status, updated)
+    with {:ok, updated} <- result do
+      unless Keyword.get(opts, :skip_hooks, false) do
+        maybe_fire_hooks(ticket, old_status, updated)
+      end
+
+      notify_tracker_update(ticket, updated, old_status)
     end
 
     result
+  end
+
+  defp notify_tracker_update(ticket, updated, old_status) do
+    workspace = Algedonia.Workspaces.get_workspace(ticket.workspace_id)
+
+    if workspace do
+      if old_status != updated.status do
+        Algedonia.Tracker.notify_status(workspace, updated.id, updated.status)
+      end
+
+      Algedonia.Tracker.notify_update(workspace, updated.id, Map.from_struct(updated))
+    end
   end
 
   defp maybe_fire_hooks(ticket, old_status, updated) do
@@ -144,8 +166,16 @@ defmodule Algedonia.Tickets do
   """
   @spec delete_ticket(Ticket.t()) :: {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
   def delete_ticket(%Ticket{} = ticket) do
-    Repo.delete(ticket)
-    |> broadcast(:ticket_deleted)
+    result =
+      Repo.delete(ticket)
+      |> broadcast(:ticket_deleted)
+
+    with {:ok, deleted} <- result do
+      workspace = Algedonia.Workspaces.get_workspace(deleted.workspace_id)
+      if workspace, do: Algedonia.Tracker.notify_delete(workspace, deleted.id)
+    end
+
+    result
   end
 
   @doc """
