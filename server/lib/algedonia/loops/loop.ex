@@ -33,7 +33,6 @@ defmodule Algedonia.Loops.Loop do
     field :manual_gate, :boolean, default: false
     field :current_attempt, :integer, default: 0
     field :max_attempts, :integer, default: 10
-    field :path_prefixes, {:array, :string}
     field :rubric, :string
     field :branch_name, :string
 
@@ -57,7 +56,6 @@ defmodule Algedonia.Loops.Loop do
       :manual_gate,
       :current_attempt,
       :max_attempts,
-      :path_prefixes,
       :rubric,
       :branch_name,
       :dag_id,

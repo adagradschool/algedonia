@@ -1,12 +1,12 @@
 # Algedonia
 
-Agentic coding orchestration platform using maker-checker verification loops as the atomic unit of work. Breaks down coding tasks into DAGs of loops, manages parallel execution with file-level locking, and provides real-time collaboration and human oversight.
+Agentic coding orchestration platform using maker-checker verification loops as the atomic unit of work. Breaks down coding tasks into DAGs of loops, manages parallel execution, and provides real-time collaboration and human oversight.
 
 ## Architecture
 
 **Phoenix Server** (`server/`) — source of truth. Owns UI, tickets, DAGs, loop orchestration, state, collaboration, persistence.
 - Elixir, Phoenix LiveView, Ecto, PostgreSQL
-- Key GenServers: `Orchestrator`, `Scheduler`, `LockManager`, `CircuitBreaker`, `DaemonMonitor`
+- Key GenServers: `Orchestrator`, `Scheduler`, `CircuitBreaker`, `DaemonMonitor`
 
 **Go Daemon** (`daemon/`) — thin remote executor. Runs on user's machine, connects to server via persistent Phoenix channel.
 - PTY management, process spawning, bare repo management, agent adapter dispatch
