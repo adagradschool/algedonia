@@ -210,7 +210,15 @@ defmodule Algedonia.Workspaces do
         |> lock("FOR UPDATE")
         |> Repo.one!()
 
-      number = locked.next_ticket_number
+      # Use the greater of the counter and MAX(number)+1 to stay in sync
+      # even if tickets were created through other paths.
+      max_existing =
+        Algedonia.Tickets.Ticket
+        |> where([t], t.workspace_id == ^workspace.id)
+        |> select([t], max(t.number))
+        |> Repo.one() || 0
+
+      number = max(locked.next_ticket_number, max_existing + 1)
 
       {:ok, _} =
         locked
