@@ -131,9 +131,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> TerminalHelper.assign_terminal_run()
       |> TerminalHelper.assign_terminal_ws_access()
 
-    socket = maybe_queue_scrollback(socket)
-
-    {:noreply, socket}
+    {:noreply, maybe_queue_scrollback(socket)}
   end
 
   def handle_event("toggle_shortcut_help", _params, socket) do
@@ -141,9 +139,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_event("terminal_request_scrollback", _params, socket) do
-    socket = maybe_queue_scrollback(socket)
-
-    {:noreply, socket}
+    {:noreply, maybe_queue_scrollback(socket)}
   end
 
   def handle_event("shortcut_back", _params, socket) do
