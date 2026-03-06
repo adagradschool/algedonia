@@ -197,6 +197,17 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Returns pending task loops with no assigned daemon.
+  """
+  @spec list_pending_unassigned_task_loops() :: [Loop.t()]
+  def list_pending_unassigned_task_loops do
+    Loop
+    |> where([l], l.role == :task and l.status == :pending and is_nil(l.assigned_daemon_id))
+    |> order_by([l], asc: l.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
   Returns all loops for a ticket, ordered by insertion time.
   """
   @spec list_loops_for_ticket(binary()) :: [Loop.t()]
