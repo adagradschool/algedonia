@@ -50,6 +50,7 @@ const XTerm = {
     this.loopId = this.el.dataset.loopId || ""
     this.terminalWsUrl = this.el.dataset.terminalWsUrl || ""
     this.terminalWsToken = this.el.dataset.terminalWsToken || ""
+    this.liveStreamEnabled = Boolean(this.loopId && this.terminalWsUrl && this.terminalWsToken)
 
     this.metrics = {
       writeErrors: 0,
@@ -62,7 +63,6 @@ const XTerm = {
       wsReconnects: 0,
       seqFrames: 0,
       seqDuplicates: 0,
-      replayRequests: 0,
     }
     ensureTerminalMetricsStore()[this.el.id] = this.metrics
 
@@ -111,6 +111,9 @@ const XTerm = {
     this.resizeObserver.observe(this.el)
 
     this.handleEvent("terminal_scrollback", ({ data }) => {
+      // Live terminals resync through sequence-based WS replay; applying a
+      // full snapshot concurrently can corrupt ANSI cursor state.
+      if (this.liveStreamEnabled) return
       this.clearAndWriteScrollback(data)
     })
 
@@ -121,10 +124,12 @@ const XTerm = {
   },
 
   connectTerminalSocket() {
+    if (!this.liveStreamEnabled) {
+      return
+    }
+
     const fromSeq =
-      this.hasOpenedSocket && Number.isInteger(this.lastOutputSeq) && this.lastOutputSeq > 0
-        ? this.lastOutputSeq + 1
-        : null
+      Number.isInteger(this.lastOutputSeq) && this.lastOutputSeq > 0 ? this.lastOutputSeq + 1 : 1
     const url = wsUrlWithParams(this.terminalWsUrl, this.loopId, this.terminalWsToken, fromSeq)
     if (!url) {
       return
@@ -141,12 +146,6 @@ const XTerm = {
     this.ws.onopen = () => {
       this.wsConnected = true
       this.sendResizeFrame()
-
-      // On reconnects, request a fresh scrollback snapshot to recover any
-      // bytes missed while the socket was unavailable.
-      if (this.hasOpenedSocket) {
-        this.requestScrollback()
-      }
       this.hasOpenedSocket = true
     }
 
@@ -183,13 +182,6 @@ const XTerm = {
       this.metrics.wsReconnects += 1
       this.connectTerminalSocket()
     }, WS_RECONNECT_MS)
-  },
-
-  requestScrollback() {
-    try {
-      this.metrics.replayRequests += 1
-      this.pushEvent("terminal_request_scrollback", {})
-    } catch (_) {}
   },
 
   decodeSeq(bytes) {

@@ -4,9 +4,9 @@ import "testing"
 
 func TestAlternateURL(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name   string
+		input  string
+		want   string
 		wantOK bool
 	}{
 		{
