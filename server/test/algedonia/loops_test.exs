@@ -218,6 +218,64 @@ defmodule Algedonia.LoopsTest do
     end
   end
 
+  describe "active_loop_info_for_tickets/1" do
+    test "returns step role as stage when steps exist" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      loop = insert_loop!(%{ticket_id: ticket.id, status: :running, current_attempt: 1})
+      now = DateTime.utc_now()
+
+      {:ok, _} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "completed",
+          started_at: DateTime.add(now, -10, :second)
+        })
+
+      {:ok, _} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "checker",
+          attempt: 1,
+          status: "running",
+          started_at: now
+        })
+
+      info = Loops.active_loop_info_for_tickets([ticket.id])
+      assert %{stage: "checker", attempt: 1, loop_id: _} = info[ticket.id]
+    end
+
+    test "returns 'pending' stage when loop has no steps" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      _loop = insert_loop!(%{ticket_id: ticket.id, status: :running, current_attempt: 1})
+
+      info = Loops.active_loop_info_for_tickets([ticket.id])
+      assert %{stage: "pending", attempt: 1} = info[ticket.id]
+    end
+
+    test "returns 'maker' stage for maker step" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      loop = insert_loop!(%{ticket_id: ticket.id, status: :running, current_attempt: 1})
+
+      {:ok, _} =
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      info = Loops.active_loop_info_for_tickets([ticket.id])
+      assert %{stage: "maker", attempt: 1} = info[ticket.id]
+    end
+
+    test "returns empty map for empty input" do
+      assert Loops.active_loop_info_for_tickets([]) == %{}
+    end
+  end
+
   describe "preload_ticket/1" do
     test "preloads ticket on a loop struct" do
       ticket = insert_ticket!(%{title: "Preload ticket"})

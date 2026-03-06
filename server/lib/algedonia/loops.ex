@@ -7,12 +7,6 @@ defmodule Algedonia.Loops do
   alias Algedonia.Loops.{Loop, LoopStep}
   alias Algedonia.Repo
 
-  @status_to_stage %{
-    running: "running",
-    passed: "completed",
-    failed: "failed"
-  }
-
   @doc """
   Gets a single loop. Raises `Ecto.NoResultsError` if not found.
   """
@@ -276,30 +270,34 @@ defmodule Algedonia.Loops do
         select: {l.ticket_id, l.id, l.status, l.current_attempt}
       )
       |> Repo.all()
-      |> Map.new(fn {tid, lid, status, attempt} ->
-        {tid, %{loop_id: lid, stage: stage_for_status(status), attempt: max(attempt, 1)}}
+      |> Map.new(fn {tid, lid, _status, attempt} ->
+        {tid, %{loop_id: lid, attempt: max(attempt, 1)}}
       end)
 
     missing = ticket_ids -- Map.keys(active)
     fallback = first_inspect_loop_ids_for_tickets(missing)
 
-    Map.merge(
-      active,
-      Map.new(fallback, fn {tid, lid} ->
-        case get_loop(lid) do
-          nil ->
-            {tid, %{loop_id: lid, stage: "pending", attempt: 1}}
+    all_info =
+      Map.merge(
+        active,
+        Map.new(fallback, fn {tid, lid} ->
+          case get_loop(lid) do
+            nil ->
+              {tid, %{loop_id: lid, attempt: 1}}
 
-          loop ->
-            {tid,
-             %{
-               loop_id: lid,
-               stage: stage_for_status(loop.status),
-               attempt: max(loop.current_attempt, 1)
-             }}
-        end
-      end)
-    )
+            loop ->
+              {tid, %{loop_id: lid, attempt: max(loop.current_attempt, 1)}}
+          end
+        end)
+      )
+
+    loop_ids = all_info |> Map.values() |> Enum.map(& &1.loop_id)
+    step_roles = latest_step_roles_for_loops(loop_ids)
+
+    Map.new(all_info, fn {tid, info} ->
+      stage = Map.get(step_roles, info.loop_id, "pending")
+      {tid, Map.put(info, :stage, stage)}
+    end)
   end
 
   @doc """
@@ -331,12 +329,6 @@ defmodule Algedonia.Loops do
       loop -> loop.id
     end
   end
-
-  @doc """
-  Returns the stage string for a loop status.
-  """
-  @spec stage_for_status(atom()) :: String.t()
-  def stage_for_status(status), do: Map.get(@status_to_stage, status, "pending")
 
   @doc """
   Subscribes to loop-status events for a ticket.
@@ -490,6 +482,22 @@ defmodule Algedonia.Loops do
   def delete_loops_for_ticket(ticket_id) do
     from(l in Loop, where: l.ticket_id == ^ticket_id)
     |> Repo.delete_all()
+  end
+
+  defp latest_step_roles_for_loops([]), do: %{}
+
+  defp latest_step_roles_for_loops(loop_ids) do
+    latest =
+      from(s in LoopStep,
+        where: s.loop_id in ^loop_ids,
+        distinct: s.loop_id,
+        order_by: [asc: s.loop_id, desc: s.started_at],
+        select: {s.loop_id, s.role}
+      )
+
+    latest
+    |> Repo.all()
+    |> Map.new()
   end
 
   defp uuid?(value) when is_binary(value) do
