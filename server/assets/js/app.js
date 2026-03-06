@@ -26,7 +26,6 @@ import {hooks as colocatedHooks} from "phoenix-colocated/algedonia"
 import topbar from "../vendor/topbar"
 import Sortable from "sortablejs"
 import XTerm from "./hooks/xterm"
-import DagGraph from "./hooks/dag_graph"
 import MarkdownEditor from "./hooks/markdown_editor"
 import KeyboardShortcuts from "./hooks/keyboard_shortcuts"
 import CommandPalette from "./hooks/command_palette"
@@ -38,7 +37,6 @@ import OsDetect from "./hooks/os_detect"
 const Hooks = {
   ...colocatedHooks,
   XTerm,
-  DagGraph,
   MarkdownEditor,
   KeyboardShortcuts,
   CommandPalette,

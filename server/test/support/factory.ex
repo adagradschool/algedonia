@@ -4,8 +4,7 @@ defmodule Algedonia.Factory do
   """
   alias Algedonia.Accounts.User
   alias Algedonia.Daemons.DaemonRegistration
-  alias Algedonia.Dags.Dag
-  alias Algedonia.Loops.{Loop, LoopDependency}
+  alias Algedonia.Loops.Loop
   alias Algedonia.Repo
   alias Algedonia.Tickets.Ticket
   alias Algedonia.Workspaces.{Workspace, WorkspaceMembership}
@@ -159,31 +158,6 @@ defmodule Algedonia.Factory do
   end
 
   @doc """
-  Returns a map of valid DAG attributes, merged with overrides.
-  """
-  def dag_attrs(overrides \\ %{}) do
-    Map.merge(%{status: :running}, overrides)
-  end
-
-  @doc """
-  Inserts a DAG into the database with optional attribute overrides.
-  Requires `:ticket_id` in overrides (or creates a ticket).
-  """
-  def insert_dag!(overrides \\ %{}) do
-    overrides =
-      if Map.has_key?(overrides, :ticket_id) do
-        overrides
-      else
-        ticket = insert_ticket!()
-        Map.put(overrides, :ticket_id, ticket.id)
-      end
-
-    %Dag{}
-    |> Dag.changeset(dag_attrs(overrides))
-    |> Repo.insert!()
-  end
-
-  @doc """
   Returns a map of valid loop attributes, merged with overrides.
   """
   def loop_attrs(overrides \\ %{}) do
@@ -200,31 +174,19 @@ defmodule Algedonia.Factory do
 
   @doc """
   Inserts a loop into the database with optional attribute overrides.
-  Requires `:dag_id` in overrides (or creates a DAG).
+  Requires `:ticket_id` in overrides (or creates a ticket).
   """
   def insert_loop!(overrides \\ %{}) do
     overrides =
-      if Map.has_key?(overrides, :dag_id) do
+      if Map.has_key?(overrides, :ticket_id) do
         overrides
       else
-        dag = insert_dag!()
-        Map.put(overrides, :dag_id, dag.id)
+        ticket = insert_ticket!()
+        Map.put(overrides, :ticket_id, ticket.id)
       end
 
     %Loop{}
     |> Loop.changeset(loop_attrs(overrides))
-    |> Repo.insert!()
-  end
-
-  @doc """
-  Inserts a loop dependency.
-  """
-  def insert_loop_dependency!(upstream_loop_id, downstream_loop_id) do
-    %LoopDependency{}
-    |> LoopDependency.changeset(%{
-      upstream_loop_id: upstream_loop_id,
-      downstream_loop_id: downstream_loop_id
-    })
     |> Repo.insert!()
   end
 end

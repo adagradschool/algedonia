@@ -86,7 +86,7 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
 
       loop ->
         loop = Loops.preload_ticket(loop)
-        ticket = loop.dag.ticket
+        ticket = loop.ticket
         stage = stage_for_status(loop.status)
         attempt = max(loop.current_attempt, 1)
 

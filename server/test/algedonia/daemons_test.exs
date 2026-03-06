@@ -46,11 +46,9 @@ defmodule Algedonia.DaemonsTest do
     test "requeues running task loops assigned to the daemon" do
       daemon = Factory.insert_daemon!(%{status: :online})
       ticket = Factory.insert_ticket!()
-      dag = Factory.insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         Factory.insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :task,
           status: :running_maker,
@@ -78,11 +76,9 @@ defmodule Algedonia.DaemonsTest do
     test "requeues running checker loops assigned to the daemon" do
       daemon = Factory.insert_daemon!(%{status: :unhealthy, running_loops: 1})
       ticket = Factory.insert_ticket!()
-      dag = Factory.insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         Factory.insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :task,
           status: :running_checker,

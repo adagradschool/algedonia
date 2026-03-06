@@ -58,7 +58,7 @@ defmodule Algedonia.Repo.Migrations.CreateDagsAndLoops do
     )
 
     execute(
-      "ALTER TABLE loops ADD CONSTRAINT loops_role_check CHECK (role IN ('task', 'decompose', 'decompose_checker'))",
+      "ALTER TABLE loops ADD CONSTRAINT loops_role_check CHECK (role IN ('task'))",
       "ALTER TABLE loops DROP CONSTRAINT loops_role_check"
     )
 

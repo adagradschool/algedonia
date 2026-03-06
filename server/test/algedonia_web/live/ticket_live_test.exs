@@ -1,7 +1,7 @@
 defmodule AlgedoniaWeb.TicketLiveTest do
   use AlgedoniaWeb.ConnCase, async: true
 
-  alias Algedonia.{Dags, Tickets}
+  alias Algedonia.{Loops, Tickets}
   alias AlgedoniaWeb.TicketLive.TicketFormComponent
 
   import Phoenix.LiveViewTest
@@ -299,8 +299,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> element(~s{button[phx-click="start_work"][phx-value-id="#{ticket.id}"]})
       |> render_click()
 
-      dag = Dags.get_dag_by_ticket(ticket.id)
-      loop = List.first(dag.loops)
+      loop = Loops.list_task_loops_for_ticket(ticket.id) |> List.first()
 
       assert_redirect(
         view,
@@ -332,11 +331,9 @@ defmodule AlgedoniaWeb.TicketLiveTest do
     } do
       insert_daemon!(%{status: :online})
       ticket = insert_ticket!(%{title: "Loop me", status: :planning, workspace_id: workspace.id})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       hook_loop =
         insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :pending,
@@ -350,7 +347,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> render_click()
 
       task_loop =
-        Dags.get_dag_by_ticket(ticket.id).loops
+        Loops.list_loops_for_ticket(ticket.id)
         |> Enum.find(&(&1.role == :task))
 
       assert task_loop
@@ -382,8 +379,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> element(~s{button[phx-click="start_work"][phx-value-id="#{ticket.id}"]})
       |> render_click()
 
-      dag = Dags.get_dag_by_ticket(ticket.id)
-      loop = List.first(dag.loops)
+      loop = Loops.list_task_loops_for_ticket(ticket.id) |> List.first()
 
       assert_redirect(
         view,
@@ -411,8 +407,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       workspace: workspace
     } do
       ticket = insert_ticket!(%{title: "Has loop", status: :planning, workspace_id: workspace.id})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
@@ -433,10 +428,8 @@ defmodule AlgedoniaWeb.TicketLiveTest do
           workspace_id: workspace.id
         })
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-
       insert_loop!(%{
-        dag_id: dag.id,
+        ticket_id: ticket.id,
         role: :task,
         status: :running_checker,
         current_attempt: 2
@@ -454,8 +447,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       ticket =
         insert_ticket!(%{title: "Completed loop", status: :completed, workspace_id: workspace.id})
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :passed})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :passed})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
@@ -472,8 +464,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       ticket =
         insert_ticket!(%{title: "Inspectable", status: :halted, workspace_id: workspace.id})
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :failed})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :failed})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 
@@ -484,23 +475,18 @@ defmodule AlgedoniaWeb.TicketLiveTest do
              )
     end
 
-    test "ticket detail shows inspect for legacy non-task loop", %{
+    test "ticket detail does not show inspect when only hook loop exists", %{
       conn: conn,
       workspace: workspace
     } do
       ticket =
-        insert_ticket!(%{title: "Legacy loop", status: :in_progress, workspace_id: workspace.id})
+        insert_ticket!(%{title: "Hook loop", status: :in_progress, workspace_id: workspace.id})
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :decompose, status: :running_maker})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :running_maker})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 
-      assert has_element?(
-               view,
-               ~s{a[href*="/loops/#{String.slice(loop.id, 0, 8)}"]},
-               "Inspect"
-             )
+      refute has_element?(view, ~s{a[href*="/loops/#{String.slice(loop.id, 0, 8)}"]}, "Inspect")
     end
 
     test "status display order places halted after in progress", %{
@@ -690,10 +676,8 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       workspace: workspace
     } do
       ticket = insert_ticket!(%{workspace_id: workspace.id})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       insert_loop!(%{
-        dag_id: dag.id,
         ticket_id: ticket.id,
         role: :hook,
         title: "Hook: backlog → planning",
@@ -721,10 +705,8 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
     test "hook loops display status badges", %{conn: conn, workspace: workspace} do
       ticket = insert_ticket!(%{workspace_id: workspace.id})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       insert_loop!(%{
-        dag_id: dag.id,
         ticket_id: ticket.id,
         role: :hook,
         title: "Hook: in_progress → halted",
@@ -741,11 +723,9 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 
       # Create a hook loop externally (simulating HookExecutor)
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           title: "Hook: backlog → planning",
@@ -755,7 +735,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       # Broadcast the event
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "dag:#{ticket.id}",
+        "ticket_loops:#{ticket.id}",
         {:hook_loop_created, loop}
       )
 

@@ -94,7 +94,6 @@ defmodule AlgedoniaWeb.PresenceHook do
   defp nav_section_for(AlgedoniaWeb.TicketLive.Index), do: :issues
   defp nav_section_for(AlgedoniaWeb.MonitorLive.Index), do: :monitor
   defp nav_section_for(AlgedoniaWeb.LoopLive.Show), do: :issues
-  defp nav_section_for(AlgedoniaWeb.DagLive.Show), do: :issues
   defp nav_section_for(AlgedoniaWeb.SettingsLive.Index), do: :settings
   defp nav_section_for(_), do: nil
 

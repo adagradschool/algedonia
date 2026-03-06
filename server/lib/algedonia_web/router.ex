@@ -58,8 +58,6 @@ defmodule AlgedoniaWeb.Router do
       live "/tickets/:ticket_ref/edit", TicketLive.Index, :edit
       live "/tickets/:ticket_ref/loops/:loop_ref", LoopLive.Show, :show
 
-      live "/dags/:ticket_ref", DagLive.Show, :show
-
       live "/settings", SettingsLive.Index, :index
     end
   end

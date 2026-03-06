@@ -22,9 +22,6 @@ func buildAdapterTask(promptsDir, role, taskDesc string) string {
 	if systemPrompt != "" {
 		task = systemPrompt + "\n\n---\n\n" + taskDesc
 	}
-	if role == "decompose" {
-		task += "\n\nIMPORTANT: Output your DAG as JSON between these exact delimiters:\n---ALGEDONIA_DAG_BEGIN---\n<your JSON here>\n---ALGEDONIA_DAG_END---"
-	}
 	return task
 }
 
@@ -112,32 +109,11 @@ func (m *Manager) waitForAdapter(loopID, role string, lp *LoopProcess, ag adapte
 // role-specific handler.
 func (m *Manager) handleAdapterResult(loopID, role string, lp *LoopProcess, result *adapter.ExitResult, sessionID string) {
 	switch role {
-	case "decompose":
-		m.handleDecomposeResult(loopID, result, sessionID)
 	case "checker":
 		m.handleCheckerResult(loopID, lp, result, sessionID)
 	default:
 		m.handleDefaultResult(loopID, result, sessionID)
 	}
-}
-
-// handleDecomposeResult parses DAG output and sends a loop_result or error event.
-func (m *Manager) handleDecomposeResult(loopID string, result *adapter.ExitResult, sessionID string) {
-	dag, parseErr := adapter.ParseDAGOutput(result.Output)
-	if parseErr != nil {
-		m.sendEvent("error", map[string]interface{}{
-			"loop_id":     loopID,
-			"message":     fmt.Sprintf("decompose output parse error: %v", parseErr),
-			"recoverable": true,
-		})
-		return
-	}
-	m.sendEvent("loop_result", map[string]interface{}{
-		"loop_id":    loopID,
-		"verdict":    "pass",
-		"dag":        dag,
-		"session_id": sessionID,
-	})
 }
 
 // handleCheckerResult builds the attempt payload with checker handoff data.
@@ -186,8 +162,7 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 	m.sendEvent("attempt_complete", payload)
 }
 
-// handleDefaultResult sends an attempt_complete or error event for non-decompose,
-// non-checker roles.
+// handleDefaultResult sends an attempt_complete or error event for non-checker roles.
 func (m *Manager) handleDefaultResult(loopID string, result *adapter.ExitResult, sessionID string) {
 	if result.ExitCode != 0 {
 		m.sendEvent("error", map[string]interface{}{

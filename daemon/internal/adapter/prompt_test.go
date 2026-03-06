@@ -40,7 +40,7 @@ func TestLoadPromptMissing(t *testing.T) {
 
 func TestLoadPromptVariousRoles(t *testing.T) {
 	dir := t.TempDir()
-	roles := []string{"maker", "checker", "decompose", "reflect"}
+	roles := []string{"maker", "checker", "reflect"}
 	for _, role := range roles {
 		content := "# " + role
 		if err := os.WriteFile(filepath.Join(dir, role+".md"), []byte(content), 0644); err != nil {

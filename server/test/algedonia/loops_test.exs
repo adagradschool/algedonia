@@ -25,10 +25,10 @@ defmodule Algedonia.LoopsTest do
 
   describe "create_loop/1" do
     test "creates a loop with valid attrs" do
-      dag = insert_dag!()
+      ticket = insert_ticket!()
 
       assert {:ok, loop} =
-               Loops.create_loop(%{title: "New loop", dag_id: dag.id, role: :task})
+               Loops.create_loop(%{title: "New loop", ticket_id: ticket.id, role: :task})
 
       assert loop.title == "New loop"
       assert loop.status == :pending
@@ -44,8 +44,7 @@ defmodule Algedonia.LoopsTest do
   describe "update_loop_status/2" do
     test "updates status and broadcasts" do
       loop = insert_loop!()
-      dag = Algedonia.Repo.preload(loop, dag: :ticket).dag
-      Algedonia.Dags.subscribe(dag.ticket_id)
+      Loops.subscribe_ticket_loops(loop.ticket_id)
 
       assert {:ok, updated} = Loops.update_loop_status(loop, :running_maker)
       assert updated.status == :running_maker
@@ -63,16 +62,14 @@ defmodule Algedonia.LoopsTest do
   end
 
   describe "get_loop_with_ticket!/1" do
-    test "returns loop with dag and ticket preloaded" do
+    test "returns loop with ticket preloaded" do
       ticket = insert_ticket!(%{title: "Preload test"})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id})
+      loop = insert_loop!(%{ticket_id: ticket.id})
 
       loaded = Loops.get_loop_with_ticket!(loop.id)
       assert loaded.id == loop.id
-      assert loaded.dag.id == dag.id
-      assert loaded.dag.ticket.id == ticket.id
-      assert loaded.dag.ticket.title == "Preload test"
+      assert loaded.ticket.id == ticket.id
+      assert loaded.ticket.title == "Preload test"
     end
 
     test "raises for nonexistent id" do
@@ -83,17 +80,16 @@ defmodule Algedonia.LoopsTest do
   end
 
   describe "preload_ticket/1" do
-    test "preloads dag and ticket on a loop struct" do
+    test "preloads ticket on a loop struct" do
       ticket = insert_ticket!(%{title: "Preload ticket"})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id})
+      loop = insert_loop!(%{ticket_id: ticket.id})
 
       # Fresh from DB without preloads
       bare = Loops.get_loop!(loop.id)
-      assert %Ecto.Association.NotLoaded{} = bare.dag
+      assert %Ecto.Association.NotLoaded{} = bare.ticket
 
       preloaded = Loops.preload_ticket(bare)
-      assert preloaded.dag.ticket.title == "Preload ticket"
+      assert preloaded.ticket.title == "Preload ticket"
     end
   end
 end

@@ -7,7 +7,7 @@ defmodule Algedonia.HookExecutor do
   moved to `:halted` with `skip_hooks: true` to prevent recursive chains.
   """
 
-  alias Algedonia.{Agents, Daemons, Dags, Loops, Tickets, Workspaces}
+  alias Algedonia.{Agents, Daemons, Loops, Tickets, Workspaces}
   alias Algedonia.Tickets.Ticket
   alias AlgedoniaWeb.DaemonChannel
 
@@ -26,23 +26,14 @@ defmodule Algedonia.HookExecutor do
   end
 
   defp execute_hook(hook, ticket, from_status, to_status) do
-    with {:ok, dag} <- ensure_hook_dag(ticket),
-         {:ok, loop} <- create_hook_loop(dag, hook, ticket) do
+    with {:ok, loop} <- create_hook_loop(hook, ticket) do
       broadcast_hook_loop(ticket.id, loop)
       maybe_dispatch_hook_loop(loop, hook, ticket, from_status, to_status)
     end
   end
 
-  defp ensure_hook_dag(ticket) do
-    case Dags.get_dag_by_ticket(ticket.id) do
-      nil -> Dags.create_dag(%{ticket_id: ticket.id})
-      dag -> {:ok, dag}
-    end
-  end
-
-  defp create_hook_loop(dag, hook, ticket) do
+  defp create_hook_loop(hook, ticket) do
     Loops.create_loop(%{
-      dag_id: dag.id,
       ticket_id: ticket.id,
       title: "Hook: #{hook.from_status} → #{hook.to_status}",
       description: hook.instruction,
@@ -54,7 +45,7 @@ defmodule Algedonia.HookExecutor do
   defp broadcast_hook_loop(ticket_id, loop) do
     Phoenix.PubSub.broadcast(
       Algedonia.PubSub,
-      "dag:#{ticket_id}",
+      "ticket_loops:#{ticket_id}",
       {:hook_loop_created, loop}
     )
   end

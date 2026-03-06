@@ -39,8 +39,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "task loop checker handoff repair history" do
     test "does not add extra checker history entries for handoff repair", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       loop_id = loop.id
       daemon = insert_daemon!(%{status: :online})
 
@@ -119,8 +118,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       orchestrator: pid
     } do
       ticket = insert_ticket!(%{status: :in_progress, coding_agent: :claude_code})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       loop_id = loop.id
       daemon = insert_daemon!(%{status: :online})
 
@@ -132,8 +130,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "start_task_loop includes ticket_id" do
     test "push payload contains ticket_id", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       loop_id = loop.id
       daemon = insert_daemon!(%{status: :online})
 
@@ -160,8 +157,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           body: "approved plan"
         })
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
@@ -191,8 +187,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           body: "approved plan"
         })
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
@@ -219,8 +214,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "inline review inclusion in maker prompt" do
     test "pending inline reviews appear in maker task on retry", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress, title: "Review ticket"})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
@@ -246,8 +240,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "resolved inline reviews are excluded from maker task", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress, title: "Resolved review ticket"})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
@@ -280,11 +273,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     ticket =
       insert_ticket!(Map.merge(%{status: :in_progress}, ticket_attrs))
 
-    dag = insert_dag!(%{ticket_id: ticket.id})
-
     loop =
       insert_loop!(
-        Map.merge(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3}, loop_attrs)
+        Map.merge(
+          %{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3},
+          loop_attrs
+        )
       )
 
     daemon = insert_daemon!(%{status: :online})
@@ -292,7 +286,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
     assert_receive {:push, _, _, %{"role" => "maker"}}
 
-    %{ticket: ticket, dag: dag, loop: loop, daemon: daemon}
+    %{ticket: ticket, loop: loop, daemon: daemon}
   end
 
   defp valid_checker_payload(loop_id, attempt, verdict, feedback) do
@@ -313,7 +307,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     loop_id
     |> Loops.get_loop!()
     |> Loops.preload_with_workspace()
-    |> then(fn loop -> loop.dag.ticket.workspace.slug end)
+    |> then(fn loop -> loop.ticket.workspace.slug end)
   end
 
   describe "task loop: maker → checker transition" do
@@ -433,9 +427,9 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     end
 
     test "checker pass completes ticket even when hook loop is pending", %{orchestrator: pid} do
-      %{loop: loop, daemon: daemon, ticket: ticket, dag: dag} = setup_task_loop(pid)
+      %{loop: loop, daemon: daemon, ticket: ticket} = setup_task_loop(pid)
 
-      _hook_loop = insert_loop!(%{dag_id: dag.id, role: :hook, status: :pending})
+      _hook_loop = insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :pending})
 
       handle_attempt_complete(
         pid,
@@ -623,8 +617,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           workspace_id: workspace.id
         })
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :repo_not_ready} =
@@ -644,8 +637,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           workspace_id: workspace.id
         })
 
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
       Algedonia.Daemons.set_repo_status(daemon.name, "ready-ws", %{"status" => "ready"})
@@ -656,8 +648,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "allows task loop when workspace has no repo URL", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
       assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
@@ -668,8 +659,15 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "start_loop status guard" do
     test "returns {:error, :already_running} for running_maker loop", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :running_maker, max_attempts: 3})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running_maker,
+          max_attempts: 3
+        })
+
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :already_running} =
@@ -678,8 +676,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "returns {:error, :already_running} for passed loop", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :passed, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :passed, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :already_running} =
@@ -688,8 +685,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "returns {:error, :already_running} for failed loop", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :failed, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :failed, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :already_running} =
@@ -698,8 +694,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "allows starting a pending loop", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
       assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
@@ -710,12 +705,11 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "ticket halt stops running loops" do
     test "halted ticket stops running loops and sets status to failed", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
       daemon = insert_daemon!(%{status: :online})
 
       loop =
         insert_loop!(%{
-          dag_id: dag.id,
+          ticket_id: ticket.id,
           role: :task,
           status: :running_maker,
           assigned_daemon_id: daemon.id,
@@ -735,11 +729,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "halted ticket ignores already-passed loops", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         insert_loop!(%{
-          dag_id: dag.id,
+          ticket_id: ticket.id,
           role: :task,
           status: :passed,
           max_attempts: 3,
@@ -757,8 +750,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "ticket planning auto-start" do
     test "planning ticket auto-starts first loop on available daemon", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :planning})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       _daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
@@ -773,8 +765,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "planning ticket with no daemon does not crash", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :planning})
-      dag = insert_dag!(%{ticket_id: ticket.id})
-      _loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+
+      _loop =
+        insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+
       # No daemon inserted
 
       send(pid, {:ticket_updated, %{ticket | status: :planning}})
@@ -786,10 +780,13 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "planning ticket auto-start ignores hook loops", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :planning})
-      dag = insert_dag!(%{ticket_id: ticket.id})
 
-      _hook_loop = insert_loop!(%{dag_id: dag.id, role: :hook, status: :pending, max_attempts: 3})
-      task_loop = insert_loop!(%{dag_id: dag.id, role: :task, status: :pending, max_attempts: 3})
+      _hook_loop =
+        insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :pending, max_attempts: 3})
+
+      task_loop =
+        insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+
       task_loop_id = task_loop.id
 
       _daemon = insert_daemon!(%{status: :online})

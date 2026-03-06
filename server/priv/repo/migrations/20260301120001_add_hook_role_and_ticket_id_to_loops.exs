@@ -14,7 +14,7 @@ defmodule Algedonia.Repo.Migrations.AddHookRoleAndTicketIdToLoops do
 
     execute """
     ALTER TABLE loops ADD CONSTRAINT loops_role_check
-    CHECK (role IN ('task', 'decompose', 'decompose_checker', 'hook'))
+    CHECK (role IN ('task', 'hook'))
     """
   end
 
@@ -25,7 +25,7 @@ defmodule Algedonia.Repo.Migrations.AddHookRoleAndTicketIdToLoops do
 
     execute """
     ALTER TABLE loops ADD CONSTRAINT loops_role_check
-    CHECK (role IN ('task', 'decompose', 'decompose_checker'))
+    CHECK (role IN ('task'))
     """
 
     alter table(:loops) do

@@ -58,11 +58,9 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
     test "pending hook loop does NOT auto-start", %{conn: conn, workspace: workspace} do
       ticket = Factory.insert_ticket!(%{workspace_id: workspace.id, status: :planning})
-      dag = Factory.insert_dag!(%{ticket_id: ticket.id})
 
       loop =
         Factory.insert_loop!(%{
-          dag_id: dag.id,
           ticket_id: ticket.id,
           role: :hook,
           status: :pending,
@@ -843,7 +841,6 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
   defp build_task_loop!(workspace, overrides) do
     ticket = Factory.insert_ticket!(%{workspace_id: workspace.id})
-    dag = Factory.insert_dag!(%{ticket_id: ticket.id})
-    Factory.insert_loop!(Map.merge(%{dag_id: dag.id, role: :task}, overrides))
+    Factory.insert_loop!(Map.merge(%{ticket_id: ticket.id, role: :task}, overrides))
   end
 end
