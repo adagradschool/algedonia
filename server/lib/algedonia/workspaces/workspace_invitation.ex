@@ -15,7 +15,7 @@ defmodule Algedonia.Workspaces.WorkspaceInvitation do
     field :status, Ecto.Enum, values: [:pending, :accepted, :cancelled], default: :pending
 
     belongs_to :workspace, Algedonia.Workspaces.Workspace
-    belongs_to :invited_by, Algedonia.Accounts.User
+    belongs_to :invited_by, Algedonia.Accounts.User, type: :binary_id
 
     timestamps(type: :utc_datetime)
   end

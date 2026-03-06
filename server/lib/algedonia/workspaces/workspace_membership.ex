@@ -11,7 +11,7 @@ defmodule Algedonia.Workspaces.WorkspaceMembership do
     field :role, Ecto.Enum, values: [:member], default: :member
 
     belongs_to :workspace, Algedonia.Workspaces.Workspace
-    belongs_to :user, Algedonia.Accounts.User
+    belongs_to :user, Algedonia.Accounts.User, type: :binary_id
 
     timestamps(type: :utc_datetime)
   end

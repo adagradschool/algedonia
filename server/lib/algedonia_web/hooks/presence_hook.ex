@@ -6,11 +6,11 @@ defmodule AlgedoniaWeb.PresenceHook do
   import Phoenix.LiveView, only: [connected?: 1, attach_hook: 4]
 
   alias Algedonia.Accounts
+  alias Algedonia.Accounts.User
   alias Algedonia.Presence
   alias Algedonia.Workspaces
 
   def on_mount(:default, params, session, socket) do
-    display_name = session["display_name"] || "Anonymous"
     workspace_slug = params["workspace"]
     workspace = resolve_workspace(workspace_slug, session["current_workspace_id"])
 
@@ -24,6 +24,8 @@ defmodule AlgedoniaWeb.PresenceHook do
           workspaces = if user, do: Accounts.list_workspaces_for_user(id), else: []
           {user, workspaces}
       end
+
+    display_name = display_name_for(current_user, session["display_name"])
 
     topic = topic_for(socket.view, workspace_slug)
 
@@ -96,6 +98,12 @@ defmodule AlgedoniaWeb.PresenceHook do
   defp nav_section_for(AlgedoniaWeb.LoopLive.Show), do: :issues
   defp nav_section_for(AlgedoniaWeb.SettingsLive.Index), do: :settings
   defp nav_section_for(_), do: nil
+
+  defp display_name_for(%User{} = user, fallback) do
+    fallback || user.name || user.github_username || "Anonymous"
+  end
+
+  defp display_name_for(nil, fallback), do: fallback || "Anonymous"
 
   defp resolve_workspace(nil, workspace_id) do
     if workspace_id, do: Workspaces.get_workspace!(workspace_id), else: nil

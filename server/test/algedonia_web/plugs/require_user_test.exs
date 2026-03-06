@@ -17,8 +17,7 @@ defmodule AlgedoniaWeb.Plugs.RequireUserTest do
     end
 
     test "drops session and redirects when user_id does not exist in DB" do
-      # Use an ID that doesn't correspond to any user (bigserial)
-      fake_id = 999_999_999
+      fake_id = Ecto.UUID.generate()
 
       conn =
         Phoenix.ConnTest.build_conn()

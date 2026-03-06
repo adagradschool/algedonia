@@ -27,18 +27,24 @@ defmodule Algedonia.Accounts do
     end
   end
 
-  def get_or_create_user_from_github(%{github_id: github_id} = attrs) do
-    case Repo.get_by(User, github_id: github_id) do
-      nil ->
-        %User{}
-        |> User.github_changeset(attrs)
-        |> Repo.insert()
+  def get_or_create_user_from_github(%{github_id: _github_id} = attrs) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      user ->
-        user
-        |> User.github_changeset(attrs)
-        |> Repo.update()
-    end
+    %User{}
+    |> User.github_changeset(attrs)
+    |> Repo.insert(
+      conflict_target: :github_id,
+      on_conflict: [
+        set: [
+          github_username: Map.get(attrs, :github_username),
+          name: Map.get(attrs, :name),
+          email: Map.get(attrs, :email),
+          avatar_url: Map.get(attrs, :avatar_url),
+          updated_at: now
+        ]
+      ],
+      returning: true
+    )
   end
 
   def list_workspaces_for_user(user_id) do

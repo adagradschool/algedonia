@@ -46,10 +46,9 @@ defmodule AlgedoniaWeb.Plugs.ApiAuthTest do
     end
 
     test "halts with 401 when user no longer exists" do
-      # Sign a token for a user ID that doesn't exist (users use bigserial IDs)
       token =
         Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{
-          user_id: 999_999_999
+          user_id: Ecto.UUID.generate()
         })
 
       conn =
