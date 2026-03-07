@@ -115,7 +115,7 @@ defmodule Algedonia.Tickets.CommentTest do
   describe "PubSub" do
     test "broadcasts comment_created on new comment" do
       ticket = insert_ticket!()
-      Tickets.subscribe_comments(ticket.id)
+      Tickets.subscribe_comments(ticket.workspace_id, ticket.id)
 
       {:ok, comment} =
         Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "hi"})
@@ -125,7 +125,7 @@ defmodule Algedonia.Tickets.CommentTest do
 
     test "broadcasts comment_updated on edit" do
       ticket = insert_ticket!()
-      Tickets.subscribe_comments(ticket.id)
+      Tickets.subscribe_comments(ticket.workspace_id, ticket.id)
       {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "v1"})
       assert_receive {:comment_created, _}
 
@@ -135,7 +135,7 @@ defmodule Algedonia.Tickets.CommentTest do
 
     test "broadcasts comment_deleted on delete" do
       ticket = insert_ticket!()
-      Tickets.subscribe_comments(ticket.id)
+      Tickets.subscribe_comments(ticket.workspace_id, ticket.id)
       {:ok, comment} = Tickets.create_comment(%{ticket_id: ticket.id, author: "a", body: "bye"})
       assert_receive {:comment_created, _}
 

@@ -3,17 +3,30 @@ defmodule Algedonia.Daemons do
   Context for daemon registration and health tracking.
   """
   import Ecto.Query, only: [from: 2]
+  alias Algedonia.Accounts
   alias Algedonia.Daemons.DaemonRegistration
   alias Algedonia.Loops
+  alias Algedonia.PubSub.Topics
   alias Algedonia.Repo
   alias Algedonia.TaskLoopOrchestrator
+  alias Algedonia.Workspaces.WorkspaceMembership
 
-  @topic "monitor"
   @repo_status_table :daemon_repo_status
 
   @spec list_daemons() :: [DaemonRegistration.t()]
   def list_daemons do
     Repo.all(DaemonRegistration)
+  end
+
+  @spec list_daemons(Algedonia.Types.id()) :: [DaemonRegistration.t()]
+  def list_daemons(workspace_id) do
+    from(d in DaemonRegistration,
+      join: m in WorkspaceMembership,
+      on: m.user_id == d.user_id,
+      where: m.workspace_id == ^workspace_id,
+      distinct: d.id
+    )
+    |> Repo.all()
   end
 
   @spec get_daemon!(Algedonia.Types.id()) :: DaemonRegistration.t()
@@ -77,7 +90,7 @@ defmodule Algedonia.Daemons do
     |> tap(fn
       {:ok, daemon} ->
         Loops.requeue_running_task_loops_for_daemon(daemon.id)
-        broadcast({:daemon_status_changed, daemon})
+        broadcast({:daemon_status_changed, daemon}, daemon)
 
       _ ->
         :ok
@@ -99,10 +112,10 @@ defmodule Algedonia.Daemons do
     |> Repo.update()
     |> tap(fn
       {:ok, updated} ->
-        broadcast({:daemon_heartbeat, updated})
+        broadcast({:daemon_heartbeat, updated}, updated)
 
         if was_unhealthy do
-          broadcast({:daemon_status_changed, updated})
+          broadcast({:daemon_status_changed, updated}, updated)
           redispatch_pending_loops(updated)
         end
 
@@ -120,7 +133,7 @@ defmodule Algedonia.Daemons do
     |> tap(fn
       {:ok, daemon} ->
         Loops.requeue_running_task_loops_for_daemon(daemon.id)
-        broadcast({:daemon_status_changed, daemon})
+        broadcast({:daemon_status_changed, daemon}, daemon)
 
       _ ->
         :ok
@@ -136,7 +149,7 @@ defmodule Algedonia.Daemons do
     |> tap(fn
       {:ok, daemon} ->
         Loops.requeue_running_task_loops_for_daemon(daemon.id)
-        broadcast({:daemon_status_changed, daemon})
+        broadcast({:daemon_status_changed, daemon}, daemon)
 
       _ ->
         :ok
@@ -150,7 +163,15 @@ defmodule Algedonia.Daemons do
   def set_repo_status(daemon_name, workspace_slug, status_payload) do
     ensure_repo_status_table()
     :ets.insert(@repo_status_table, {{daemon_name, workspace_slug}, status_payload})
-    broadcast({:repo_clone_status, daemon_name, workspace_slug, status_payload})
+
+    case get_daemon_by_name(daemon_name) do
+      nil ->
+        :ok
+
+      daemon ->
+        broadcast({:repo_clone_status, daemon_name, workspace_slug, status_payload}, daemon)
+    end
+
     :ok
   end
 
@@ -223,14 +244,22 @@ defmodule Algedonia.Daemons do
     :ok
   end
 
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe do
-    Phoenix.PubSub.subscribe(Algedonia.PubSub, @topic)
+  @spec subscribe(Algedonia.Types.id()) :: :ok | {:error, term()}
+  def subscribe(workspace_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.monitor(workspace_id))
   end
 
-  defp broadcast(message) do
-    Phoenix.PubSub.broadcast(Algedonia.PubSub, @topic, message)
+  defp broadcast(message, %{user_id: user_id}) do
+    user_id
+    |> Accounts.list_workspaces_for_user()
+    |> Enum.each(fn workspace ->
+      Phoenix.PubSub.broadcast(Algedonia.PubSub, Topics.monitor(workspace.id), message)
+    end)
+
+    :ok
   end
+
+  defp broadcast(_message, _daemon), do: :ok
 
   defp ensure_repo_status_table do
     if :ets.whereis(@repo_status_table) == :undefined do

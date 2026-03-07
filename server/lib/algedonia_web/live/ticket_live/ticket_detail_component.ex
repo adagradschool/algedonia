@@ -5,6 +5,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketDetailComponent do
   """
   use AlgedoniaWeb, :live_component
 
+  alias Algedonia.PubSub.Topics
   alias Algedonia.Tickets
 
   import AlgedoniaWeb.CommentComponents
@@ -22,10 +23,13 @@ defmodule AlgedoniaWeb.TicketLive.TicketDetailComponent do
       old_ticket = socket.assigns[:ticket]
 
       if old_ticket && old_ticket.id != ticket.id do
-        Phoenix.PubSub.unsubscribe(Algedonia.PubSub, "ticket:#{old_ticket.id}")
+        Phoenix.PubSub.unsubscribe(
+          Algedonia.PubSub,
+          Topics.ticket(old_ticket.workspace_id, old_ticket.id)
+        )
       end
 
-      Tickets.subscribe_comments(ticket.id)
+      Tickets.subscribe_comments(ticket.workspace_id, ticket.id)
     end
   end
 

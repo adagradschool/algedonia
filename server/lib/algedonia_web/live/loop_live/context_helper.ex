@@ -105,23 +105,23 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
   @doc """
   Subscribes to loop update PubSub events if the loop exists.
   """
-  @spec maybe_subscribe_loop_updates(String.t()) :: :ok
-  def maybe_subscribe_loop_updates(loop_id) do
+  @spec maybe_subscribe_loop_updates(Algedonia.Types.id(), String.t()) :: :ok
+  def maybe_subscribe_loop_updates(workspace_id, loop_id) do
     case Loops.get_loop_by_ref(loop_id) do
       nil -> :ok
-      loop -> Loops.subscribe(loop.id)
+      loop -> Loops.subscribe(workspace_id, loop.id)
     end
   end
 
   @doc """
   Subscribes to ticket and comment PubSub events if a ticket is assigned.
   """
-  @spec maybe_subscribe_ticket_updates(Phoenix.LiveView.Socket.t()) :: :ok
-  def maybe_subscribe_ticket_updates(socket) do
+  @spec maybe_subscribe_ticket_updates(Phoenix.LiveView.Socket.t(), Algedonia.Types.id()) :: :ok
+  def maybe_subscribe_ticket_updates(socket, workspace_id) do
     case socket.assigns.ticket do
       %{id: ticket_id} ->
-        Tickets.subscribe()
-        Tickets.subscribe_comments(ticket_id)
+        Tickets.subscribe(workspace_id)
+        Tickets.subscribe_comments(workspace_id, ticket_id)
 
       _ ->
         :ok

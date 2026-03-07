@@ -4,6 +4,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
   import Phoenix.LiveViewTest
 
   alias Algedonia.{Factory, Loops, Terminals}
+  alias Algedonia.PubSub.Topics
 
   describe "Show" do
     test "mounts and renders loop_id", %{conn: conn, workspace: workspace} do
@@ -188,7 +189,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       # Simulate terminal data arriving via PubSub
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "terminal:#{loop_id}",
+        Topics.terminal(workspace.id, loop_id),
         {:terminal_data, loop_id, "new output"}
       )
 
@@ -205,13 +206,13 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "terminal:#{loop_id}",
+        Topics.terminal(workspace.id, loop_id),
         {:terminal_data, loop_id, "foo"}
       )
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "terminal:#{loop_id}",
+        Topics.terminal(workspace.id, loop_id),
         {:terminal_data, loop_id, "bar"}
       )
 
@@ -226,13 +227,13 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "terminal:#{loop_id}",
+        Topics.terminal(workspace.id, loop_id),
         {:terminal_data, loop_id, "tail output"}
       )
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "terminal:#{loop_id}",
+        Topics.terminal(workspace.id, loop_id),
         {:terminal_ended, loop_id, 0}
       )
 

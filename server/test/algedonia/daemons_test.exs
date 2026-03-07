@@ -169,6 +169,24 @@ defmodule Algedonia.DaemonsTest do
     end
   end
 
+  describe "list_daemons/1" do
+    test "returns daemons scoped to workspace memberships" do
+      workspace_a = Factory.insert_workspace!(%{slug: "scope-a-#{System.unique_integer()}"})
+      workspace_b = Factory.insert_workspace!(%{slug: "scope-b-#{System.unique_integer()}"})
+      user_a = Factory.insert_user!()
+      user_b = Factory.insert_user!()
+
+      Factory.insert_membership!(workspace_a, user_a)
+      Factory.insert_membership!(workspace_b, user_b)
+
+      daemon_a = Factory.insert_daemon!(%{name: "scope-a-daemon", user_id: user_a.id})
+      _daemon_b = Factory.insert_daemon!(%{name: "scope-b-daemon", user_id: user_b.id})
+
+      assert [%{id: id}] = Daemons.list_daemons(workspace_a.id)
+      assert id == daemon_a.id
+    end
+  end
+
   describe "get_daemon_by_name/1" do
     test "returns daemon by name" do
       Factory.insert_daemon!(%{name: "findme"})

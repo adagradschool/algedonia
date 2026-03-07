@@ -1,12 +1,14 @@
 defmodule Algedonia.Terminals.TerminalBufferTest do
-  use ExUnit.Case, async: true
+  use Algedonia.DataCase, async: true
 
+  alias Algedonia.PubSub.Topics
   alias Algedonia.Terminals.TerminalBuffer
+  import Algedonia.Factory
 
   setup do
-    loop_id = Ecto.UUID.generate()
-    {:ok, pid} = TerminalBuffer.start_link(loop_id)
-    %{pid: pid, loop_id: loop_id}
+    loop = insert_loop!()
+    {:ok, pid} = TerminalBuffer.start_link(loop.id)
+    %{pid: pid, loop: loop}
   end
 
   test "append and get_scrollback", %{pid: pid} do
@@ -22,8 +24,9 @@ defmodule Algedonia.Terminals.TerminalBufferTest do
     assert scrollback == "firstsecond"
   end
 
-  test "broadcasts on PubSub", %{pid: pid, loop_id: loop_id} do
-    Phoenix.PubSub.subscribe(Algedonia.PubSub, "terminal:#{loop_id}")
+  test "broadcasts on PubSub", %{pid: pid, loop: loop} do
+    loop_id = loop.id
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.terminal(loop.workspace_id, loop.id))
 
     TerminalBuffer.append(pid, "hello")
 

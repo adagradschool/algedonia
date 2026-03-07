@@ -27,17 +27,15 @@ defmodule Algedonia.TaskLoopOrchestrator do
   def start_task_loop(loop_id, daemon_name, opts \\ []) do
     workspace_id = Keyword.get(opts, :workspace_id)
 
-    case cast_workspace_id(workspace_id) do
-      {:ok, scoped_workspace_id} ->
-        opts = Keyword.put(opts, :workspace_id, scoped_workspace_id)
+    case workspace_id do
+      nil ->
+        {:error, :workspace_scope_required}
 
+      _ ->
         GenServer.call(
           Keyword.get(opts, :name, __MODULE__),
           {:start_task_loop, loop_id, daemon_name, opts}
         )
-
-      :error ->
-        {:error, :workspace_scope_required}
     end
   end
 
@@ -90,13 +88,18 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   @impl true
   def init(s) do
-    Tickets.subscribe()
-    {:ok, Map.merge(s, %{checker_handoff_repairs: %{}, task_run_config: %{}})}
+    {:ok,
+     Map.merge(s, %{
+       checker_handoff_repairs: %{},
+       task_run_config: %{},
+       subscribed_ticket_workspaces: MapSet.new()
+     })}
   end
 
   @impl true
   def handle_call({:start_task_loop, lid, dn, opts}, _from, st) do
     workspace_id = Keyword.get(opts, :workspace_id)
+    st = ensure_ticket_workspace_subscription(st, workspace_id)
 
     case run_with_workspace(workspace_id, {:error, :workspace_scope_required}, fn ->
            start_loop(lid, dn, opts, workspace_id, st)
@@ -522,23 +525,40 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp clear_rc(s, id), do: %{s | task_run_config: Map.delete(s.task_run_config, id)}
   defp rc(s, id), do: Map.get(s.task_run_config, id, %{})
 
+  defp ensure_ticket_workspace_subscription(state, workspace_id) do
+    case workspace_id do
+      nil ->
+        state
+
+      _ ->
+        subscribed = Map.get(state, :subscribed_ticket_workspaces, MapSet.new())
+
+        if MapSet.member?(subscribed, workspace_id) do
+          state
+        else
+          Tickets.subscribe(workspace_id)
+
+          Map.put(
+            state,
+            :subscribed_ticket_workspaces,
+            MapSet.put(subscribed, workspace_id)
+          )
+        end
+    end
+  end
+
   defp run_with_workspace(workspace_id, fallback, fun) do
-    case cast_workspace_id(workspace_id) do
-      {:ok, scoped_workspace_id} -> TenantScope.with_workspace(scoped_workspace_id, fun)
-      :error -> fallback
+    case workspace_id do
+      nil -> fallback
+      _ -> TenantScope.with_workspace(workspace_id, fun)
     end
   end
 
   defp workspace_id_for_loop(state, loop_id, explicit_workspace_id) do
-    if is_binary(explicit_workspace_id),
+    if explicit_workspace_id,
       do: explicit_workspace_id,
       else: rc(state, loop_id)["workspace_id"]
   end
-
-  defp cast_workspace_id(workspace_id) when is_binary(workspace_id),
-    do: Ecto.UUID.cast(workspace_id)
-
-  defp cast_workspace_id(_), do: :error
 
   defp scoped_run_context(state, loop) do
     %{

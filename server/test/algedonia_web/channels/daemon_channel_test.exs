@@ -2,6 +2,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
   use AlgedoniaWeb.ChannelCase
 
   alias Algedonia.{Daemons, Repo, TaskLoopOrchestrator}
+  alias Algedonia.PubSub.Topics
   alias AlgedoniaWeb.DaemonSocket
   alias Ecto.Adapters.SQL.Sandbox
 
@@ -338,7 +339,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       Algedonia.Factory.insert_membership!(workspace, user)
 
       loop_id = Ecto.UUID.generate()
-      Phoenix.PubSub.subscribe(Algedonia.PubSub, "terminal:#{loop_id}")
+      Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.terminal(workspace.id, loop_id))
 
       ref =
         push(socket, "loop_exited", %{

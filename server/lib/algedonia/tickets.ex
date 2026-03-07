@@ -6,12 +6,12 @@ defmodule Algedonia.Tickets do
 
   require Logger
 
+  alias Algedonia.PubSub.Topics
   alias Algedonia.Repo
   alias Algedonia.Tickets.{Comment, Ticket}
   alias Algedonia.Tickets.Planning
   alias Algedonia.Workspaces.Workspace
 
-  @topic "tickets"
   @display_statuses [:backlog, :planning, :in_progress, :halted, :completed, :archived]
 
   @doc """
@@ -252,13 +252,18 @@ defmodule Algedonia.Tickets do
   @doc """
   Subscribes the caller to ticket change notifications.
   """
-  @spec subscribe :: :ok | {:error, term()}
-  def subscribe do
-    Phoenix.PubSub.subscribe(Algedonia.PubSub, @topic)
+  @spec subscribe(Algedonia.Types.id()) :: :ok | {:error, term()}
+  def subscribe(workspace_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.tickets(workspace_id))
   end
 
   defp broadcast({:ok, ticket} = result, event) do
-    Phoenix.PubSub.broadcast(Algedonia.PubSub, @topic, {event, ticket})
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      Topics.tickets(ticket.workspace_id),
+      {event, ticket}
+    )
+
     result
   end
 
@@ -341,17 +346,19 @@ defmodule Algedonia.Tickets do
   @doc """
   Subscribes the caller to comment notifications for a specific ticket.
   """
-  @spec subscribe_comments(Algedonia.Types.id()) :: :ok | {:error, term()}
-  def subscribe_comments(ticket_id) do
-    Phoenix.PubSub.subscribe(Algedonia.PubSub, "ticket:#{ticket_id}")
+  @spec subscribe_comments(Algedonia.Types.id(), Algedonia.Types.id()) :: :ok | {:error, term()}
+  def subscribe_comments(workspace_id, ticket_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.ticket(workspace_id, ticket_id))
   end
 
   defp broadcast_comment(result), do: broadcast_comment(result, :comment_created)
 
   defp broadcast_comment({:ok, comment} = result, event) do
+    workspace_id = ticket_workspace_id(comment.ticket_id)
+
     Phoenix.PubSub.broadcast(
       Algedonia.PubSub,
-      "ticket:#{comment.ticket_id}",
+      Topics.ticket(workspace_id, comment.ticket_id),
       {event, comment}
     )
 
@@ -396,4 +403,11 @@ defmodule Algedonia.Tickets do
 
   @spec search_tickets_grouped(keyword()) :: %{grouped: map(), count: integer()}
   defdelegate search_tickets_grouped(opts), to: Algedonia.Tickets.Search
+
+  defp ticket_workspace_id(ticket_id) do
+    Ticket
+    |> where([t], t.id == ^ticket_id)
+    |> select([t], t.workspace_id)
+    |> Repo.one()
+  end
 end

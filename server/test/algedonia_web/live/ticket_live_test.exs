@@ -2,6 +2,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
   use AlgedoniaWeb.ConnCase, async: true
 
   alias Algedonia.{Loops, Tickets}
+  alias Algedonia.PubSub.Topics
   alias AlgedoniaWeb.TicketLive.TicketFormComponent
 
   import Phoenix.LiveViewTest
@@ -744,7 +745,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       # Broadcast the event
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "ticket_loops:#{ticket.id}",
+        Topics.ticket_loops(workspace.id, ticket.id),
         {:hook_loop_created, loop}
       )
 

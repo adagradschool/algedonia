@@ -36,9 +36,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket = ContextHelper.assign_loop_context(socket, loop_id)
 
     if connected?(socket) do
-      Terminals.subscribe(loop_id)
-      ContextHelper.maybe_subscribe_loop_updates(loop_id)
-      ContextHelper.maybe_subscribe_ticket_updates(socket)
+      workspace_id = socket.assigns.current_workspace.id
+      Terminals.subscribe(workspace_id, loop_id)
+      ContextHelper.maybe_subscribe_loop_updates(workspace_id, loop_id)
+      ContextHelper.maybe_subscribe_ticket_updates(socket, workspace_id)
     end
 
     agent_type = Agents.ticket_agent_type(socket.assigns[:ticket])
