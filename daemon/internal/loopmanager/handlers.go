@@ -323,13 +323,8 @@ func (m *Manager) HandleOpenEditor(ctx context.Context, payload map[string]inter
 }
 
 func openEditorCommand(ctx context.Context, workdir string) *exec.Cmd {
-	editor := strings.TrimSpace(os.Getenv("EDITOR"))
-	if editor != "" {
-		parts := strings.Fields(editor)
-		if len(parts) > 0 {
-			args := append(parts[1:], workdir)
-			return exec.CommandContext(ctx, parts[0], args...)
-		}
+	if binary, args := resolveEditorCommand(workdir); binary != "" {
+		return exec.CommandContext(ctx, binary, append(args, workdir)...)
 	}
 
 	switch runtime.GOOS {
@@ -340,4 +335,51 @@ func openEditorCommand(ctx context.Context, workdir string) *exec.Cmd {
 	default:
 		return exec.CommandContext(ctx, "code", workdir)
 	}
+}
+
+func resolveEditorCommand(workdir string) (string, []string) {
+	for _, key := range []string{"VISUAL", "EDITOR"} {
+		if binary, args := parseEditorSpec(strings.TrimSpace(os.Getenv(key))); binary != "" {
+			return binary, args
+		}
+	}
+
+	if binary, args := parseEditorSpec(gitCoreEditor(workdir)); binary != "" {
+		return binary, args
+	}
+
+	for _, candidate := range []string{
+		"code",
+		"cursor",
+		"zed",
+		"code-insiders",
+		"codium",
+		"subl",
+	} {
+		if _, err := exec.LookPath(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", nil
+}
+
+func parseEditorSpec(spec string) (string, []string) {
+	parts := strings.Fields(spec)
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return parts[0], parts[1:]
+}
+
+func gitCoreEditor(workdir string) string {
+	cmd := exec.Command("git", "config", "--get", "core.editor")
+	cmd.Dir = workdir
+
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(out))
 }
