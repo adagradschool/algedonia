@@ -70,12 +70,33 @@ defmodule Algedonia.Loops do
 
   @doc """
   Creates a loop.
+
+  Automatically derives `workspace_id` from the associated ticket when not
+  explicitly provided, so callers never need to pass it manually.
   """
   @spec create_loop(map()) :: {:ok, Loop.t()} | {:error, Ecto.Changeset.t()}
   def create_loop(attrs) do
+    attrs = maybe_derive_workspace_id(attrs)
+
     %Loop{}
     |> Loop.changeset(attrs)
     |> Repo.insert()
+  end
+
+  defp maybe_derive_workspace_id(attrs) do
+    has_workspace? =
+      Map.has_key?(attrs, :workspace_id) or Map.has_key?(attrs, "workspace_id")
+
+    ticket_id = attrs[:ticket_id] || attrs["ticket_id"]
+
+    if has_workspace? or is_nil(ticket_id) do
+      attrs
+    else
+      case Repo.get(Algedonia.Tickets.Ticket, ticket_id, skip_workspace_scope: true) do
+        %{workspace_id: wid} -> Map.put(attrs, :workspace_id, wid)
+        nil -> attrs
+      end
+    end
   end
 
   @doc """

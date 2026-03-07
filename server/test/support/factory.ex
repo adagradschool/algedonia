@@ -186,6 +186,14 @@ defmodule Algedonia.Factory do
         Map.put(overrides, :ticket_id, ticket.id)
       end
 
+    overrides =
+      if Map.has_key?(overrides, :workspace_id) do
+        overrides
+      else
+        ticket = Repo.get!(Ticket, overrides.ticket_id)
+        Map.put(overrides, :workspace_id, ticket.workspace_id)
+      end
+
     %Loop{}
     |> Loop.changeset(loop_attrs(overrides))
     |> Repo.insert!()

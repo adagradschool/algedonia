@@ -14,6 +14,7 @@ defmodule AlgedoniaWeb.Plugs.ApiWorkspace do
 
     with {:ok, workspace} <- fetch_workspace(slug),
          true <- has_membership?(workspace.id, user.id) do
+      Algedonia.TenantScope.put_workspace(workspace.id)
       assign(conn, :workspace, workspace)
     else
       _ ->

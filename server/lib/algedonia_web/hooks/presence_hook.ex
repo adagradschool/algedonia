@@ -29,6 +29,8 @@ defmodule AlgedoniaWeb.PresenceHook do
 
     topic = topic_for(socket.view, workspace_slug)
 
+    if workspace, do: Algedonia.TenantScope.put_workspace(workspace.id)
+
     socket =
       socket
       |> assign(:current_user, current_user)

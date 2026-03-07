@@ -27,6 +27,8 @@ defmodule AlgedoniaWeb.Plugs.RequireWorkspace do
         |> halt()
 
       Workspaces.get_membership(workspace.id, user_id) ->
+        Algedonia.TenantScope.put_workspace(workspace.id)
+
         conn
         |> put_session(:current_workspace_id, workspace.id)
         |> put_session(:current_workspace_slug, workspace.slug)
