@@ -9,7 +9,11 @@ build-cli:
     mkdir -p ~/bin
     mv daemon/ag ~/bin/ag
 
-# Start the Phoenix dev server on port 4000
+# Install dependencies
+install:
+    cd server && mix deps.get
+
+# Start the Phoenix dev server (port from $PORT, default 4000)
 server:
     cd server && mix phx.server
 
@@ -23,7 +27,7 @@ lint: lint-server lint-daemon
 test: test-server test-daemon
 
 # Format Elixir server code
-format-server:
+format-server: install
     cd server && mix format
 
 # Format Go daemon code
@@ -31,7 +35,7 @@ format-daemon:
     cd daemon && go fmt ./...
 
 # Lint Elixir server code
-lint-server:
+lint-server: install
     cd server && mix compile --warnings-as-errors && mix format --check-formatted && mix credo --strict
 
 # Lint Go daemon code
@@ -39,7 +43,7 @@ lint-daemon:
     cd daemon && go vet ./... && go build ./...
 
 # Test Elixir server
-test-server:
+test-server: install
     cd server && mix test
 
 # Test Go daemon
