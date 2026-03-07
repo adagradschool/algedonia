@@ -1,7 +1,8 @@
 defmodule Algedonia.TicketsTest do
   use Algedonia.DataCase, async: true
 
-  alias Algedonia.Tickets
+  alias Algedonia.{Loops, Tickets}
+  alias Algedonia.Loops.LoopStep
   import Algedonia.Factory
 
   describe "create_ticket/1" do
@@ -153,6 +154,76 @@ defmodule Algedonia.TicketsTest do
     test "returns error changeset with invalid attrs" do
       ticket = insert_ticket!()
       assert {:error, %Ecto.Changeset{}} = Tickets.update_ticket(ticket, %{title: ""})
+    end
+  end
+
+  describe "update_ticket/2 loop lifecycle transitions" do
+    test "entering in_progress ensures a task loop exists" do
+      ticket = insert_ticket!(%{status: :planning})
+
+      assert {:ok, updated} = Tickets.update_ticket(ticket, %{status: :in_progress})
+      assert updated.status == :in_progress
+
+      [task_loop] = Loops.list_task_loops_for_ticket(ticket.id)
+      assert task_loop.role == :task
+      assert task_loop.status == :pending
+    end
+
+    test "entering in_progress reuses existing task loop" do
+      ticket = insert_ticket!(%{status: :planning})
+      existing = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending})
+
+      assert {:ok, _updated} = Tickets.update_ticket(ticket, %{status: :in_progress})
+
+      loops = Loops.list_task_loops_for_ticket(ticket.id)
+      assert length(loops) == 1
+      assert hd(loops).id == existing.id
+    end
+
+    test "moving backward out of in_progress deletes loops and steps" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      task_loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :running})
+      hook_loop = insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :pending})
+
+      {:ok, _task_step} =
+        Loops.create_step(%{
+          loop_id: task_loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      {:ok, _hook_step} =
+        Loops.create_step(%{
+          loop_id: hook_loop.id,
+          role: "checker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      assert {:ok, updated} = Tickets.update_ticket(ticket, %{status: :planning})
+      assert updated.status == :planning
+      assert Loops.list_loops_for_ticket(ticket.id) == []
+
+      remaining_steps =
+        from(s in LoopStep,
+          where: s.loop_id in ^[task_loop.id, hook_loop.id]
+        )
+        |> Repo.aggregate(:count)
+
+      assert remaining_steps == 0
+    end
+
+    test "moving in_progress forward keeps loops intact" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :running})
+
+      assert {:ok, updated} = Tickets.update_ticket(ticket, %{status: :halted})
+      assert updated.status == :halted
+      assert [reloaded] = Loops.list_task_loops_for_ticket(ticket.id)
+      assert reloaded.id == loop.id
     end
   end
 

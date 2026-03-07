@@ -18,7 +18,7 @@ defmodule Algedonia.Tickets.Planning do
 
   def start_work(%Ticket{} = ticket) do
     with :ok <- ensure_valid_daemon(ticket),
-         {:ok, loop_id} <- resolve_work_loop(ticket) do
+         {:ok, loop_id} <- ensure_work_loop(ticket) do
       mark_in_progress(ticket)
       {:ok, loop_id}
     else
@@ -37,6 +37,12 @@ defmodule Algedonia.Tickets.Planning do
   end
 
   def start_planning(%Ticket{}), do: {:error, :invalid_status}
+
+  @doc """
+  Resolves the existing task loop for a ticket, or creates one if absent.
+  """
+  @spec ensure_work_loop(Ticket.t()) :: {:ok, binary()} | {:error, atom()}
+  def ensure_work_loop(%Ticket{} = ticket), do: resolve_work_loop(ticket)
 
   defp resolve_work_loop(%Ticket{} = ticket) do
     case Loops.list_task_loops_for_ticket(ticket.id) do

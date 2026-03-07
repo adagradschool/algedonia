@@ -899,14 +899,16 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     end
   end
 
-  describe "ticket planning auto-start" do
-    test "planning ticket auto-starts first loop on available daemon", %{orchestrator: pid} do
-      ticket = insert_ticket!(%{status: :planning})
+  describe "ticket in-progress auto-start" do
+    test "in_progress ticket auto-starts first pending loop on available daemon", %{
+      orchestrator: pid
+    } do
+      ticket = insert_ticket!(%{status: :in_progress, title: "IP auto-start pending"})
       loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       _daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
-      send(pid, {:ticket_updated, %{ticket | status: :planning}})
+      send(pid, {:ticket_updated, Map.put(ticket, :status, :in_progress)})
       :sys.get_state(pid)
 
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
@@ -915,23 +917,24 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert reloaded.status == :running
     end
 
-    test "planning ticket with no daemon does not crash", %{orchestrator: pid} do
-      ticket = insert_ticket!(%{status: :planning})
+    test "in_progress ticket with no daemon does not crash", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress, title: "IP no daemon"})
 
       _loop =
         insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
 
       # No daemon inserted
 
-      send(pid, {:ticket_updated, %{ticket | status: :planning}})
+      updated_ticket = %{ticket | status: :in_progress}
+      send(pid, {:ticket_updated, updated_ticket})
       # Should not crash
       :sys.get_state(pid)
 
       refute_receive {:push, _, _, _}, 100
     end
 
-    test "planning ticket auto-start ignores hook loops", %{orchestrator: pid} do
-      ticket = insert_ticket!(%{status: :planning})
+    test "in_progress ticket auto-start ignores hook loops", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress, title: "IP ignore hooks"})
 
       _hook_loop =
         insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :pending, max_attempts: 3})
@@ -943,10 +946,30 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
       _daemon = insert_daemon!(%{status: :online})
 
-      send(pid, {:ticket_updated, %{ticket | status: :planning}})
+      in_progress_ticket = %{ticket | status: :in_progress}
+      send(pid, {:ticket_updated, in_progress_ticket})
       :sys.get_state(pid)
 
       assert_receive {:push, _, ^task_loop_id, %{"role" => "maker"}}
+    end
+
+    test "in_progress ticket auto-start skips non-pending task loops", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress, title: "IP skip passed loops"})
+
+      _passed_task_loop =
+        insert_loop!(%{ticket_id: ticket.id, role: :task, status: :passed, max_attempts: 3})
+
+      pending_task_loop =
+        insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+
+      pending_task_loop_id = pending_task_loop.id
+
+      _daemon = insert_daemon!(%{status: :online})
+
+      send(pid, {:ticket_updated, ticket |> Map.put(:status, :in_progress)})
+      :sys.get_state(pid)
+
+      assert_receive {:push, _, ^pending_task_loop_id, %{"role" => "maker"}}
     end
   end
 

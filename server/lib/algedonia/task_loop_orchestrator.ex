@@ -175,10 +175,10 @@ defmodule Algedonia.TaskLoopOrchestrator do
      run_with_workspace(ticket.workspace_id, state, fn -> halt_running_loops(ticket, state) end)}
   end
 
-  def handle_info({:ticket_updated, %{status: :planning} = ticket}, state) do
+  def handle_info({:ticket_updated, %{status: :in_progress} = ticket}, state) do
     {:noreply,
      run_with_workspace(ticket.workspace_id, state, fn ->
-       auto_start_planning_loop(ticket, state)
+       auto_start_in_progress_loop(ticket, state)
      end)}
   end
 
@@ -206,14 +206,20 @@ defmodule Algedonia.TaskLoopOrchestrator do
     end)
   end
 
-  defp auto_start_planning_loop(ticket, state) do
+  defp auto_start_in_progress_loop(ticket, state) do
     with {:ok, daemon} <- Daemons.find_online(),
-         %{id: loop_id} <- Loops.list_task_loops_for_ticket(ticket.id) |> List.first(),
+         %{id: loop_id} <- pending_task_loop_for_ticket(ticket.id),
          {:ok, new_state} <- start_loop(loop_id, daemon.name, [], ticket.workspace_id, state) do
       new_state
     else
       _ -> state
     end
+  end
+
+  defp pending_task_loop_for_ticket(ticket_id) do
+    ticket_id
+    |> Loops.list_task_loops_for_ticket()
+    |> Enum.find(&(&1.status == :pending))
   end
 
   defp running_loops_for_ticket(ticket_id) do
