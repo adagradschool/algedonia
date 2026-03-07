@@ -140,18 +140,6 @@ Migrate `tickets` table:
 - Remove: `type`, `assignee`, `coding_agent`, `overview`
 - Keep: `title`, `description`, `status`, `priority`, `acceptance_criteria`
 
-### T1.7 — Loop iterations and checker step results tables
-**Priority: P0 | Size: M | Depends on: T0.3**
-
-Create `loop_iterations` table:
-- `loop_id`, `iteration_number`, `maker_duration_ms`, `maker_token_usage` (jsonb), `verdict`, `human_feedback`
-- No diffs, no raw output, no session IDs — server never sees code
-
-Create `checker_step_results` table:
-- `loop_iteration_id`, `step_index`, `skill_name`, `passed`, `summary` (short structured text, not raw output), `duration_ms`
-
-Migrate existing `loop_attempts` data if feasible, or drop and recreate.
-
 ---
 
 ## Phase 2: Skills and Planning
@@ -159,7 +147,7 @@ Migrate existing `loop_attempts` data if feasible, or drop and recreate.
 The core abstraction. Skills replace YAML strategy files. Planning replaces static template matching.
 
 ### T2.1 — Skill discovery and parsing
-**Priority: P0 | Size: M | Depends on: T1.7**
+**Priority: P0 | Size: M | Depends on: nothing**
 
 Create `Algedonia.Skills` module:
 - Discover skills from `.algedonia/skills/` directory in the repo
@@ -211,7 +199,7 @@ Daemon side:
 - Send `step_result` event: `loop_id`, `iteration_number`, `step_index`, `skill_name`, `passed`, `summary` (structured, not raw output), `duration_ms`
 
 Server side:
-- Handle `step_result` in `DaemonChannel`, persist to `checker_step_results`, broadcast to PubSub
+- Handle `step_result` in `DaemonChannel`, persist to `loop_steps`, broadcast to PubSub
 
 ### T3.2 — Update `run_maker` for no-code protocol
 **Priority: P0 | Size: M | Depends on: T1.4**
@@ -222,7 +210,7 @@ Update `run_maker` command payload:
 - Update `DaemonChannel` handler and `LoopEngine` to work without server-side diffs
 
 ### T3.3 — Loop engine: sequential checker step execution
-**Priority: P0 | Size: L | Depends on: T1.7, T3.1, T3.2**
+**Priority: P0 | Size: L | Depends on: T3.1, T3.2**
 
 Refactor `TaskLoopOrchestrator` into `Algedonia.LoopEngine`:
 - After maker completes: read the loop's `checker_config`, send `run_checker_step` for step 0
@@ -522,12 +510,10 @@ Phase 0 (cleanup)             Phase 1 (multi-tenancy)
   T0.1 T0.2 T0.4 (parallel)    T1.1 ── T1.2 ── T1.3 ── T1.5
   └─ T0.3                      T1.1 ──────────── T1.4
                                 T1.3 ── T1.6
-                                T0.3 ── T1.7
 
 Phase 2 (skills/planning)     Phase 3 (loop engine)
-  T1.7 ── T2.1 ── T2.2         T2.1 ── T3.1 ──┐
+  T2.1 ── T2.2                  T2.1 ── T3.1 ──┐
   T2.1 ── T2.3                  T1.4 ── T3.2 ──┼── T3.3 ── T3.4
-                                T1.7 ──────────┘
 
 Phase 4 (queue/routing)       Phase 5 (loop viewer)
   T3.3 + T1.3 ── T4.1          T0.1 ── T6.1
@@ -556,7 +542,7 @@ Phase 10 (config)             Phase 11 (open source)
 
 **Sprint 2: Multi-Tenancy + Schema**
 - T1.3, T1.4, T1.5 (workspace isolation, user-bound daemons, scoped PubSub)
-- T1.6, T1.7 (tickets schema, iterations/verdicts tables)
+- T1.6 (tickets schema)
 
 **Sprint 3: Skills + Protocol**
 - T2.1, T2.3 (skill discovery, base pipeline)
