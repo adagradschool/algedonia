@@ -11,7 +11,7 @@ const KeyboardShortcuts = {
   mounted() {
     this.onKeyDown = (event) => {
       if (event.defaultPrevented) return
-      if (this.isEditable(event.target)) return
+      if (this.isEditable(event.target, event)) return
 
       const rawKey = event.key
       const key = rawKey.length === 1 ? rawKey.toLowerCase() : rawKey
@@ -39,12 +39,16 @@ const KeyboardShortcuts = {
     window.removeEventListener("keydown", this.onKeyDown)
   },
 
-  isEditable(target) {
+  isEditable(target, event) {
     if (!target) return false
     const node = target.nodeType === Node.TEXT_NODE ? target.parentElement : target
     if (!(node instanceof Element)) return false
 
-    if (node.closest(".xterm")) return true
+    if (node.closest(".xterm")) {
+      // Allow Ctrl+` to pass through for sidebar toggle
+      if (event && event.ctrlKey && event.key === "`") return false
+      return true
+    }
     if (node.closest("[data-shortcuts='off']")) return true
     if (node.closest(".tiptap, .ProseMirror")) return true
     if (node.isContentEditable) return true

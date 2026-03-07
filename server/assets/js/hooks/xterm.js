@@ -92,6 +92,11 @@ const XTerm = {
     this.fitAddon = new FitAddon()
     this.term.loadAddon(this.fitAddon)
     this.term.open(this.el)
+    this.term.attachCustomKeyEventHandler((event) => {
+      // Let Ctrl+` bubble up for sidebar toggle
+      if (event.ctrlKey && event.key === "`") return false
+      return true
+    })
     requestAnimationFrame(() => this.term?.focus())
     this.setupParserHardening()
     this.scheduleFit()
