@@ -171,22 +171,12 @@ defmodule Algedonia.HookExecutor do
   end
 
   defp build_hook_task(context) do
-    ticket = context.ticket
-
     [
       "Automation hook execution.",
-      "Instruction:\n#{context.instruction}",
-      "Ticket: #{ticket.title}",
-      optional_section("Description", ticket.description),
-      optional_section("Acceptance criteria", ticket.acceptance_criteria),
-      "Transition: #{ticket.previous_status} -> #{ticket.status}",
-      "Apply the instruction and exit when complete."
+      "Task:\n#{context.instruction}",
+      "Execute only this task and exit when complete."
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n\n")
   end
-
-  defp optional_section(_label, nil), do: nil
-  defp optional_section(_label, ""), do: nil
-  defp optional_section(label, content), do: "#{label}:\n#{content}"
 end

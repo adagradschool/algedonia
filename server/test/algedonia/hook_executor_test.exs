@@ -88,7 +88,10 @@ defmodule Algedonia.HookExecutorTest do
       assert ticket_id == ticket.id
       assert workspace_slug == workspace.slug
       assert task =~ "Automation hook execution."
-      assert task =~ "Auto-run transition check"
+      assert task =~ "Task:\nAuto-run transition check"
+      refute task =~ "Ticket:"
+      refute task =~ "Transition:"
+      refute task =~ "Acceptance criteria:"
 
       loop = Loops.get_loop!(loop_id)
       assert loop.role == :hook
