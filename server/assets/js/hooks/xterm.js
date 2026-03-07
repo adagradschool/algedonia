@@ -69,6 +69,7 @@ const XTerm = {
     this.writeQueue = []
     this.queuedBytes = 0
     this.writeFrame = null
+    this.pendingCarriageReturn = false
     this.fitDebounceTimer = null
     this.fitFrame = null
     this.parserDisposables = []
@@ -119,6 +120,7 @@ const XTerm = {
 
     this.handleEvent("terminal_ended", ({ exit_code }) => {
       this.flushWriteQueueNow()
+      this.flushPendingCarriageReturn()
       this.term.write(`\r\n\x1b[1;33m--- Process exited with code ${exit_code} ---\x1b[0m\r\n`)
     })
   },
@@ -298,6 +300,7 @@ const XTerm = {
 
   clearAndWriteScrollback(data) {
     this.flushWriteQueueNow()
+    this.pendingCarriageReturn = false
     if (this.term) {
       this.term.reset()
     }
@@ -318,6 +321,12 @@ const XTerm = {
     this.flushWriteQueue()
   },
 
+  flushPendingCarriageReturn() {
+    if (!this.term || !this.pendingCarriageReturn) return
+    this.pendingCarriageReturn = false
+    this.term.write(new Uint8Array([0x0d, 0x1b, 0x5b, 0x4b]))
+  },
+
   flushWriteQueue() {
     if (!this.term || this.writeQueue.length === 0) return
 
@@ -336,7 +345,10 @@ const XTerm = {
     this.metrics.queueFlushes += 1
 
     try {
-      this.term.write(merged)
+      const normalized = this.normalizeCarriageReturns(merged)
+      if (normalized && normalized.length > 0) {
+        this.term.write(normalized)
+      }
       if (stickToBottom) {
         this.term.scrollToBottom()
       }
@@ -382,9 +394,56 @@ const XTerm = {
     }
   },
 
+  normalizeCarriageReturns(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) return bytes
+
+    const CR = 0x0d
+    const LF = 0x0a
+    const ESC = 0x1b
+    const OPEN_BRACKET = 0x5b
+    const K = 0x4b
+    const out = []
+    let index = 0
+
+    // Handle a carriage return that was deferred from the previous flush.
+    if (this.pendingCarriageReturn) {
+      if (bytes[0] === LF) {
+        out.push(CR, LF)
+        index = 1
+      } else {
+        out.push(CR, ESC, OPEN_BRACKET, K)
+      }
+      this.pendingCarriageReturn = false
+    }
+
+    for (; index < bytes.length; index += 1) {
+      const b = bytes[index]
+      if (b !== CR) {
+        out.push(b)
+        continue
+      }
+
+      // Preserve CRLF pairs; normalize lone CR updates to clear-line rewrites.
+      if (index + 1 < bytes.length) {
+        if (bytes[index + 1] === LF) {
+          out.push(CR, LF)
+          index += 1
+        } else {
+          out.push(CR, ESC, OPEN_BRACKET, K)
+        }
+        continue
+      }
+
+      this.pendingCarriageReturn = true
+    }
+
+    return new Uint8Array(out)
+  },
+
   destroyed() {
     this.destroying = true
     this.flushWriteQueueNow()
+    this.flushPendingCarriageReturn()
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
