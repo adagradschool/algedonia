@@ -23,7 +23,8 @@ algedonia/
 │   ├── cmd/algedonia-agent/  # CLI entry point
 │   └── internal/             # connection, pty, repo, adapter
 └── .algedonia/            # Per-repo config and prompts
-    ├── prompts/           # maker.md, checker.md, decompose.md, etc.
+    ├── skills/            # Checker/verification skills
+    ├── config.yml         # Workspace defaults (pipeline, planning mode)
     └── knowledge.md       # Accumulated codebase knowledge
 ```
 

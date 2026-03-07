@@ -94,11 +94,12 @@ defmodule Algedonia.HookExecutorTest do
       assert is_binary(loop_id)
       assert ticket_id == ticket.id
       assert workspace_slug == workspace.slug
-      assert task =~ "Automation hook execution."
+      assert task =~ "Role: hook execution agent for this repository."
       assert task =~ "Task:\nAuto-run transition check"
-      refute task =~ "Ticket:"
-      refute task =~ "Transition:"
-      refute task =~ "Acceptance criteria:"
+      assert task =~ "Ticket context:"
+      assert task =~ "- ID: #{ticket.id}"
+      assert task =~ "- Previous status: backlog"
+      assert task =~ "- Current status: planning"
 
       loop = Loops.get_loop!(loop_id)
       assert loop.role == :hook

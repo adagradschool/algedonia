@@ -10,19 +10,9 @@ import (
 	"github.com/algedonia/daemon/internal/adapter"
 )
 
-// buildAdapterTask loads the role prompt and assembles the full task string.
-func buildAdapterTask(promptsDir, role, taskDesc string) string {
-	systemPrompt, err := adapter.LoadPrompt(promptsDir, role)
-	if err != nil {
-		log.Printf("Warning: could not load prompt for role %q: %v", role, err)
-		systemPrompt = ""
-	}
-
-	task := taskDesc
-	if systemPrompt != "" {
-		task = systemPrompt + "\n\n---\n\n" + taskDesc
-	}
-	return task
+// buildAdapterTask returns the server-composed task payload verbatim.
+func buildAdapterTask(taskDesc string) string {
+	return taskDesc
 }
 
 // startAdapterProcess starts the adapter and attaches a PTY reader.
@@ -49,7 +39,7 @@ func (m *Manager) startAdapterProcess(ag adapter.AgentAdapter, loopID, workdir, 
 }
 
 // registerAdapterLoop creates a LoopProcess and inserts it into the loop map.
-func (m *Manager) registerAdapterLoop(loopID, role, workdir, workspaceDir, workspaceSlug, ticketID, promptsDir string, attempt int, ag adapter.AgentAdapter, proc *adapter.Process, chunker *Chunker, cancel context.CancelFunc, done chan struct{}) *LoopProcess {
+func (m *Manager) registerAdapterLoop(loopID, role, workdir, workspaceDir, workspaceSlug, ticketID string, attempt int, ag adapter.AgentAdapter, proc *adapter.Process, chunker *Chunker, cancel context.CancelFunc, done chan struct{}) *LoopProcess {
 	lp := &LoopProcess{
 		LoopID:        loopID,
 		Chunker:       chunker,
@@ -58,7 +48,6 @@ func (m *Manager) registerAdapterLoop(loopID, role, workdir, workspaceDir, works
 		adapter:       ag,
 		process:       proc,
 		role:          role,
-		promptsDir:    promptsDir,
 		workdir:       workdir,
 		workspaceDir:  workspaceDir,
 		workspaceSlug: workspaceSlug,

@@ -40,6 +40,9 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 
 	// Check if worktree already exists and is valid
 	if info, err := os.Stat(filepath.Join(wtPath, ".git")); err == nil && !info.IsDir() {
+		if err := ensureSharedSkillLinks(wtPath); err != nil {
+			return "", err
+		}
 		return wtPath, nil
 	}
 
@@ -70,6 +73,10 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 	_, _, err = runGitCmd(ctx, wm.GitBin, bareRepo, "worktree", "add", "--detach", wtPath, branch)
 	if err != nil {
 		return "", fmt.Errorf("creating worktree: %w", err)
+	}
+
+	if err := ensureSharedSkillLinks(wtPath); err != nil {
+		return "", err
 	}
 
 	return wtPath, nil
@@ -146,4 +153,54 @@ func TicketPrefix(ticketID string) string {
 		return clean[:8]
 	}
 	return clean
+}
+
+func ensureSharedSkillLinks(worktreePath string) error {
+	algedoniaSkills := filepath.Join(worktreePath, ".algedonia", "skills")
+	if err := os.MkdirAll(algedoniaSkills, 0o755); err != nil {
+		return fmt.Errorf("creating .algedonia/skills: %w", err)
+	}
+
+	if err := ensureRelativeSkillLink(worktreePath, ".codex", "../.algedonia/skills"); err != nil {
+		return err
+	}
+
+	if err := ensureRelativeSkillLink(worktreePath, ".claude", "../.algedonia/skills"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureRelativeSkillLink(worktreePath, toolDir, target string) error {
+	linkDir := filepath.Join(worktreePath, toolDir)
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", toolDir, err)
+	}
+
+	linkPath := filepath.Join(linkDir, "skills")
+	info, err := os.Lstat(linkPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			currentTarget, readErr := os.Readlink(linkPath)
+			if readErr == nil && currentTarget == target {
+				return nil
+			}
+
+			if rmErr := os.Remove(linkPath); rmErr != nil {
+				return fmt.Errorf("replacing %s symlink: %w", linkPath, rmErr)
+			}
+		} else {
+			// Preserve existing non-symlink skills directories.
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking %s: %w", linkPath, err)
+	}
+
+	if err := os.Symlink(target, linkPath); err != nil {
+		return fmt.Errorf("creating %s symlink: %w", linkPath, err)
+	}
+
+	return nil
 }

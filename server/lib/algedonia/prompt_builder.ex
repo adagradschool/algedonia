@@ -1,44 +1,39 @@
 defmodule Algedonia.PromptBuilder do
   @moduledoc """
-  Pure functions for building prompt strings sent to maker, checker,
-  and checker handoff repair agents.
+  Pure functions for building prompt strings sent to planner, maker, checker,
+  hooks, and checker handoff repair agents.
   """
+
+  require EEx
 
   alias Algedonia.{CheckerHandoff, InlineReviews, Tickets}
 
   @doc """
   Builds the maker task prompt for a loop.
 
-  Includes ticket context, acceptance criteria, comments, planning lookup,
+  Includes ticket context, acceptance criteria, comments, checker skills,
   task description, rubric, previous feedback, and inline reviews.
   """
   @spec maker_task(map(), map(), String.t()) :: String.t()
   def maker_task(loop, ticket, feedback) do
     task_desc = loop.description || loop.title
-    ticket_ref = ticket_reference(ticket)
-    plan_lookup = "ag ticket comments #{ticket_ref} --json"
+    checker_config = Map.get(loop, :checker_config)
 
     inline_reviews =
       loop.id
       |> InlineReviews.list_pending_by_loop()
       |> InlineReviews.serialize_for_prompt()
 
-    sections = [
-      "Ticket: #{ticket.title}",
-      optional_section("Acceptance criteria", ticket.acceptance_criteria),
-      format_comments(Tickets.list_comments(ticket.id)),
-      """
-      Fetch approved planning notes before implementation:
-      #{plan_lookup}
-      """,
-      "Task:\n#{task_desc}",
-      optional_section("Rubric", loop.rubric || ticket.rubric),
-      optional_section("Previous checker feedback", non_empty(feedback)),
-      inline_reviews,
-      "Implement the task and run relevant checks before finishing."
-    ]
-
-    sections |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
+    render_template!("maker_task", %{
+      ticket_title: ticket.title,
+      acceptance_criteria: non_empty(ticket.acceptance_criteria),
+      comments: format_comments(Tickets.list_comments(ticket.id)),
+      checker_skills: skill_config_text(checker_config),
+      task_desc: task_desc,
+      rubric: non_empty(loop.rubric || ticket.rubric),
+      previous_feedback: non_empty(feedback),
+      inline_reviews: inline_reviews
+    })
   end
 
   @doc """
@@ -51,29 +46,48 @@ defmodule Algedonia.PromptBuilder do
   def checker_task(loop, ticket, workspace_slug \\ nil) do
     expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt, workspace_slug)
     task_desc = loop.description || loop.title
+    checker_config = Map.get(loop, :checker_config)
 
-    sections = [
-      "Ticket: #{ticket.title}",
-      optional_section("Acceptance criteria", ticket.acceptance_criteria),
-      "Task:\n#{task_desc}",
-      optional_section("Rubric", loop.rubric || ticket.rubric),
-      """
-      REQUIRED HANDOFF FORMAT (file IPC):
-      1) Write markdown feedback to: #{expected.feedback}
-      2) Write JSON to: #{expected.json}
+    render_template!("checker_task", %{
+      ticket_title: ticket.title,
+      acceptance_criteria: non_empty(ticket.acceptance_criteria),
+      checker_skills: skill_config_text(checker_config),
+      task_desc: task_desc,
+      rubric: non_empty(loop.rubric || ticket.rubric),
+      expected_feedback_path: expected.feedback,
+      expected_json_path: expected.json
+    })
+  end
 
-      JSON must be exactly:
-      {"VERDICT":"pass|fail","FEEDBACK":"#{expected.feedback}"}
+  @doc """
+  Builds the planning-session task prompt used by ad-hoc planning loops.
+  """
+  @spec planning_session_task(map()) :: String.t()
+  def planning_session_task(ticket) do
+    render_template!("planning_session_task", %{
+      ticket_title: ticket.title,
+      description: non_empty(Map.get(ticket, :description)),
+      acceptance_criteria: non_empty(Map.get(ticket, :acceptance_criteria)),
+      current_rubric: non_empty(Map.get(ticket, :rubric))
+    })
+  end
 
-      Rules:
-      - Create parent directories if they do not exist.
-      - VERDICT must be either "pass" or "fail" (lowercase).
-      - FEEDBACK must be the markdown file path above.
-      - Do not output any alternative verdict format.\
-      """
-    ]
+  @doc """
+  Builds the hook execution task prompt.
+  """
+  @spec hook_task(map()) :: String.t()
+  def hook_task(context) do
+    ticket = Map.get(context, :ticket) || %{}
 
-    sections |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
+    render_template!("hook_task", %{
+      instruction: non_empty(Map.get(context, :instruction)) || "(no instruction provided)",
+      ticket_id: Map.get(ticket, :id),
+      ticket_title: Map.get(ticket, :title),
+      ticket_status: Map.get(ticket, :status),
+      previous_status: Map.get(ticket, :previous_status),
+      acceptance_criteria: non_empty(Map.get(ticket, :acceptance_criteria)),
+      description: non_empty(Map.get(ticket, :description))
+    })
   end
 
   @doc """
@@ -87,26 +101,13 @@ defmodule Algedonia.PromptBuilder do
   def checker_handoff_repair_task(loop, handoff_error, repairs, workspace_slug \\ nil) do
     expected = CheckerHandoff.expected_paths(loop.id, loop.current_attempt, workspace_slug)
 
-    """
-    Handoff verifier failed for checker loop #{loop.id} (repair round #{repairs}):
-    #{handoff_error}
-
-    REPAIR-ONLY MODE:
-    - Do NOT rerun checks.
-    - Do NOT re-evaluate the codebase.
-    - Use your previous checker conclusion and feedback from this attempt.
-    - Only fix the handoff file contract.
-
-    REQUIRED HANDOFF FORMAT (file IPC):
-    1) Write markdown feedback to: #{expected.feedback}
-    2) Write JSON to: #{expected.json}
-    JSON exactly: {"VERDICT":"pass|fail","FEEDBACK":"#{expected.feedback}"}
-
-    Rules:
-    - Create parent directories if missing.
-    - VERDICT must be lowercase pass/fail.
-    - FEEDBACK must match the exact markdown path above.
-    """
+    render_template!("checker_handoff_repair_task", %{
+      loop_id: loop.id,
+      repairs: repairs,
+      handoff_error: handoff_error,
+      expected_feedback_path: expected.feedback,
+      expected_json_path: expected.json
+    })
   end
 
   @doc """
@@ -124,6 +125,18 @@ defmodule Algedonia.PromptBuilder do
   def non_empty(""), do: nil
   def non_empty(nil), do: nil
   def non_empty(s), do: s
+
+  @doc """
+  Returns nil when checker config is blank, otherwise pretty text for prompt inclusion.
+  """
+  @spec skill_config_text(any()) :: String.t() | nil
+  def skill_config_text(nil), do: nil
+  def skill_config_text(""), do: nil
+  def skill_config_text(config) when is_binary(config), do: non_empty(String.trim(config))
+
+  def skill_config_text(config) do
+    inspect(config, pretty: true, limit: :infinity, width: 100)
+  end
 
   @doc """
   Returns nil for empty lists, the list otherwise.
@@ -175,5 +188,17 @@ defmodule Algedonia.PromptBuilder do
       end
 
     header <> replies
+  end
+
+  # -- Private --
+
+  defp render_template!(name, assigns) when is_map(assigns) do
+    path =
+      :algedonia
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("prompts/#{name}.md.eex")
+
+    EEx.eval_file(path, Map.to_list(assigns), trim: true)
   end
 end
