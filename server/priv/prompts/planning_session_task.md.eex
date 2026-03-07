@@ -23,7 +23,13 @@ Your goal is to produce a high-signal checker procedure before implementation st
 4. Pick the minimal skill set that fully verifies acceptance criteria.
 5. Parameterize skills with concrete, testable scenarios (especially browser and agent-review steps).
 6. Tighten acceptance criteria so they are falsifiable and implementation-ready.
-7. Post a short implementation spec (approach, likely files, key risks/decisions).
+7. Write a concrete implementation plan (approach, likely files, key risks/decisions).
+8. Use `ag ticket update` to persist planning outputs to the ticket:
+   - Update **title** if the original is vague or misaligned with the refined scope.
+   - Update **description** with the refined scope and any context discovered during planning.
+   - Update **acceptance criteria** with the tightened, falsifiable criteria from step 6.
+   - Update **rubric** with the selected checker skills and concrete evaluation criteria.
+9. Post the implementation plan as a ticket comment via `ag ticket comment`.
 
 ## Output Rules
 
