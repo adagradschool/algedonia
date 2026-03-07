@@ -4,8 +4,17 @@ defmodule AlgedoniaWeb.DaemonChannel do
   """
   use Phoenix.Channel
 
-  alias Algedonia.{Accounts, Daemons, Workspaces}
-  alias Algedonia.{HookExecutor, TaskLoopOrchestrator}
+  alias Algedonia.{
+    Accounts,
+    Daemons,
+    HookExecutor,
+    Loops,
+    TaskLoopOrchestrator,
+    TenantScope,
+    Workspaces
+  }
+
+  alias Algedonia.PubSub.Topics
   alias Algedonia.Terminals
 
   intercept [
@@ -113,20 +122,22 @@ defmodule AlgedoniaWeb.DaemonChannel do
         socket
       ) do
     with true <- uuid_string?(loop_id),
-         true <- authorized_workspace_slug?(socket, workspace_slug) do
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         {:ok, decoded} <- decode_base64(data) do
       workspace_id = workspace_id_from_payload(payload)
 
-      case Base.decode64(data) do
-        {:ok, decoded} ->
-          Terminals.append(loop_id, decoded)
-          maybe_append_step_output(loop_id, decoded, workspace_id)
-          {:noreply, socket}
+      TenantScope.with_workspace(workspace_id, fn ->
+        Terminals.append(loop_id, decoded)
+        maybe_append_step_output(loop_id, decoded, workspace_id)
+      end)
 
-        :error ->
-          {:reply, {:error, %{reason: "invalid_base64"}}, socket}
-      end
+      {:noreply, socket}
     else
-      _ -> {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+      {:error, :invalid_base64} ->
+        {:reply, {:error, %{reason: "invalid_base64"}}, socket}
+
+      _ ->
+        {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
     end
   end
 
@@ -193,11 +204,13 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("diff_result", %{"loop_id" => loop_id} = payload, socket) do
-    Phoenix.PubSub.broadcast(
-      Algedonia.PubSub,
-      "loop:#{loop_id}",
-      {:diff_result, Map.get(payload, "diff", ""), Map.get(payload, "error")}
-    )
+    if workspace_id = workspace_id_for_loop(loop_id) do
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.loop(workspace_id, loop_id),
+        {:diff_result, Map.get(payload, "diff", ""), Map.get(payload, "error")}
+      )
+    end
 
     {:noreply, socket}
   end
@@ -210,13 +223,16 @@ defmodule AlgedoniaWeb.DaemonChannel do
       ) do
     with true <- uuid_string?(loop_id),
          true <- authorized_workspace_slug?(socket, workspace_slug) do
-      workspace_id = workspace_id_from_payload(payload)
-      Terminals.terminal_ended(loop_id)
-      maybe_end_step_terminal(loop_id, exit_code, workspace_id)
+      workspace_id = workspace_id_from_payload(payload) || workspace_id_for_loop(loop_id)
+
+      TenantScope.with_workspace(workspace_id, fn ->
+        Terminals.terminal_ended(loop_id)
+        maybe_end_step_terminal(loop_id, exit_code, workspace_id)
+      end)
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "terminal:#{loop_id}",
+        Topics.terminal(workspace_id, loop_id),
         {:terminal_ended, loop_id, exit_code}
       )
 
@@ -340,7 +356,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
         Phoenix.PubSub.broadcast(
           Algedonia.PubSub,
-          "terminal:#{step_id}",
+          Topics.terminal(workspace_id, step_id),
           {:terminal_ended, step_id, exit_code}
         )
 
@@ -398,6 +414,20 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp workspace_id_from_payload(_), do: nil
+
+  defp workspace_id_for_loop(loop_id) do
+    case Loops.get_loop(loop_id) do
+      %{workspace_id: workspace_id} -> workspace_id
+      _ -> nil
+    end
+  end
+
+  defp decode_base64(value) do
+    case Base.decode64(value) do
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, :invalid_base64}
+    end
+  end
 
   defp uuid_string?(value) when is_binary(value) do
     String.match?(value, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)

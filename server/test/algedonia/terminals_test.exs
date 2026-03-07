@@ -1,7 +1,8 @@
 defmodule Algedonia.TerminalsTest do
-  use ExUnit.Case, async: true
+  use Algedonia.DataCase, async: true
 
   alias Algedonia.Terminals
+  import Algedonia.Factory
 
   defp unique_loop_id do
     Ecto.UUID.generate()
@@ -40,10 +41,12 @@ defmodule Algedonia.TerminalsTest do
     assert scrollback =~ "data2"
   end
 
-  test "subscribe/1 receives terminal_data" do
-    loop_id = unique_loop_id()
-    Terminals.subscribe(loop_id)
-    Terminals.append(loop_id, "subscribed")
+  test "subscribe/2 receives terminal_data" do
+    loop = insert_loop!()
+    loop_id = loop.id
+
+    Terminals.subscribe(loop.workspace_id, loop.id)
+    Terminals.append(loop.id, "subscribed")
     assert_receive {:terminal_data, ^loop_id, "subscribed"}, 1000
   end
 

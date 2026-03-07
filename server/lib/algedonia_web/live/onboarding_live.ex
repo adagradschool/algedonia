@@ -10,7 +10,7 @@ defmodule AlgedoniaWeb.OnboardingLive do
     socket = determine_initial_step(socket)
 
     if connected?(socket) && socket.assigns[:workspace] do
-      Daemons.subscribe()
+      Daemons.subscribe(socket.assigns.workspace.id)
     end
 
     {:ok, socket}
@@ -457,7 +457,7 @@ defmodule AlgedoniaWeb.OnboardingLive do
         Workspaces.ensure_membership(workspace, user, role: :owner)
         create_default_automation(workspace)
 
-        if connected?(socket), do: Daemons.subscribe()
+        if connected?(socket), do: Daemons.subscribe(workspace.id)
 
         {:noreply,
          socket

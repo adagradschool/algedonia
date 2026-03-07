@@ -3,17 +3,21 @@ defmodule Algedonia.Terminals.TerminalBuffer do
   GenServer per loop_id that holds raw binary scrollback and broadcasts new data via PubSub.
   """
   use GenServer, restart: :temporary
+  alias Algedonia.PubSub.Topics
+  alias Algedonia.TenantScope
 
   @max_bytes 8 * 1024 * 1024
   @cleanup_delay :timer.minutes(5)
 
   # --- Client API ---
 
-  def start_link(loop_id) do
-    GenServer.start_link(__MODULE__, loop_id,
+  def start_link({loop_id, workspace_id}) do
+    GenServer.start_link(__MODULE__, {loop_id, workspace_id},
       name: {:via, Registry, {Algedonia.Terminals.Registry, loop_id}}
     )
   end
+
+  def start_link(loop_id), do: start_link({loop_id, TenantScope.get_workspace()})
 
   def append(pid, data) do
     GenServer.cast(pid, {:append, data})
@@ -26,8 +30,17 @@ defmodule Algedonia.Terminals.TerminalBuffer do
   # --- Server Callbacks ---
 
   @impl true
-  def init(loop_id) do
-    {:ok, %{loop_id: loop_id, chunks: :queue.new(), byte_size: 0, ended: false}}
+  def init({loop_id, workspace_id}) do
+    if workspace_id, do: TenantScope.put_workspace(workspace_id)
+
+    {:ok,
+     %{
+       loop_id: loop_id,
+       workspace_id: workspace_id,
+       chunks: :queue.new(),
+       byte_size: 0,
+       ended: false
+     }}
   end
 
   @impl true
@@ -39,7 +52,7 @@ defmodule Algedonia.Terminals.TerminalBuffer do
 
     Phoenix.PubSub.broadcast(
       Algedonia.PubSub,
-      "terminal:#{state.loop_id}",
+      Topics.terminal(state.workspace_id, state.loop_id),
       {:terminal_data, state.loop_id, data}
     )
 

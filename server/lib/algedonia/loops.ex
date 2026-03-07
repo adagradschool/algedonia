@@ -5,6 +5,7 @@ defmodule Algedonia.Loops do
   import Ecto.Query
 
   alias Algedonia.Loops.{Loop, LoopStep}
+  alias Algedonia.PubSub.Topics
   alias Algedonia.Repo
   alias Algedonia.TenantScope
 
@@ -94,13 +95,13 @@ defmodule Algedonia.Loops do
 
         Phoenix.PubSub.broadcast(
           Algedonia.PubSub,
-          "ticket_loops:#{ticket_id}",
+          Topics.ticket_loops(loop.workspace_id, ticket_id),
           {:loop_status_changed, loop}
         )
 
         Phoenix.PubSub.broadcast(
           Algedonia.PubSub,
-          "loop:#{loop.id}",
+          Topics.loop(loop.workspace_id, loop.id),
           {:loop_updated, loop}
         )
 
@@ -121,7 +122,7 @@ defmodule Algedonia.Loops do
       {:ok, loop} ->
         Phoenix.PubSub.broadcast(
           Algedonia.PubSub,
-          "loop:#{loop.id}",
+          Topics.loop(loop.workspace_id, loop.id),
           {:loop_updated, loop}
         )
 
@@ -191,7 +192,7 @@ defmodule Algedonia.Loops do
 
       Phoenix.PubSub.broadcast(
         Algedonia.PubSub,
-        "ticket_loops:#{updated.ticket_id}",
+        Topics.ticket_loops(updated.workspace_id, updated.ticket_id),
         {:loop_status_changed, updated}
       )
 
@@ -394,17 +395,18 @@ defmodule Algedonia.Loops do
   @doc """
   Subscribes to loop-status events for a ticket.
   """
-  @spec subscribe_ticket_loops(Algedonia.Types.id()) :: :ok | {:error, term()}
-  def subscribe_ticket_loops(ticket_id) do
-    Phoenix.PubSub.subscribe(Algedonia.PubSub, "ticket_loops:#{ticket_id}")
+  @spec subscribe_ticket_loops(Algedonia.Types.id(), Algedonia.Types.id()) ::
+          :ok | {:error, term()}
+  def subscribe_ticket_loops(workspace_id, ticket_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.ticket_loops(workspace_id, ticket_id))
   end
 
   @doc """
   Subscribes to updates for a specific loop.
   """
-  @spec subscribe(Algedonia.Types.id()) :: :ok | {:error, term()}
-  def subscribe(loop_id) do
-    Phoenix.PubSub.subscribe(Algedonia.PubSub, "loop:#{loop_id}")
+  @spec subscribe(Algedonia.Types.id(), Algedonia.Types.id()) :: :ok | {:error, term()}
+  def subscribe(workspace_id, loop_id) do
+    Phoenix.PubSub.subscribe(Algedonia.PubSub, Topics.loop(workspace_id, loop_id))
   end
 
   # -- Step functions (replaces TaskLoopHistory) --
@@ -528,11 +530,13 @@ defmodule Algedonia.Loops do
         }
       end)
 
-    Phoenix.PubSub.broadcast(
-      Algedonia.PubSub,
-      "loop:#{loop_id}",
-      {:loop_history_updated, steps_as_maps}
-    )
+    if workspace_id = loop_workspace_id(loop_id) do
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.loop(workspace_id, loop_id),
+        {:loop_history_updated, steps_as_maps}
+      )
+    end
   end
 
   @doc """
@@ -608,6 +612,13 @@ defmodule Algedonia.Loops do
       _ ->
         []
     end
+  end
+
+  defp loop_workspace_id(loop_id) do
+    Loop
+    |> where([l], l.id == ^loop_id)
+    |> select([l], l.workspace_id)
+    |> Repo.one()
   end
 
   defp uuid?(value) when is_binary(value) do

@@ -8,6 +8,7 @@ defmodule Algedonia.HookExecutor do
   """
 
   alias Algedonia.{Agents, Daemons, Loops, Tickets, Workspaces}
+  alias Algedonia.PubSub.Topics
   alias Algedonia.TenantScope
   alias Algedonia.Tickets.Ticket
   alias AlgedoniaWeb.DaemonChannel
@@ -28,7 +29,7 @@ defmodule Algedonia.HookExecutor do
 
   defp execute_hook(hook, ticket, from_status, to_status) do
     with {:ok, loop} <- create_hook_loop(hook, ticket) do
-      broadcast_hook_loop(ticket.id, loop)
+      broadcast_hook_loop(ticket.workspace_id, ticket.id, loop)
       maybe_dispatch_hook_loop(loop, hook, ticket, from_status, to_status)
     end
   end
@@ -44,10 +45,10 @@ defmodule Algedonia.HookExecutor do
     })
   end
 
-  defp broadcast_hook_loop(ticket_id, loop) do
+  defp broadcast_hook_loop(workspace_id, ticket_id, loop) do
     Phoenix.PubSub.broadcast(
       Algedonia.PubSub,
-      "ticket_loops:#{ticket_id}",
+      Topics.ticket_loops(workspace_id, ticket_id),
       {:hook_loop_created, loop}
     )
   end
@@ -89,16 +90,16 @@ defmodule Algedonia.HookExecutor do
   """
   @spec handle_attempt_complete(binary(), map(), keyword()) :: :ok
   def handle_attempt_complete(loop_id, payload, opts \\ []) do
-    case cast_workspace_id(Keyword.get(opts, :workspace_id)) do
-      {:ok, workspace_id} ->
+    case Keyword.get(opts, :workspace_id) do
+      nil ->
+        :ok
+
+      workspace_id ->
         TenantScope.with_workspace(workspace_id, fn ->
           loop_id
           |> Loops.get_loop()
           |> maybe_complete_hook(payload)
         end)
-
-      :error ->
-        :ok
     end
 
     :ok
@@ -109,16 +110,16 @@ defmodule Algedonia.HookExecutor do
   """
   @spec handle_attempt_error(binary(), map(), keyword()) :: :ok
   def handle_attempt_error(loop_id, _payload, opts \\ []) do
-    case cast_workspace_id(Keyword.get(opts, :workspace_id)) do
-      {:ok, workspace_id} ->
+    case Keyword.get(opts, :workspace_id) do
+      nil ->
+        :ok
+
+      workspace_id ->
         TenantScope.with_workspace(workspace_id, fn ->
           loop_id
           |> Loops.get_loop()
           |> maybe_fail_hook()
         end)
-
-      :error ->
-        :ok
     end
 
     :ok
@@ -180,11 +181,6 @@ defmodule Algedonia.HookExecutor do
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n\n")
   end
-
-  defp cast_workspace_id(workspace_id) when is_binary(workspace_id),
-    do: Ecto.UUID.cast(workspace_id)
-
-  defp cast_workspace_id(_), do: :error
 
   defp maybe_complete_hook(%{role: :hook} = loop, payload) do
     if Map.get(payload, "exit_code", 0) == 0 do

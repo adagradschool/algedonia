@@ -24,7 +24,6 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   @impl true
   def mount(params, session, socket) do
-    if connected?(socket), do: Tickets.subscribe()
     workspace_slug = params["workspace"] || session["current_workspace_slug"]
 
     current_workspace =
@@ -34,6 +33,10 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
     current_workspace_id = current_workspace && current_workspace.id
     workspace_prefix = if current_workspace, do: current_workspace.prefix, else: "AG"
+
+    if connected?(socket) && current_workspace_id do
+      Tickets.subscribe(current_workspace_id)
+    end
 
     {:ok,
      assign(socket,
@@ -257,22 +260,15 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   defp stream_insert_ticket(socket, ticket) do
-    # Skip tickets not in the current workspace
-    if ticket.workspace_id != socket.assigns.current_workspace_id, do: throw(:skip)
-
     loop_info = Loops.active_loop_info_for_tickets([ticket.id])
 
     socket
     |> stream_insert(stream_name(ticket.status), ticket)
     |> update(:loop_info, &Map.merge(&1, loop_info))
     |> update_ticket_count(ticket.status, +1)
-  catch
-    :skip -> socket
   end
 
   defp stream_update_ticket(socket, ticket) do
-    if ticket.workspace_id != socket.assigns.current_workspace_id, do: throw(:skip)
-
     old_status = find_old_status(socket.assigns.tickets_by_status, ticket.id)
     loop_info = Loops.active_loop_info_for_tickets([ticket.id])
 
@@ -290,13 +286,9 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     socket
     |> update(:loop_info, &Map.merge(&1, loop_info))
     |> update_tickets_by_status(old_status, ticket)
-  catch
-    :skip -> socket
   end
 
   defp stream_delete_ticket(socket, ticket) do
-    if ticket.workspace_id != socket.assigns.current_workspace_id, do: throw(:skip)
-
     socket
     |> stream_delete(stream_name(ticket.status), ticket)
     |> update(:loop_info, &Map.delete(&1, ticket.id))
@@ -306,8 +298,6 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         Enum.reject(tickets, &(&1.id == ticket.id))
       end)
     end)
-  catch
-    :skip -> socket
   end
 
   defp find_old_status(tickets_by_status, ticket_id) do

@@ -11,9 +11,11 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Daemons.subscribe()
+    workspace_id = socket.assigns.current_workspace.id
 
-    daemons = Daemons.list_daemons()
+    if connected?(socket), do: Daemons.subscribe(workspace_id)
+
+    daemons = Daemons.list_daemons(workspace_id)
 
     {:ok,
      socket
@@ -23,16 +25,20 @@ defmodule AlgedoniaWeb.MonitorLive.Index do
 
   @impl true
   def handle_info({:daemon_status_changed, daemon}, socket) do
+    workspace_id = socket.assigns.current_workspace.id
+
     {:noreply,
      socket
-     |> assign(:daemon_count, Daemons.list_daemons() |> length())
+     |> assign(:daemon_count, Daemons.list_daemons(workspace_id) |> length())
      |> stream_insert(:daemons, daemon)}
   end
 
   def handle_info({:daemon_heartbeat, daemon}, socket) do
+    workspace_id = socket.assigns.current_workspace.id
+
     {:noreply,
      socket
-     |> assign(:daemon_count, Daemons.list_daemons() |> length())
+     |> assign(:daemon_count, Daemons.list_daemons(workspace_id) |> length())
      |> stream_insert(:daemons, daemon)}
   end
 

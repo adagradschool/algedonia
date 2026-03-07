@@ -21,7 +21,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
           Phoenix.LiveView.Socket.t()
   def load_detail(socket, workspace_id, ticket_ref) do
     ticket = Tickets.get_ticket_by_ref!(workspace_id, ticket_ref)
-    if connected?(socket), do: Loops.subscribe_ticket_loops(ticket.id)
+    if connected?(socket), do: Loops.subscribe_ticket_loops(workspace_id, ticket.id)
 
     assign(socket,
       page_title: ticket.title,

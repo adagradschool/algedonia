@@ -63,7 +63,7 @@ defmodule Algedonia.LoopsTest do
   describe "update_loop_status/2" do
     test "updates status and broadcasts" do
       loop = insert_loop!()
-      Loops.subscribe_ticket_loops(loop.ticket_id)
+      Loops.subscribe_ticket_loops(loop.workspace_id, loop.ticket_id)
 
       assert {:ok, updated} = Loops.update_loop_status(loop, :running)
       assert updated.status == :running
