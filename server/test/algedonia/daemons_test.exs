@@ -6,23 +6,39 @@ defmodule Algedonia.DaemonsTest do
 
   describe "register_daemon/1" do
     test "creates a new daemon registration" do
-      assert {:ok, daemon} = Daemons.register_daemon(%{name: "test-daemon"})
+      user = Factory.insert_user!()
+      assert {:ok, daemon} = Daemons.register_daemon(%{name: "test-daemon", user_id: user.id})
       assert daemon.name == "test-daemon"
+      assert daemon.user_id == user.id
       assert daemon.status == :online
       assert daemon.connected_at
       assert daemon.last_heartbeat_at
     end
 
     test "upserts existing daemon to online" do
-      existing = Factory.insert_daemon!(%{name: "my-daemon", status: :offline})
+      user = Factory.insert_user!()
+      existing = Factory.insert_daemon!(%{name: "my-daemon", status: :offline, user_id: user.id})
 
-      assert {:ok, daemon} = Daemons.register_daemon(%{name: "my-daemon"})
+      assert {:ok, daemon} = Daemons.register_daemon(%{name: "my-daemon", user_id: user.id})
       assert daemon.id == existing.id
       assert daemon.status == :online
     end
 
+    test "rejects taking over a daemon name registered to another user" do
+      owner = Factory.insert_user!()
+      attacker = Factory.insert_user!()
+      Factory.insert_daemon!(%{name: "my-daemon", status: :online, user_id: owner.id})
+
+      assert {:error, :name_taken} =
+               Daemons.register_daemon(%{name: "my-daemon", user_id: attacker.id})
+    end
+
     test "requeues running task loops on reconnect" do
-      daemon = Factory.insert_daemon!(%{name: "reconnect-daemon", status: :offline})
+      user = Factory.insert_user!()
+
+      daemon =
+        Factory.insert_daemon!(%{name: "reconnect-daemon", status: :offline, user_id: user.id})
+
       ticket = Factory.insert_ticket!()
 
       loop =
@@ -34,7 +50,8 @@ defmodule Algedonia.DaemonsTest do
           assigned_daemon_id: daemon.id
         })
 
-      assert {:ok, _daemon} = Daemons.register_daemon(%{name: "reconnect-daemon"})
+      assert {:ok, _daemon} =
+               Daemons.register_daemon(%{name: "reconnect-daemon", user_id: user.id})
 
       updated_loop = Algedonia.Loops.get_loop!(loop.id)
       assert updated_loop.status == :pending
@@ -53,6 +70,19 @@ defmodule Algedonia.DaemonsTest do
       assert updated.capacity == 5
       assert updated.running_loops == 2
       assert DateTime.compare(updated.last_heartbeat_at, old_heartbeat) == :gt
+    end
+
+    test "persists available_agents and bare_repos arrays" do
+      daemon = Factory.insert_daemon!()
+
+      assert {:ok, updated} =
+               Daemons.update_heartbeat(daemon, %{
+                 available_agents: ["claude_code", "codex"],
+                 bare_repos: ["alpha", "beta"]
+               })
+
+      assert updated.available_agents == ["claude_code", "codex"]
+      assert updated.bare_repos == ["alpha", "beta"]
     end
   end
 

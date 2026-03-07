@@ -48,22 +48,25 @@ defmodule Algedonia.Daemons do
 
   def register_daemon(attrs) do
     name = Map.get(attrs, :name) || Map.get(attrs, "name")
+    user_id = Map.get(attrs, :user_id) || Map.get(attrs, "user_id")
     now = DateTime.utc_now()
+
+    registration_attrs =
+      Map.merge(attrs, %{status: :online, connected_at: now, last_heartbeat_at: now})
 
     case get_daemon_by_name(name) do
       nil ->
         %DaemonRegistration{}
-        |> DaemonRegistration.changeset(
-          Map.merge(attrs, %{status: :online, connected_at: now, last_heartbeat_at: now})
-        )
+        |> DaemonRegistration.changeset(registration_attrs)
         |> Repo.insert()
 
-      existing ->
+      existing when existing.user_id == user_id ->
         existing
-        |> DaemonRegistration.changeset(
-          Map.merge(attrs, %{status: :online, connected_at: now, last_heartbeat_at: now})
-        )
+        |> DaemonRegistration.changeset(registration_attrs)
         |> Repo.update()
+
+      _existing ->
+        {:error, :name_taken}
     end
     |> tap(fn
       {:ok, daemon} ->

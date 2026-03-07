@@ -49,9 +49,11 @@ type Client struct {
 
 	handlers map[string]func(ctx context.Context, payload map[string]interface{}) error
 
-	runningLoopsFn  func() int
-	runningLoopIDFn func() []string
-	onJoin          JoinCallback
+	runningLoopsFn    func() int
+	runningLoopIDFn   func() []string
+	availableAgentsFn func() []string
+	bareReposFn       func() []string
+	onJoin            JoinCallback
 }
 
 type pendingWrite struct {
@@ -83,6 +85,16 @@ func (c *Client) SetRunningLoopsFn(fn func() int) {
 // SetRunningLoopIDFn sets the function used to report running loop IDs in heartbeats.
 func (c *Client) SetRunningLoopIDFn(fn func() []string) {
 	c.runningLoopIDFn = fn
+}
+
+// SetAvailableAgentsFn sets the function used to report available agents in heartbeats.
+func (c *Client) SetAvailableAgentsFn(fn func() []string) {
+	c.availableAgentsFn = fn
+}
+
+// SetBareReposFn sets the function used to report bare repos in heartbeats.
+func (c *Client) SetBareReposFn(fn func() []string) {
+	c.bareReposFn = fn
 }
 
 // OnJoin registers a callback invoked after a successful channel join.
@@ -157,8 +169,18 @@ func (c *Client) run(ctx context.Context) error {
 
 	// Join channel (direct write, before write loop starts)
 	c.joinRef = c.nextRef()
+	var availableAgents []string
+	if c.availableAgentsFn != nil {
+		availableAgents = c.availableAgentsFn()
+	}
+	var bareRepos []string
+	if c.bareReposFn != nil {
+		bareRepos = c.bareReposFn()
+	}
 	joinPayload := map[string]interface{}{
-		"display_name": c.name,
+		"display_name":     c.name,
+		"available_agents": availableAgents,
+		"bare_repos":       bareRepos,
 	}
 
 	if err := c.directWrite(ctx, conn, c.topic(), "phx_join", joinPayload, c.joinRef); err != nil {
@@ -359,10 +381,20 @@ func (c *Client) appHeartbeatLoop(ctx context.Context) error {
 			if c.runningLoopIDFn != nil {
 				runningLoopIDs = c.runningLoopIDFn()
 			}
+			var availableAgents []string
+			if c.availableAgentsFn != nil {
+				availableAgents = c.availableAgentsFn()
+			}
+			var bareRepos []string
+			if c.bareReposFn != nil {
+				bareRepos = c.bareReposFn()
+			}
 			payload := map[string]interface{}{
 				"capacity":         c.capacity,
 				"running_loops":    runningLoops,
 				"running_loop_ids": runningLoopIDs,
+				"available_agents": availableAgents,
+				"bare_repos":       bareRepos,
 			}
 			if err := c.sendHeartbeat(ctx, c.topic(), "heartbeat", payload, c.nextRef()); err != nil {
 				return fmt.Errorf("app heartbeat: %w", err)
@@ -440,13 +472,20 @@ func FormatHeartbeat(ref string) ([]byte, error) {
 }
 
 // FormatAppHeartbeat creates an application-level heartbeat message (exported for testing).
-func FormatAppHeartbeat(topic string, capacity, runningLoops int, ref, joinRef string) ([]byte, error) {
+func FormatAppHeartbeat(
+	topic string,
+	capacity, runningLoops int,
+	availableAgents, bareRepos []string,
+	ref, joinRef string,
+) ([]byte, error) {
 	msg := PhoenixMessage{
 		Topic: topic,
 		Event: "heartbeat",
 		Payload: map[string]interface{}{
-			"capacity":      capacity,
-			"running_loops": runningLoops,
+			"capacity":         capacity,
+			"running_loops":    runningLoops,
+			"available_agents": availableAgents,
+			"bare_repos":       bareRepos,
 		},
 		Ref:     ref,
 		JoinRef: joinRef,

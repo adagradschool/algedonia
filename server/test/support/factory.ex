@@ -135,6 +135,14 @@ defmodule Algedonia.Factory do
   Returns a map of valid daemon registration attributes, merged with overrides.
   """
   def daemon_attrs(overrides \\ %{}) do
+    overrides =
+      if Map.has_key?(overrides, :user_id) do
+        overrides
+      else
+        user = insert_user!()
+        Map.put(overrides, :user_id, user.id)
+      end
+
     Map.merge(
       %{
         name: "daemon-#{System.unique_integer([:positive])}",
@@ -142,6 +150,8 @@ defmodule Algedonia.Factory do
         status: :online,
         capacity: 3,
         running_loops: 0,
+        available_agents: [],
+        bare_repos: [],
         last_heartbeat_at: DateTime.utc_now(),
         connected_at: DateTime.utc_now()
       },

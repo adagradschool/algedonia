@@ -67,7 +67,15 @@ func TestFormatHeartbeat(t *testing.T) {
 }
 
 func TestFormatAppHeartbeat(t *testing.T) {
-	data, err := FormatAppHeartbeat("daemon:host1", 5, 2, "10", "1")
+	data, err := FormatAppHeartbeat(
+		"daemon:host1",
+		5,
+		2,
+		[]string{"claude_code", "codex"},
+		[]string{"alpha", "beta"},
+		"10",
+		"1",
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -96,6 +104,20 @@ func TestFormatAppHeartbeat(t *testing.T) {
 	}
 	if payload["running_loops"] != float64(2) {
 		t.Errorf("running_loops = %v, want 2", payload["running_loops"])
+	}
+	availableAgents, ok := payload["available_agents"].([]interface{})
+	if !ok || len(availableAgents) != 2 {
+		t.Fatalf("available_agents = %v, want 2 entries", payload["available_agents"])
+	}
+	if availableAgents[0] != "claude_code" || availableAgents[1] != "codex" {
+		t.Errorf("available_agents = %v", availableAgents)
+	}
+	bareRepos, ok := payload["bare_repos"].([]interface{})
+	if !ok || len(bareRepos) != 2 {
+		t.Fatalf("bare_repos = %v, want 2 entries", payload["bare_repos"])
+	}
+	if bareRepos[0] != "alpha" || bareRepos[1] != "beta" {
+		t.Errorf("bare_repos = %v", bareRepos)
 	}
 }
 

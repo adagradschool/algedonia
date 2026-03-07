@@ -52,4 +52,12 @@ func TestDefaultRegistryHasBothAdapters(t *testing.T) {
 	if _, ok := codex.(*CodexAdapter); !ok {
 		t.Errorf("codex adapter type = %T, want *CodexAdapter", codex)
 	}
+
+	types := r.AgentTypes()
+	if len(types) != 2 {
+		t.Fatalf("AgentTypes length = %d, want 2", len(types))
+	}
+	if types[0] != "claude_code" || types[1] != "codex" {
+		t.Errorf("AgentTypes = %v, want [claude_code codex]", types)
+	}
 }
