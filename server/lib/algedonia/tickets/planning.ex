@@ -77,8 +77,7 @@ defmodule Algedonia.Tickets.Planning do
     end
   end
 
-  defp ensure_repo_ready(%Ticket{workspace_id: workspace_id}, daemon_name)
-       when is_integer(workspace_id) do
+  defp ensure_repo_ready(%Ticket{workspace_id: workspace_id}, daemon_name) do
     workspace = Workspaces.get_workspace!(workspace_id)
 
     if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name, workspace.slug) do
@@ -87,6 +86,4 @@ defmodule Algedonia.Tickets.Planning do
       :ok
     end
   end
-
-  defp ensure_repo_ready(_ticket, _daemon_name), do: :ok
 end

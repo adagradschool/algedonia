@@ -452,7 +452,7 @@ defmodule AlgedoniaWeb.OnboardingLive do
 
     case Workspaces.create_workspace(attrs) do
       {:ok, workspace} ->
-        Workspaces.ensure_membership(workspace, user)
+        Workspaces.ensure_membership(workspace, user, role: :owner)
         create_default_automation(workspace)
 
         if connected?(socket), do: Daemons.subscribe()

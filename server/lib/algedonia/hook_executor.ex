@@ -160,8 +160,7 @@ defmodule Algedonia.HookExecutor do
     })
   end
 
-  defp check_repo_ready(daemon_name, %Ticket{workspace_id: workspace_id})
-       when is_integer(workspace_id) do
+  defp check_repo_ready(daemon_name, %Ticket{workspace_id: workspace_id}) do
     workspace = Workspaces.get_workspace!(workspace_id)
 
     if workspace.github_repo_url && !Daemons.repo_ready?(daemon_name, workspace.slug) do
@@ -170,8 +169,6 @@ defmodule Algedonia.HookExecutor do
       :ok
     end
   end
-
-  defp check_repo_ready(_daemon_name, _ticket), do: :ok
 
   defp build_hook_task(context) do
     ticket = context.ticket

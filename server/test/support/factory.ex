@@ -24,6 +24,7 @@ defmodule Algedonia.Factory do
     Map.merge(
       %{
         title: "Test ticket #{System.unique_integer([:positive])}",
+        number: System.unique_integer([:positive]),
         type: :feature,
         coding_agent: :claude_code,
         priority: 3,
@@ -69,7 +70,7 @@ defmodule Algedonia.Factory do
         workspace
 
       _ ->
-        workspace = insert_workspace!(%{slug: "testspace", name: "Algedonia"})
+        workspace = insert_workspace!(%{slug: "algedonia", name: "Algedonia"})
         Process.put(:default_workspace, workspace)
         workspace
     end

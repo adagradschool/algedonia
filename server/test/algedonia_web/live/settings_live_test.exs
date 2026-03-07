@@ -42,13 +42,14 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
     test "stays on same page when slug unchanged", %{conn: conn, workspace: workspace} do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
 
-      view
-      |> form("form[phx-submit=save]",
-        workspace: %{name: workspace.name, github_repo_url: "https://github.com/org/repo"}
-      )
-      |> render_submit()
+      html =
+        view
+        |> form("form[phx-submit=save]",
+          workspace: %{name: workspace.name, github_repo_url: "https://github.com/org/repo"}
+        )
+        |> render_submit()
 
-      assert render(view) =~ "https://github.com/org/repo"
+      assert html =~ "https://github.com/org/repo"
     end
   end
 

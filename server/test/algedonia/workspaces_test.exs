@@ -3,6 +3,7 @@ defmodule Algedonia.WorkspacesTest do
 
   alias Algedonia.Repo
   alias Algedonia.Workspaces
+  alias Algedonia.Workspaces.WorkspaceMembership
 
   import Algedonia.Factory
 
@@ -49,6 +50,123 @@ defmodule Algedonia.WorkspacesTest do
       assert {:ok, _} = Workspaces.ensure_membership(workspace, user)
 
       assert Workspaces.get_membership(workspace.id, user.id)
+    end
+
+    test "allows creating an owner membership" do
+      workspace = default_workspace!()
+      user = insert_user!()
+
+      assert {:ok, membership} = Workspaces.ensure_membership(workspace, user, role: :owner)
+      assert membership.role == :owner
+    end
+  end
+
+  describe "workspace config fields" do
+    test "persists tracker/playback/defaults and planning mode" do
+      attrs = %{
+        name: "Acme",
+        slug: "acme-ws",
+        prefix: "ACM",
+        github_repo_url: "https://github.com/acme/repo",
+        tracker_config: %{"planning_states" => ["planning"]},
+        playback_config: %{"concurrency" => 2},
+        defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
+        planning_mode: :always_review
+      }
+
+      assert {:ok, workspace} = Workspaces.create_workspace(attrs)
+      assert workspace.tracker_config == %{"planning_states" => ["planning"]}
+      assert workspace.playback_config == %{"concurrency" => 2}
+      assert workspace.defaults == %{"base_pipeline" => ["compile", "test", "lint"]}
+      assert workspace.planning_mode == :always_review
+    end
+
+    test "updates tracker/playback/defaults and planning mode" do
+      workspace = insert_workspace!()
+
+      assert {:ok, updated} =
+               Workspaces.update_workspace(workspace, %{
+                 tracker_config: %{"planning_states" => ["ready"]},
+                 playback_config: %{"concurrency" => 4},
+                 defaults: %{"coding_agent" => "codex"},
+                 planning_mode: :always_approve
+               })
+
+      assert updated.tracker_config == %{"planning_states" => ["ready"]}
+      assert updated.playback_config == %{"concurrency" => 4}
+      assert updated.defaults == %{"coding_agent" => "codex"}
+      assert updated.planning_mode == :always_approve
+    end
+
+    test "rejects invalid planning mode in changeset" do
+      attrs = %{
+        name: "Acme",
+        slug: "acme-invalid-planning",
+        prefix: "ACM",
+        planning_mode: :invalid_mode
+      }
+
+      assert {:error, changeset} = Workspaces.create_workspace(attrs)
+      assert errors_on(changeset).planning_mode
+    end
+  end
+
+  describe "workspace and membership database constraints" do
+    test "database rejects invalid planning_mode" do
+      assert_raise Postgrex.Error, ~r/workspaces_planning_mode_check/, fn ->
+        Repo.query!(
+          """
+          INSERT INTO workspaces (id, name, slug, prefix, next_ticket_number, planning_mode, inserted_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+          """,
+          [
+            Ecto.UUID.dump!(Ecto.UUID.generate()),
+            "Acme Invalid",
+            "acme-invalid-db",
+            "ACM",
+            1,
+            "manual_only"
+          ]
+        )
+      end
+    end
+
+    test "database rejects invalid membership role" do
+      workspace = insert_workspace!()
+      user = insert_user!()
+
+      assert_raise Postgrex.Error, ~r/valid_role/, fn ->
+        Repo.query!(
+          """
+          INSERT INTO workspace_memberships (id, workspace_id, user_id, role, inserted_at, updated_at)
+          VALUES ($1, $2, $3, $4, NOW(), NOW())
+          """,
+          [
+            Ecto.UUID.dump!(Ecto.UUID.generate()),
+            Ecto.UUID.dump!(workspace.id),
+            Ecto.UUID.dump!(user.id),
+            "admin"
+          ]
+        )
+      end
+    end
+
+    test "workspace_memberships enforces unique workspace_id/user_id" do
+      workspace = insert_workspace!()
+      user = insert_user!()
+
+      insert_membership!(workspace, user)
+
+      assert {:error, changeset} =
+               %WorkspaceMembership{}
+               |> WorkspaceMembership.changeset(%{
+                 workspace_id: workspace.id,
+                 user_id: user.id,
+                 role: :member
+               })
+               |> Repo.insert()
+
+      assert errors_on(changeset).workspace_id
     end
   end
 end
