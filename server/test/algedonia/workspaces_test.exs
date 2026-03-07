@@ -116,10 +116,17 @@ defmodule Algedonia.WorkspacesTest do
       assert_raise Postgrex.Error, ~r/workspaces_planning_mode_check/, fn ->
         Repo.query!(
           """
-          INSERT INTO workspaces (name, slug, prefix, next_ticket_number, planning_mode, inserted_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+          INSERT INTO workspaces (id, name, slug, prefix, next_ticket_number, planning_mode, inserted_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
           """,
-          ["Acme Invalid", "acme-invalid-db", "ACM", 1, "manual_only"]
+          [
+            Ecto.UUID.dump!(Ecto.UUID.generate()),
+            "Acme Invalid",
+            "acme-invalid-db",
+            "ACM",
+            1,
+            "manual_only"
+          ]
         )
       end
     end
@@ -131,10 +138,15 @@ defmodule Algedonia.WorkspacesTest do
       assert_raise Postgrex.Error, ~r/valid_role/, fn ->
         Repo.query!(
           """
-          INSERT INTO workspace_memberships (workspace_id, user_id, role, inserted_at, updated_at)
-          VALUES ($1, $2, $3, NOW(), NOW())
+          INSERT INTO workspace_memberships (id, workspace_id, user_id, role, inserted_at, updated_at)
+          VALUES ($1, $2, $3, $4, NOW(), NOW())
           """,
-          [workspace.id, user.id, "admin"]
+          [
+            Ecto.UUID.dump!(Ecto.UUID.generate()),
+            Ecto.UUID.dump!(workspace.id),
+            Ecto.UUID.dump!(user.id),
+            "admin"
+          ]
         )
       end
     end

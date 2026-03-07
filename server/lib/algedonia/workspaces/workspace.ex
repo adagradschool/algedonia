@@ -8,6 +8,9 @@ defmodule Algedonia.Workspaces.Workspace do
   @type t :: %__MODULE__{}
   @planning_modes [:auto, :always_approve, :always_review]
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "workspaces" do
     field :name, :string
     field :slug, :string

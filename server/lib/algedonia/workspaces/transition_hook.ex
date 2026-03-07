@@ -7,7 +7,7 @@ defmodule Algedonia.Workspaces.TransitionHook do
   import Ecto.Changeset
 
   @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :id
+  @foreign_key_type :binary_id
 
   @statuses [:backlog, :planning, :in_progress, :halted, :completed, :archived]
 

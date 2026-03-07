@@ -10,7 +10,7 @@ defmodule Algedonia.Tickets.Ticket do
   @foreign_key_type :binary_id
 
   schema "tickets" do
-    belongs_to :workspace, Algedonia.Workspaces.Workspace, type: :id
+    belongs_to :workspace, Algedonia.Workspaces.Workspace
     field :title, :string
     field :description, :string
     field :number, :integer

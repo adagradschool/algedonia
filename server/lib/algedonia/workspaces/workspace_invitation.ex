@@ -8,14 +8,14 @@ defmodule Algedonia.Workspaces.WorkspaceInvitation do
   @type t :: %__MODULE__{}
 
   @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :id
+  @foreign_key_type :binary_id
 
   schema "workspace_invitations" do
     field :github_username, :string
     field :status, Ecto.Enum, values: [:pending, :accepted, :cancelled], default: :pending
 
     belongs_to :workspace, Algedonia.Workspaces.Workspace
-    belongs_to :invited_by, Algedonia.Accounts.User, type: :binary_id
+    belongs_to :invited_by, Algedonia.Accounts.User
 
     timestamps(type: :utc_datetime)
   end

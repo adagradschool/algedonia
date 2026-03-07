@@ -8,11 +8,14 @@ defmodule Algedonia.Workspaces.WorkspaceMembership do
   @type t :: %__MODULE__{}
   @roles [:owner, :member]
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "workspace_memberships" do
     field :role, Ecto.Enum, values: @roles, default: :member
 
     belongs_to :workspace, Algedonia.Workspaces.Workspace
-    belongs_to :user, Algedonia.Accounts.User, type: :binary_id
+    belongs_to :user, Algedonia.Accounts.User
 
     timestamps(type: :utc_datetime)
   end

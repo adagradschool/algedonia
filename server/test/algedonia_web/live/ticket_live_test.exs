@@ -88,7 +88,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       html =
         view
-        |> form("#new-workspace-modal form", workspace: %{name: "Testspace"})
+        |> form("#new-workspace-modal form", workspace: %{name: "Algedonia"})
         |> render_submit()
 
       assert has_element?(view, "#new-workspace-modal")
