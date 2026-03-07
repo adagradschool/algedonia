@@ -5,7 +5,7 @@ config :algedonia, Algedonia.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "algedonia_dev",
+  database: System.get_env("DEV_DATABASE_NAME", "algedonia_dev"),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10

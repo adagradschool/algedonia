@@ -11,7 +11,9 @@ defmodule Algedonia.Repo.Migrations.AddWorkspaceSettingsAndInvitations do
       add :github_username, :text, null: false
       add :status, :text, null: false, default: "pending"
       add :workspace_id, references(:workspaces, on_delete: :delete_all), null: false
-      add :invited_by_id, references(:users, on_delete: :delete_all), null: false
+
+      add :invited_by_id, references(:users, type: :binary_id, on_delete: :delete_all),
+        null: false
 
       timestamps(type: :utc_datetime)
     end

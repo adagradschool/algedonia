@@ -42,7 +42,6 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp workspaces_for_user(nil), do: []
-  defp workspaces_for_user(user_id) when not is_binary(user_id), do: []
 
   defp workspaces_for_user(user_id) do
     user_id

@@ -13,7 +13,8 @@ defmodule Algedonia.Repo.Migrations.CreateWorkspacesAndUsers do
 
     create unique_index(:workspaces, [:slug])
 
-    create table(:users) do
+    create table(:users, primary_key: false) do
+      add :id, :binary_id, primary_key: true
       add :name, :text, null: false
       add :email, :text
 
@@ -24,7 +25,7 @@ defmodule Algedonia.Repo.Migrations.CreateWorkspacesAndUsers do
 
     create table(:workspace_memberships) do
       add :workspace_id, references(:workspaces, type: :id, on_delete: :delete_all), null: false
-      add :user_id, references(:users, type: :id, on_delete: :delete_all), null: false
+      add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
       add :role, :text, null: false, default: "member"
 
       timestamps(type: :utc_datetime)
