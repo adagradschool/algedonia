@@ -19,7 +19,7 @@ Generated from gap analysis between the current codebase and the v5 PRD / v4 SDD
 - File-level locking / LockManager
 - Impact analysis
 - loop_dependencies table
-- Built-in ticket CRUD UI (replaced by tracker sync)
+- Built-in ticket CRUD UI (keep full CRUD, remove decomposition trigger)
 - DagLive.Show view
 - DecomposeOrchestrator GenServer
 - YAML checker strategy files and `.algedonia/checkers/` directory
@@ -65,16 +65,15 @@ Migrate the `loops` table:
 - Rename statuses to match v5: remove `running_maker`/`running_checker`/`needs_clarification`/`pending_approval`/`assigned`/`ready`, add `running`/`tapered`/`review_gate`
 - Update `Loop` schema, changeset, and all status references
 
-### T0.4 — Bidirectional ticket UI
+### T0.4 — Clean up ticket UI
 **Priority: P0 | Size: S | Depends on: nothing**
 
-Tickets flow both ways — created in Algedonia or synced from tracker. Remove stale v4 machinery, keep full CRUD:
+Remove stale v4 machinery, keep full CRUD:
 - Remove "Start Work" button and decomposition trigger
-- Keep create ticket form — new tickets sync to tracker via `Tracker.create_ticket/2`
-- Keep ticket list/board view with drag-to-change-status (syncs back to tracker)
+- Keep create ticket form
+- Keep ticket list/board view with drag-to-change-status
 - Keep ticket detail panel with editable fields: title, description, acceptance_criteria (planning agent and humans both write to these)
 - Inline comments on ticket detail (planning agent posts questions, implementation spec, etc.)
-- All local edits sync to tracker bidirectionally
 
 ---
 
@@ -94,7 +93,7 @@ Update existing GitHub OAuth flow to create/update user records on login. Curren
 **Priority: P0 | Size: M | Depends on: T1.1**
 
 Create `workspaces` table:
-- `id`, `name`, `slug` (unique), `github_repo_url`, `tracker_config` (jsonb), `playback_config` (jsonb), `defaults` (jsonb), `planning_mode` (text, default `auto`)
+- `id`, `name`, `slug` (unique), `github_repo_url`, `playback_config` (jsonb), `defaults` (jsonb), `planning_mode` (text, default `auto`)
 
 Create `workspace_memberships` table:
 - `workspace_id`, `user_id`, `role` (owner/member)
@@ -133,12 +132,12 @@ Update all PubSub topics to include workspace:
 
 Update all LiveView mounts to subscribe within authenticated workspace only.
 
-### T1.6 — Update tickets schema for sync mirror
+### T1.6 — Update tickets schema for v5
 **Priority: P0 | Size: M | Depends on: T1.3**
 
 Migrate `tickets` table:
-- Add: `external_id` (text, unique per workspace), `identifier` (text), `labels` (text[]), `tracker_url` (text), `synced_at` (timestamptz), `blocked_by` (jsonb), `proposed_checker_config` (jsonb), `approved_checker_config` (jsonb)
-- Remove: `type`, `assignee`, `coding_agent`, `overview` (tracker concerns now)
+- Add: `labels` (text[]), `blocked_by` (jsonb), `proposed_checker_config` (jsonb), `approved_checker_config` (jsonb)
+- Remove: `type`, `assignee`, `coding_agent`, `overview`
 - Keep: `title`, `description`, `status`, `priority`, `acceptance_criteria`
 
 ### T1.7 — Loop iterations and checker step results tables
@@ -174,13 +173,13 @@ Daemon side: on `run_checker_step`, resolve skill config from the repo's `.alged
 ### T2.2 — Planning agent
 **Priority: P0 | Size: L | Depends on: T2.1, T1.6**
 
-When a ticket enters a planning state (configurable via `tracker_config.planning_states`):
+When a ticket enters a planning state:
 
 1. Server reads ticket's acceptance criteria and repo's available skills
 2. Dispatches planning agent (via `run_maker` with planning-specific prompt)
 3. Agent evaluates ticket clarity:
-   - Clear ticket: composes checker config, stores as `approved_checker_config`, moves ticket to Todo in tracker
-   - Ambiguous ticket: posts clarifying questions (tracker comment or Algedonia UI), proposes config as `proposed_checker_config`
+   - Clear ticket: composes checker config, stores as `approved_checker_config`, moves ticket to ready
+   - Ambiguous ticket: posts clarifying questions in Algedonia UI, proposes config as `proposed_checker_config`
 4. Planning approval controlled by workspace `planning_mode` setting (auto/always_approve/always_review)
 
 ### T2.3 — Base pipeline prepend
@@ -283,10 +282,10 @@ Scoring (soft):
 Highest score wins, ties broken by daemon name.
 
 ### T4.3 — Dependency-aware dispatch
-**Priority: P1 | Size: M | Depends on: T4.1, T5.2**
+**Priority: P1 | Size: M | Depends on: T4.1**
 
 During queue walk, check each ticket's `blocked_by`:
-- Query blocker tickets by `external_id`, check if all are in terminal states
+- Query blocker tickets by ID, check if all are in terminal states
 - Skip blocked tickets (visually marked in queue UI)
 - When a loop lands: query tickets with this ticket in `blocked_by`, re-evaluate
 
@@ -312,52 +311,7 @@ Build `QueueLive.Index`:
 
 ---
 
-## Phase 5: Tracker Sync (Linear)
-
-### T5.1 — Tracker adapter behaviour and Linear client
-**Priority: P0 | Size: L | Depends on: nothing**
-
-Create `Algedonia.Tracker` behaviour:
-- `create_ticket/2` — creates ticket in tracker, returns external_id
-- `update_ticket/3` — updates title, description, acceptance_criteria, status
-- `fetch_active_tickets/1` — returns tickets including `blocked_by` relations
-- `fetch_ticket_states/2`
-- `post_comment/3`
-- `attach_link/4`
-
-Implement `Algedonia.Tracker.Linear`:
-- GraphQL client using `Req`
-- Auth via `LINEAR_API_KEY` env var (server-side)
-- Query by `project.slugId`, filter by planning + active states
-- Normalize issues into internal ticket format including `blocked_by` (from `relations` of type `blockedBy`, same-project only)
-- Pagination (50 per page), timeout 30s
-
-### T5.2 — TrackerSync GenServer
-**Priority: P0 | Size: M | Depends on: T5.1, T1.6**
-
-Create `Algedonia.TrackerSync` GenServer (per workspace):
-- Poll on configurable interval (default 30s)
-- On each tick:
-  1. Fetch tickets in planning + active states
-  2. Upsert into `tickets` table (match on workspace_id + external_id)
-  3. For tickets in planning states: trigger planning agent if not already done
-  4. For tickets moved to active with approved checker config: notify QueueManager
-  5. Reconcile: running loops whose tickets moved to terminal → stop loop
-  6. If `auto_start: true`: auto-enqueue new active tickets by priority
-- Outbound: push status/comments/links to Linear on loop lifecycle events
-
-### T5.3 — Outbound status and comment updates
-**Priority: P1 | Size: M | Depends on: T5.2, T3.3**
-
-Wire loop lifecycle events to tracker:
-- Loop dispatched → `update_ticket_status("In Progress")`
-- Loop passed + review_gate → `update_ticket_status("Ready for Review")` + `attach_link(pr_url)`
-- Loop escalated/tapered → `post_comment(structured_summary)` with context and Algedonia link
-- Planning agent questions → `post_comment(questions)` on the ticket
-
----
-
-## Phase 6: Loop Viewer Refactor
+## Phase 5: Loop Viewer Refactor
 
 ### T6.1 — Replace DAG panel with ticket loops list
 **Priority: P1 | Size: M | Depends on: T0.1**
@@ -387,7 +341,7 @@ Right panel of `LoopLive.Show`:
 
 ---
 
-## Phase 7: Circuit Breaker and Escalation
+## Phase 6: Circuit Breaker and Escalation
 
 ### T7.1 — Circuit breaker GenServer
 **Priority: P1 | Size: M | Depends on: T3.3**
@@ -409,7 +363,7 @@ Extend `MonitorLive.Index`:
 
 ---
 
-## Phase 8: Landing (Daemon-Side)
+## Phase 7: Landing (Daemon-Side)
 
 Landing is fully daemon-side. The daemon has the user's git credentials and `gh` CLI.
 
@@ -419,7 +373,7 @@ Landing is fully daemon-side. The daemon has the user's git credentials and `gh`
 Server side:
 - Add `land` command to protocol: `loop_id`, `land_mode`, `branch`, `base_branch`
 - Send after all checker steps pass
-- Handle `land_result` event: update loop record (pr_url, status), push status to tracker
+- Handle `land_result` event: update loop record (pr_url, status)
 
 Daemon side:
 - Handle `land` command:
@@ -436,7 +390,7 @@ Daemon side:
 When `land_mode` is `auto_land` and CI passes:
 - Daemon merges PR via `gh pr merge --squash`
 - Reports `land_result` with `{status: "landed", merge_sha}`
-- Server marks loop `passed`, updates tracker to terminal state
+- Server marks loop `passed`
 
 When CI fails:
 - Daemon reports `land_result` with `{status: "ci_failed", ci_output}`
@@ -448,24 +402,24 @@ When CI fails:
 
 When `land_mode` is `review_gate` and CI passes:
 - Daemon reports `land_result` with `{status: "review_gate", pr_url}`
-- Server moves ticket to configured review state, loop status: `review_gate`
+- Server moves ticket to review state, loop status: `review_gate`
 
 Resolution (server-side polling or webhook):
-- PR merged by human → mark loop `passed`, update tracker
+- PR merged by human → mark loop `passed`
 - PR closed with review comments → extract feedback, resume loop with review as maker context
 
 ---
 
-## Phase 9: Reflection and Process Improvement
+## Phase 8: Reflection and Process Improvement
 
 ### T9.1 — Reflection agent
-**Priority: P2 | Size: L | Depends on: T3.3, T5.3**
+**Priority: P2 | Size: L | Depends on: T3.3**
 
 After a loop lands (passed + merged or resolved):
 - Skip if loop passed on first iteration with no human nudges
 - Dispatch reflection agent with: loop verdicts, human nudges, iteration count, checker config, current `.algedonia/knowledge.md`, available skills
 - Agent produces structured output: zero or more improvement items categorized as `guideline`, `new_skill`, `skill_update`, `knowledge`, `recommendation`
-- Each item (except `recommendation`) → create ticket in Linear via tracker adapter
+- Each item (except `recommendation`) → create ticket in Algedonia
 - Recommendations surfaced in Monitor view
 - Non-critical: failure logged and skipped
 
@@ -485,7 +439,7 @@ When constructing `run_maker` commands, include current `.algedonia/knowledge.md
 
 ---
 
-## Phase 10: Advanced Checker Steps
+## Phase 9: Advanced Checker Steps
 
 ### T10.1 — Browser checker step in daemon
 **Priority: P2 | Size: L | Depends on: T3.1**
@@ -508,14 +462,13 @@ Extend daemon `run_checker_step` for `agent_review` skill type:
 
 ---
 
-## Phase 11: Configuration and Polish
+## Phase 10: Configuration and Polish
 
 ### T11.1 — Workspace settings UI
-**Priority: P2 | Size: M | Depends on: T1.2, T4.1, T5.2**
+**Priority: P2 | Size: M | Depends on: T1.2, T4.1**
 
 Workspace settings page:
-- Tracker connection (kind, project_slug, states, planning_states)
-- Playback defaults (auto_start, concurrency, default_land)
+- Playback defaults (concurrency, default_land)
 - Planning mode (auto/always_approve/always_review)
 - Base pipeline (list of skill names)
 - Max iterations
@@ -524,13 +477,13 @@ Workspace settings page:
 **Priority: P2 | Size: M | Depends on: T11.1**
 
 Parse `.algedonia/config.yml` from the repo as an alternative to UI settings:
-- `tracker`, `polling`, `playback`, `defaults` sections
+- `playback`, `defaults` sections
 - File overrides workspace settings where specified
 - Dynamic reload on change
 
 ---
 
-## Phase 12: Open Source Daemon Prep
+## Phase 11: Open Source Daemon Prep
 
 ### T12.1 — Extract daemon protocol spec
 **Priority: P2 | Size: M | Depends on: T3.1, T3.2**
@@ -576,27 +529,23 @@ Phase 2 (skills/planning)     Phase 3 (loop engine)
   T2.1 ── T2.3                  T1.4 ── T3.2 ──┼── T3.3 ── T3.4
                                 T1.7 ──────────┘
 
-Phase 4 (queue/routing)       Phase 5 (tracker sync)
-  T3.3 + T1.3 ── T4.1          T5.1 ──┐
-  T1.4 ── T4.2                 T1.6 ──┼── T5.2 ── T5.3
-  T4.1 + T5.2 ── T4.3          T5.1 ──┘
+Phase 4 (queue/routing)       Phase 5 (loop viewer)
+  T3.3 + T1.3 ── T4.1          T0.1 ── T6.1
+  T1.4 ── T4.2                 T3.3 ── T6.2 ── T6.3
+  T4.1 ── T4.3
   T4.1 ── T4.4 ── T4.5
 
-Phase 6 (loop viewer)         Phase 7 (circuit breaker)
-  T0.1 ── T6.1                 T3.3 ── T7.1 ──┐
-  T3.3 ── T6.2 ── T6.3         T6.2 ──────────── T7.2
+Phase 6 (circuit breaker)     Phase 7 (landing)
+  T3.3 ── T7.1 ──┐             T3.3 ── T8.1 ── T8.2
+  T6.2 ──────────── T7.2                  └── T8.3
 
-Phase 8 (landing)             Phase 9 (reflection)
-  T3.3 ── T8.1 ── T8.2         T3.3 + T5.3 ── T9.1 ── T9.2
-                └── T8.3        T9.1 ── T9.3
+Phase 8 (reflection)          Phase 9 (advanced checkers)
+  T3.3 ── T9.1 ── T9.2         T3.1 ── T10.1
+  T9.1 ── T9.3                 T3.1 ── T10.2
 
-Phase 10 (advanced checkers)  Phase 11 (config)
-  T3.1 ── T10.1                T1.2 + T4.1 + T5.2 ── T11.1 ── T11.2
-  T3.1 ── T10.2
-
-Phase 12 (open source)
-  T3.1 + T3.2 ── T12.1 ── T12.3
-                  T12.2 ──┘
+Phase 10 (config)             Phase 11 (open source)
+  T1.2 + T4.1 ── T11.1         T3.1 + T3.2 ── T12.1 ── T12.3
+  T11.1 ── T11.2                              T12.2 ──┘
 ```
 
 ## Recommended Execution Order
@@ -604,15 +553,13 @@ Phase 12 (open source)
 **Sprint 1: Foundation** (parallel tracks)
 - Track A: T0.1, T0.2, T0.3, T0.4 (cleanup)
 - Track B: T1.1, T1.2 (users, workspaces)
-- Track C: T5.1 (Linear client, no dependencies)
 
 **Sprint 2: Multi-Tenancy + Schema**
 - T1.3, T1.4, T1.5 (workspace isolation, user-bound daemons, scoped PubSub)
-- T1.6, T1.7 (tickets sync schema, iterations/verdicts tables)
+- T1.6, T1.7 (tickets schema, iterations/verdicts tables)
 
-**Sprint 3: Skills + Tracker Sync**
+**Sprint 3: Skills + Protocol**
 - T2.1, T2.3 (skill discovery, base pipeline)
-- T5.2 (tracker sync GenServer)
 - T3.1, T3.2 (daemon protocol updates)
 
 **Sprint 4: Core Engine**
@@ -620,10 +567,9 @@ Phase 12 (open source)
 - T2.2 (planning agent)
 - T4.1, T4.2 (queue manager, daemon routing)
 
-**Sprint 5: UI + Integrations**
+**Sprint 5: UI**
 - T4.3, T4.4, T4.5 (dependency dispatch, queue view)
 - T6.1, T6.2, T6.3 (loop viewer refactor)
-- T5.3 (outbound tracker updates)
 - T3.4 (taper detection)
 
 **Sprint 6: Reliability + Landing**

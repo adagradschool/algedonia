@@ -10,7 +10,7 @@ The name comes from cybernetics (Stafford Beer). Algedonic signals are pain/plea
 
 1. **Loops are the primitive.** The maker-checker loop is the atomic unit of work. A maker generates code. A checker verifies it against a quality rubric. The loop iterates until the checker passes, improvements taper off, or a human is needed. Hard budgets on time, tokens, and retries. "Admit failure" is a first-class outcome.
 
-2. **Meet teams where they are.** Teams track work in Linear, review code in GitHub, communicate in Slack. Algedonia does not replace these tools. It syncs tickets in, pushes status back, and owns only what doesn't exist elsewhere: the loop — the structured feedback cycle between "ticket created" and "PR ready." Algedonia is the engine room, not the bridge.
+2. **Meet teams where they are.** Teams track work in Linear, review code in GitHub, communicate in Slack. Algedonia does not replace these tools. It owns what doesn't exist elsewhere: the loop — the structured feedback cycle between "ticket created" and "PR ready." Algedonia is the engine room, not the bridge. (v1 ships with local ticket management; tracker sync is a post-v1 integration layer.)
 
 3. **Humans steer at the right altitude.** Higher than code, lower than tickets. The loop level is where humans see what the agent attempted, what verification found, and where it's stuck. Attention is the only scarce resource: escalations are queued one at a time, circuit breakers prevent failure floods. Each ticket may have different feedback loops — some use UI validation, some use unit tests, some use both. The checker config is the lever humans pull.
 
@@ -197,19 +197,21 @@ The checker config is immutable once the loop starts, with one exception: a huma
 
 ## Ticket Integration (Not a Ticket Tracker)
 
-Algedonia does not replace Linear, GitHub Issues, or Jira. It syncs tickets in and pushes status back.
+Algedonia does not replace Linear, GitHub Issues, or Jira. The long-term vision is bidirectional sync — tickets flow in from the tracker, status and results flow back.
 
-### How It Works
+> **v1 scope:** Tracker sync (Linear adapter, polling, bidirectional updates) is deprioritized. v1 ships with local ticket CRUD inside Algedonia — users create and manage tickets directly in the UI. The data model supports future sync (tickets have fields like `labels`, `blocked_by`, checker configs), but no external tracker connection ships in v1. The sections below describe the target architecture for when sync is added.
+
+### How It Works (Post-v1)
 
 Algedonia connects to a tracker project (e.g., a Linear project). Tickets flow through the kanban: Backlog → Planning → Todo → In Progress → Done. Algedonia picks up tickets in "Todo" (checker config already set during Planning). If it's in the project and it's ready, an agent works on it.
 
-### Inbound Sync
+### Inbound Sync (Post-v1)
 - Poll the tracker API on a fixed cadence.
 - Import tickets in active states: ticket ID, title, description, status, acceptance criteria.
 - Store as a lightweight mirror record in Postgres.
 - Tickets that move to a terminal state (Done, Cancelled) have their active loops stopped and cleaned up.
 
-### Outbound Sync
+### Outbound Sync (Post-v1)
 - Loop started → update ticket status (e.g., "In Progress").
 - Loop passed → update ticket status (e.g., "Ready for Review"), attach PR link.
 - Loop stuck → post a comment with what's blocking and iteration context.
@@ -228,7 +230,7 @@ Algedonia connects to a tracker project (e.g., a Linear project). Tickets flow t
 - Team-wide views and dashboards.
 - The decision of what gets worked on: move a ticket to "Todo" and it gets picked up. Move it to "Cancelled" and the loop stops.
 
-### Adapters
+### Adapters (Post-v1)
 - **Linear** — first adapter. Proven by Symphony's adoption.
 - **GitHub Issues** — second adapter.
 - Others as demand requires.
@@ -247,38 +249,29 @@ Algedonia borrows from music players. The Linear project is the library. Not eve
 - **Queue position** — explicit ordering. Tickets are worked in priority order by default (from Linear's priority field), but the coordinator can drag to reorder in Algedonia's queue view.
 - **Skip** — move past a stuck ticket without cancelling it. It goes back to the library.
 
-**Dependencies (from tracker):**
-Linear supports `blockedBy` relations between issues. Algedonia syncs these and respects them during dispatch:
+**Dependencies:**
+Tickets support `blocked_by` relations. When tracker sync is added, these will be synced from the tracker; in v1, they are set manually. Algedonia respects them during dispatch:
 - A ticket is **dispatchable** only when all its blockers are in terminal states (Done, Closed, etc.).
 - Blocked tickets stay in the queue at their priority position but are skipped during dispatch. They're visually marked as blocked, showing which tickets they're waiting on.
 - When a blocking ticket's loop passes and lands, Algedonia re-evaluates its dependents. Newly unblocked tickets become dispatchable immediately.
 - This means the queue is not strictly sequential — it's a priority-ordered list with dependency constraints. Multiple non-blocked tickets dispatch in parallel up to the concurrency limit.
 
-Dependencies are read-only from Algedonia's perspective. Teams manage them in Linear. Algedonia just respects what's there.
+Dependencies are read-only from the queue's perspective. Teams manage them in the ticket UI (or in the tracker, once sync lands). Algedonia just respects what's there.
 
 **The queue vs the library:**
-The Linear project is the library — everything that could be worked. The queue is the ordered subset that will be worked next. By default, all active-state tickets enter the queue sorted by priority. But the coordinator can:
-- Remove a ticket from the queue (back to library) without changing its Linear status.
+The ticket list is the library — everything that could be worked. The queue is the ordered subset that will be worked next. By default, all active-state tickets enter the queue sorted by priority. But the coordinator can:
+- Remove a ticket from the queue (back to library).
 - Pin a ticket to the top of the queue.
 - Pause a specific ticket's loop without pausing everything.
 
-This gives teams a spectrum from full autopilot ("everything in Todo gets worked and auto-landed") to careful curation ("I pick what's next, I review every PR").
+This gives teams a spectrum from full autopilot ("everything ready gets worked and auto-landed") to careful curation ("I pick what's next, I review every PR").
 
 ### Configuration
 
-A project-level config (inspired by Symphony's `WORKFLOW.md`) defines the connection and defaults:
+A project-level config (inspired by Symphony's `WORKFLOW.md`) defines defaults:
 
 ```yaml
-tracker:
-  kind: linear
-  project_slug: "my-project-abc123"
-  active_states: [Todo, In Progress, Rework]
-  planning_states: [Planning]       # states where planning agent runs
-  terminal_states: [Done, Closed, Cancelled]
-polling:
-  interval_ms: 30000
 playback:
-  auto_start: true          # auto-queue active tickets (false = manual queue only)
   concurrency: 3            # max parallel loops (ceiling; actual WIP ≤ daemon capacity)
   default_land: review_gate # or auto_land
 defaults:
@@ -286,7 +279,7 @@ defaults:
   max_iterations: 5
 ```
 
-Users create tickets in Linear as usual. Algedonia watches the project, queues work according to the playback settings, and executes it. The tracker is the library. Algedonia is the player.
+> **Post-v1** — tracker sync adds `tracker` (kind, project_slug, states) and `polling` (interval_ms) sections, plus `auto_start` to playback for auto-queueing synced tickets.
 
 ---
 
@@ -323,8 +316,7 @@ List of loops for the current ticket. Each shows status, current iteration, skil
 - Daemon health: each daemon shows its owner (user name + avatar), capacity, and status. Daemons are user-bound — one daemon serves all workspaces the user belongs to. The monitor filters to daemons whose users are members of the current workspace.
 
 ### What We Don't Build
-- Ticket list/board views (use Linear).
-- Backlog prioritization (use Linear).
+- Full project management (sprint planning, epics, roadmaps — use Linear once sync lands).
 - PR review UI (use GitHub).
 - Notification center (use Slack/email — we push notifications there).
 
@@ -334,7 +326,7 @@ List of loops for the current ticket. Each shows status, current iteration, skil
 
 Two components. Clear boundary.
 
-**Server (Phoenix LiveView)** — the brain. Owns loop orchestration, planning, checker execution, ticket sync, UI, state, collaboration, persistence. Source of truth for all state.
+**Server (Phoenix LiveView)** — the brain. Owns loop orchestration, planning, checker execution, tickets, UI, state, collaboration, persistence. Source of truth for all state.
 
 **Daemon (Go, open source)** — the hands. Runs on the user's machine. Receives commands from the server, executes them, reports back. Thin, auditable, trustworthy.
 
@@ -344,7 +336,7 @@ The server never executes agents or touches LLM APIs. The daemon never makes orc
 
 ### Why the Daemon is Open Source
 
-The daemon is commodity infrastructure — it spawns processes, captures PTY output, manages workspaces, and reports back. There is nothing defensible about it. The value is in the server: loop orchestration, planning, skills ecosystem, ticket sync, the queue/playback model, collaboration.
+The daemon is commodity infrastructure — it spawns processes, captures PTY output, manages workspaces, and reports back. There is nothing defensible about it. The value is in the server: loop orchestration, planning, skills ecosystem, the queue/playback model, collaboration.
 
 Open sourcing the daemon serves four purposes:
 
