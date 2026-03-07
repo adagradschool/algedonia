@@ -4,8 +4,11 @@ defmodule Algedonia.Tickets do
   """
   import Ecto.Query
 
+  require Logger
+
   alias Algedonia.Repo
   alias Algedonia.Tickets.{Comment, Ticket}
+  alias Algedonia.Tickets.Planning
   alias Algedonia.Workspaces.Workspace
 
   @topic "tickets"
@@ -127,22 +130,68 @@ defmodule Algedonia.Tickets do
   def update_ticket(%Ticket{} = ticket, attrs, opts \\ []) do
     old_status = ticket.status
 
-    result =
-      ticket
-      |> Ticket.changeset(attrs)
-      |> Repo.update()
-      |> broadcast(:ticket_updated)
+    case ticket |> Ticket.changeset(attrs) |> Repo.update() do
+      {:ok, updated} ->
+        maybe_apply_status_loop_lifecycle(old_status, updated)
+        result = broadcast({:ok, updated}, :ticket_updated)
 
-    with {:ok, updated} <- result do
-      unless Keyword.get(opts, :skip_hooks, false) do
-        maybe_fire_hooks(ticket, old_status, updated)
-      end
+        unless Keyword.get(opts, :skip_hooks, false) do
+          maybe_fire_hooks(ticket, old_status, updated)
+        end
 
-      notify_tracker_update(ticket, updated, old_status)
+        notify_tracker_update(ticket, updated, old_status)
+        result
+
+      {:error, _} = error ->
+        error
     end
-
-    result
   end
+
+  defp maybe_apply_status_loop_lifecycle(old_status, updated) do
+    with_workspace_scope(updated.workspace_id, fn ->
+      new_status = updated.status
+
+      cond do
+        old_status != :in_progress and new_status == :in_progress ->
+          maybe_ensure_work_loop(updated)
+
+        old_status == :in_progress and new_status in [:backlog, :planning] ->
+          _ = Algedonia.Loops.delete_loops_for_ticket(updated.id)
+          :ok
+
+        true ->
+          :ok
+      end
+    end)
+  end
+
+  defp maybe_ensure_work_loop(ticket) do
+    case Planning.ensure_work_loop(ticket) do
+      {:ok, _loop_id} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Unable to ensure task loop for ticket #{ticket.id}: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp with_workspace_scope(workspace_id, fun)
+       when is_binary(workspace_id) and is_function(fun, 0) do
+    previous_workspace = Algedonia.TenantScope.get_workspace()
+    Algedonia.TenantScope.put_workspace(workspace_id)
+
+    try do
+      fun.()
+    after
+      case previous_workspace do
+        wid when is_binary(wid) -> Algedonia.TenantScope.put_workspace(wid)
+        _ -> Algedonia.TenantScope.clear_workspace()
+      end
+    end
+  end
+
+  defp with_workspace_scope(_workspace_id, fun) when is_function(fun, 0), do: fun.()
 
   defp notify_tracker_update(ticket, updated, old_status) do
     workspace = Algedonia.Workspaces.get_workspace(ticket.workspace_id)
