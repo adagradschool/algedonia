@@ -13,6 +13,7 @@ defmodule Algedonia.Loops.Loop do
   @roles [:task, :hook]
 
   schema "loops" do
+    belongs_to :workspace, Algedonia.Workspaces.Workspace
     field :title, :string
     field :description, :string
     field :status, Ecto.Enum, values: @statuses, default: :pending
@@ -52,6 +53,7 @@ defmodule Algedonia.Loops.Loop do
       :checker_config,
       :land_mode,
       :pr_url,
+      :workspace_id,
       :ticket_id,
       :assigned_daemon_id
     ])
