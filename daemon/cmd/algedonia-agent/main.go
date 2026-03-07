@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -145,9 +146,11 @@ func newLoginCmd() *cobra.Command {
 				return fmt.Errorf("getting working directory: %w", err)
 			}
 			mgr := loopmanager.NewManager(client.SendEvent, registry, repoRoot)
+			workspaceBaseDir := ""
 			home, _ := os.UserHomeDir()
 			if home != "" {
-				mgr.SetWorkspaceBaseDir(filepath.Join(home, ".algedonia", "workspaces"))
+				workspaceBaseDir = filepath.Join(home, ".algedonia", "workspaces")
+				mgr.SetWorkspaceBaseDir(workspaceBaseDir)
 			}
 			wtMgr := repo.NewWorktreeManager("")
 			mgr.SetWorktreeManager(wtMgr)
@@ -159,8 +162,12 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("open_editor", mgr.HandleOpenEditor)
 			client.SetRunningLoopsFn(mgr.RunningCount)
 			client.SetRunningLoopIDFn(mgr.RunningLoopIDs)
+			client.SetAvailableAgentsFn(registry.AgentTypes)
+			client.SetBareReposFn(func() []string {
+				return listBareRepos(workspaceBaseDir)
+			})
 
-			cloneMgr := repo.NewCloneManager("", "")
+			cloneMgr := repo.NewCloneManager(workspaceBaseDir, "")
 			client.OnJoin(makeJoinCallback(cloneMgr, client))
 			client.RegisterHandler("workspaces_sync", makeWorkspaceSyncHandler(cloneMgr, client))
 
@@ -261,6 +268,35 @@ func sendCloneStatus(client *connection.Client, workspaceSlug, status, path, mes
 	if err := client.SendEvent("repo_clone_status", payload); err != nil {
 		log.Printf("Failed to send repo_clone_status: %v", err)
 	}
+}
+
+func listBareRepos(baseDir string) []string {
+	if strings.TrimSpace(baseDir) == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return []string{}
+		}
+		baseDir = filepath.Join(home, ".algedonia", "workspaces")
+	}
+
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return []string{}
+	}
+
+	repos := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		rootPath := filepath.Join(baseDir, entry.Name(), "root")
+		if info, err := os.Stat(rootPath); err == nil && info.IsDir() {
+			repos = append(repos, entry.Name())
+		}
+	}
+
+	sort.Strings(repos)
+	return repos
 }
 
 func newLogoutCmd() *cobra.Command {

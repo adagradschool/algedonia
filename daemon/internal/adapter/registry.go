@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -34,6 +35,19 @@ func (r *Registry) Get(agentType string) (AgentAdapter, error) {
 		return nil, fmt.Errorf("unknown agent type %q", agentType)
 	}
 	return factory(), nil
+}
+
+// AgentTypes returns the registered agent type names in sorted order.
+func (r *Registry) AgentTypes() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	types := make([]string, 0, len(r.factories))
+	for agentType := range r.factories {
+		types = append(types, agentType)
+	}
+	sort.Strings(types)
+	return types
 }
 
 // DefaultRegistry returns a registry pre-loaded with claude_code and codex adapters.

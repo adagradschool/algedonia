@@ -23,9 +23,6 @@ config :algedonia, AlgedoniaWeb.Endpoint,
 # In test we don't send emails
 config :algedonia, Algedonia.Mailer, adapter: Swoosh.Adapters.Test
 
-# Project token for daemon authentication in tests
-config :algedonia, :project_token, "test-token"
-
 # Supabase + GitHub config for tests
 config :algedonia, :supabase,
   project_url: "https://test.supabase.co",

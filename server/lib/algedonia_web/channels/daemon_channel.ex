@@ -27,14 +27,30 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp register_and_reply(payload, socket) do
+    user_id = socket.assigns.user_id
     name = socket.assigns.daemon_name
     display_name = Map.get(payload, "display_name")
+    available_agents = string_list(Map.get(payload, "available_agents"))
+    bare_repos = string_list(Map.get(payload, "bare_repos"))
 
-    case Daemons.register_daemon(%{name: name, display_name: display_name}) do
+    case Daemons.register_daemon(%{
+           name: name,
+           display_name: display_name,
+           user_id: user_id,
+           available_agents: available_agents,
+           bare_repos: bare_repos
+         }) do
       {:ok, daemon} ->
-        socket = assign(socket, :daemon_db_id, daemon.id)
+        socket =
+          socket
+          |> assign(:daemon_db_id, daemon.id)
+          |> assign(:workspace_slugs, workspace_slugs_for_user(user_id))
+
         workspaces = workspaces_for_user(socket.assigns[:user_id])
         {:ok, %{status: "ok", workspaces: workspaces}, socket}
+
+      {:error, :name_taken} ->
+        {:error, %{reason: "unauthorized"}}
 
       {:error, changeset} ->
         {:error, %{reason: "registration_failed", errors: inspect(changeset.errors)}}
@@ -58,7 +74,10 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
     attrs = %{
       capacity: Map.get(payload, "capacity", daemon.capacity),
-      running_loops: Map.get(payload, "running_loops", daemon.running_loops)
+      running_loops: Map.get(payload, "running_loops", daemon.running_loops),
+      available_agents:
+        string_list(Map.get(payload, "available_agents", daemon.available_agents)),
+      bare_repos: string_list(Map.get(payload, "bare_repos", daemon.bare_repos))
     }
 
     case Daemons.update_heartbeat(daemon, attrs) do
@@ -72,9 +91,10 @@ defmodule AlgedoniaWeb.DaemonChannel do
             :ok
         end
 
-        push(socket, "workspaces_sync", %{
-          workspaces: workspaces_for_user(socket.assigns[:user_id])
-        })
+        workspaces = workspaces_for_user(socket.assigns[:user_id])
+        push(socket, "workspaces_sync", %{workspaces: workspaces})
+
+        socket = assign(socket, :workspace_slugs, Enum.map(workspaces, & &1.slug))
 
         {:reply, :ok, socket}
 
@@ -151,8 +171,13 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
   def handle_in("repo_clone_status", payload, socket) do
     workspace_slug = Map.get(payload, "workspace_slug", "")
-    Daemons.set_repo_status(socket.assigns.daemon_name, workspace_slug, payload)
-    {:noreply, socket}
+
+    if authorized_workspace_slug?(socket, workspace_slug) do
+      Daemons.set_repo_status(socket.assigns.daemon_name, workspace_slug, payload)
+      {:noreply, socket}
+    else
+      {:reply, {:error, %{reason: "unauthorized"}}, socket}
+    end
   end
 
   def handle_in("diff_result", %{"loop_id" => loop_id} = payload, socket) do
@@ -279,4 +304,25 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp uuid_string?(_), do: false
+
+  defp string_list(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp string_list(_), do: []
+
+  defp workspace_slugs_for_user(nil), do: []
+
+  defp workspace_slugs_for_user(user_id),
+    do: user_id |> workspaces_for_user() |> Enum.map(& &1.slug)
+
+  defp authorized_workspace_slug?(socket, workspace_slug) do
+    cached_slugs = socket.assigns[:workspace_slugs] || []
+    fresh_slugs = workspace_slugs_for_user(socket.assigns[:user_id])
+
+    workspace_slug == "" or workspace_slug in cached_slugs or workspace_slug in fresh_slugs
+  end
 end

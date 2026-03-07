@@ -3,6 +3,7 @@ defmodule AlgedoniaWeb.DaemonSocket do
   Socket for daemon WebSocket connections with signed token authentication.
   """
   use Phoenix.Socket
+  alias Algedonia.Accounts
 
   channel "daemon:*", AlgedoniaWeb.DaemonChannel
 
@@ -16,18 +17,26 @@ defmodule AlgedoniaWeb.DaemonSocket do
         _connect_info
       ) do
     case Phoenix.Token.verify(AlgedoniaWeb.Endpoint, "daemon_auth", token, max_age: @max_age) do
-      {:ok, %{user_id: user_id}} ->
-        socket =
-          socket
-          |> assign(:daemon_id, daemon_id)
-          |> assign(:daemon_name, daemon_name)
-          |> assign(:user_id, user_id)
+      {:ok, %{user_id: user_id}} when not is_nil(user_id) ->
+        case Accounts.get_user(user_id) do
+          nil ->
+            :error
 
-        {:ok, socket}
+          _user ->
+            socket =
+              socket
+              |> assign(:daemon_id, daemon_id)
+              |> assign(:daemon_name, daemon_name)
+              |> assign(:user_id, user_id)
+
+            {:ok, socket}
+        end
+
+      {:ok, _claims} ->
+        :error
 
       {:error, _reason} ->
-        # Fall back to project token for backwards compatibility in dev
-        maybe_project_token_auth(token, daemon_id, daemon_name, socket)
+        :error
     end
   end
 
@@ -35,20 +44,4 @@ defmodule AlgedoniaWeb.DaemonSocket do
 
   @impl true
   def id(socket), do: "daemon_socket:#{socket.assigns.daemon_id}"
-
-  defp maybe_project_token_auth(token, daemon_id, daemon_name, socket) do
-    expected = Application.get_env(:algedonia, :project_token)
-
-    if expected && Plug.Crypto.secure_compare(token, expected) do
-      socket =
-        socket
-        |> assign(:daemon_id, daemon_id)
-        |> assign(:daemon_name, daemon_name)
-        |> assign(:user_id, nil)
-
-      {:ok, socket}
-    else
-      :error
-    end
-  end
 end

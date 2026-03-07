@@ -200,9 +200,12 @@ defmodule Algedonia.Repo.Migrations.InitialSchema do
       add :id, :binary_id, primary_key: true
       add :name, :text, null: false
       add :display_name, :text
+      add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
       add :status, :text, null: false, default: "offline"
       add :capacity, :integer, null: false, default: 3
       add :running_loops, :integer, null: false, default: 0
+      add :available_agents, {:array, :text}, null: false, default: []
+      add :bare_repos, {:array, :text}, null: false, default: []
       add :last_heartbeat_at, :utc_datetime_usec
       add :connected_at, :utc_datetime_usec
 
@@ -210,6 +213,7 @@ defmodule Algedonia.Repo.Migrations.InitialSchema do
     end
 
     create unique_index(:daemon_registrations, [:name])
+    create index(:daemon_registrations, [:user_id], name: :idx_daemon_registrations_user_id)
     create index(:daemon_registrations, [:status], name: :idx_daemon_registrations_status)
 
     execute(
