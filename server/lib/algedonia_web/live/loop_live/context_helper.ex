@@ -7,38 +7,13 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Algedonia.{Loops, Tickets}
+  alias Algedonia.{Loops, PromptBuilder, Tickets}
 
   @status_to_stage %{
     running: "running",
     passed: "completed",
     failed: "failed"
   }
-
-  @planning_workflow_instructions """
-  Project identity and naming:
-  - `.algedonia/` is Algedonia orchestration tooling config.
-  - Do not assume the workspace repository/product is named "Algedonia".
-  - Use the repository's actual identity (README, package/module metadata, existing docs) when writing project context.
-  - If ticket wording uses "Algedonia" ambiguously, treat it as the orchestration tool unless an explicit rename is requested.
-
-  Planning workflow:
-  1. Read the repository context before asking questions.
-  2. Ask the user one clarifying question at a time and wait for a response.
-  3. Once the user approves, post the final implementation plan as a ticket comment.
-  4. Always update the ticket title, description, acceptance criteria, and rubric to match the approved plan.
-  5. Before writing the updated rubric, consult notes/rubrics.md and align the rubric with repository standards.
-
-  Required AG CLI commands (run these, do not just describe them):
-  - Add plan comment:
-    ag ticket comment ~TICKET_REF --author "planner" --body "<final plan markdown>"
-  - Update ticket fields:
-    ag ticket update ~TICKET_REF --title "<title>" --description "<description>" --acceptance-criteria "<acceptance criteria>" --rubric "<rubric>"
-  - Fetch existing comments when needed:
-    ag ticket comments ~TICKET_REF --json
-
-  Do not implement code in this planning session.
-  """
 
   @doc """
   Returns the stage string for a given loop status atom.
@@ -133,20 +108,7 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
   """
   @spec ad_hoc_task(Phoenix.LiveView.Socket.t()) :: String.t() | nil
   def ad_hoc_task(%{assigns: %{role: "planning", ticket: ticket}}) when not is_nil(ticket) do
-    ticket_ref =
-      if is_integer(ticket.number), do: Integer.to_string(ticket.number), else: ticket.id
-
-    instructions = String.replace(@planning_workflow_instructions, "~TICKET_REF", ticket_ref)
-
-    [
-      "Ticket: #{ticket.title}",
-      optional_ad_hoc_section("Description", ticket.description),
-      optional_ad_hoc_section("Acceptance criteria", ticket.acceptance_criteria),
-      optional_ad_hoc_section("Current rubric", ticket.rubric),
-      instructions
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n\n")
+    PromptBuilder.planning_session_task(ticket)
   end
 
   def ad_hoc_task(_socket), do: nil
@@ -213,10 +175,6 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
 
   defp ad_hoc_loop_title(nil), do: "Ad hoc loop"
   defp ad_hoc_loop_title(ticket), do: "Planning: #{ticket.title}"
-
-  defp optional_ad_hoc_section(_label, nil), do: nil
-  defp optional_ad_hoc_section(_label, ""), do: nil
-  defp optional_ad_hoc_section(label, body), do: "#{label}:\n#{body}"
 
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
   defp short_id(_), do: nil

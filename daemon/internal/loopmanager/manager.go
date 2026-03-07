@@ -36,7 +36,6 @@ type LoopProcess struct {
 	adapter       adapter.AgentAdapter
 	process       *adapter.Process
 	role          string
-	promptsDir    string
 	workdir       string
 	workspaceDir  string
 	workspaceSlug string
@@ -309,8 +308,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 		return fmt.Errorf("resolving adapter for loop %s: %w", loopID, err)
 	}
 
-	promptsDir := filepath.Join(workdir, ".algedonia", "prompts")
-	task := buildAdapterTask(promptsDir, role, taskDesc)
+	task := buildAdapterTask(taskDesc)
 
 	proc, reader, err := m.startAdapterProcess(ag, loopID, workdir, workspaceSlug, task, model, effort, role)
 	if err != nil {
@@ -320,7 +318,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	_, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	chunker := m.newTerminalChunker(loopID)
-	lp := m.registerAdapterLoop(loopID, role, workdir, workspaceDir, workspaceSlug, ticketID, promptsDir, attempt, ag, proc, chunker, cancel, done)
+	lp := m.registerAdapterLoop(loopID, role, workdir, workspaceDir, workspaceSlug, ticketID, attempt, ag, proc, chunker, cancel, done)
 
 	tee := io.TeeReader(reader, proc.Collector())
 	go readOutputLoop(tee, loopID, chunker, m.broadcastTerminal)

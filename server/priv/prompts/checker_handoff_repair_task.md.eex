@@ -1,0 +1,18 @@
+Handoff verifier failed for checker loop <%= loop_id %> (repair round <%= repairs %>):
+<%= handoff_error %>
+
+REPAIR-ONLY MODE:
+- Do NOT rerun checks.
+- Do NOT re-evaluate the codebase.
+- Use your previous checker conclusion and feedback from this attempt.
+- Only fix the handoff file contract.
+
+REQUIRED HANDOFF FORMAT (file IPC):
+1) Write markdown feedback to: <%= expected_feedback_path %>
+2) Write JSON to: <%= expected_json_path %>
+JSON exactly: {"VERDICT":"pass|fail","FEEDBACK":"<%= expected_feedback_path %>"}
+
+Rules:
+- Create parent directories if missing.
+- VERDICT must be lowercase pass/fail.
+- FEEDBACK must match the exact markdown path above.

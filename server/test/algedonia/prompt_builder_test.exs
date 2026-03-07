@@ -129,7 +129,6 @@ defmodule Algedonia.PromptBuilderTest do
       assert result =~ "Acceptance criteria:\n- login works"
       assert result =~ "Task:\nImplement feature"
       assert result =~ "Rubric:\n- must pass tests"
-      assert result =~ "ag ticket comments 5 --json"
       assert result =~ "Implement the task and run relevant checks before finishing."
     end
 
@@ -151,7 +150,7 @@ defmodule Algedonia.PromptBuilderTest do
       }
 
       result = PromptBuilder.maker_task(loop, ticket, "Missing tests")
-      assert result =~ "Previous checker feedback:\nMissing tests"
+      assert result =~ "Checker Feedback:\nMissing tests"
     end
   end
 

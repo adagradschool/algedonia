@@ -108,6 +108,8 @@ func TestEnsureWorktree(t *testing.T) {
 			if info.IsDir() {
 				t.Fatal(".git should be a file (worktree link), not a directory")
 			}
+
+			assertSharedSkillLinks(t, path)
 		})
 	}
 }
@@ -207,6 +209,8 @@ func TestEnsureWorktreeMismatchedHEAD(t *testing.T) {
 	if _, err := os.Stat(gitFile); err != nil {
 		t.Fatalf(".git file missing: %v", err)
 	}
+
+	assertSharedSkillLinks(t, path)
 }
 
 func TestTicketPrefix(t *testing.T) {
@@ -256,6 +260,8 @@ func TestEnsureWorktreeIdempotent(t *testing.T) {
 	if _, err := os.Stat(testFile); err != nil {
 		t.Error("test file should be preserved on idempotent call")
 	}
+
+	assertSharedSkillLinks(t, path2)
 }
 
 func TestEnsureRepoReturnsWorkspaceDir(t *testing.T) {
@@ -283,4 +289,36 @@ func TestEnsureRepoReturnsWorkspaceDir(t *testing.T) {
 	if strings.TrimSpace(string(out)) != "true" {
 		t.Error("root should be a bare repository")
 	}
+}
+
+func assertSharedSkillLinks(t *testing.T, worktreePath string) {
+	t.Helper()
+
+	if info, err := os.Stat(filepath.Join(worktreePath, ".algedonia", "skills")); err != nil {
+		t.Fatalf("missing .algedonia/skills: %v", err)
+	} else if !info.IsDir() {
+		t.Fatal(".algedonia/skills should be a directory")
+	}
+
+	assertSkillLink := func(path string) {
+		t.Helper()
+
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("missing skill link %s: %v", path, err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s should be a symlink", path)
+		}
+		target, err := os.Readlink(path)
+		if err != nil {
+			t.Fatalf("reading symlink %s: %v", path, err)
+		}
+		if target != "../.algedonia/skills" {
+			t.Fatalf("%s target = %q, want %q", path, target, "../.algedonia/skills")
+		}
+	}
+
+	assertSkillLink(filepath.Join(worktreePath, ".codex", "skills"))
+	assertSkillLink(filepath.Join(worktreePath, ".claude", "skills"))
 }

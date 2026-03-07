@@ -7,7 +7,7 @@ defmodule Algedonia.HookExecutor do
   moved to `:halted` with `skip_hooks: true` to prevent recursive chains.
   """
 
-  alias Algedonia.{Agents, Daemons, Loops, Tickets, Workspaces}
+  alias Algedonia.{Agents, Daemons, Loops, PromptBuilder, Tickets, Workspaces}
   alias Algedonia.PubSub.Topics
   alias Algedonia.TenantScope
   alias Algedonia.Tickets.Ticket
@@ -127,7 +127,7 @@ defmodule Algedonia.HookExecutor do
 
   defp dispatch_hook_loop(loop, daemon_name, hook, ticket, from_status, to_status) do
     context = build_context(hook, ticket, from_status, to_status)
-    task = build_hook_task(context)
+    task = PromptBuilder.hook_task(context)
     workspace = Workspaces.get_workspace!(ticket.workspace_id)
 
     opts =
@@ -170,16 +170,6 @@ defmodule Algedonia.HookExecutor do
     else
       :ok
     end
-  end
-
-  defp build_hook_task(context) do
-    [
-      "Automation hook execution.",
-      "Task:\n#{context.instruction}",
-      "Execute only this task and exit when complete."
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n\n")
   end
 
   defp maybe_complete_hook(%{role: :hook} = loop, payload) do

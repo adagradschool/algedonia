@@ -198,7 +198,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   end
 
   describe "task context isolation" do
-    test "maker task includes planning comment lookup command", %{orchestrator: pid} do
+    test "maker task includes ticket comments", %{orchestrator: pid} do
       ticket =
         insert_ticket!(%{
           status: :in_progress,
@@ -226,9 +226,6 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
-      ticket_ref =
-        if is_integer(ticket.number), do: Integer.to_string(ticket.number), else: ticket.id
-
       assert :ok =
                GenServer.call(
                  pid,
@@ -236,8 +233,9 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
-      assert task =~ "ag ticket comments #{ticket_ref} --json"
-      assert task =~ "Fetch approved planning notes before implementation:"
+      assert task =~ "Ticket comments:"
+      assert task =~ "[planner] approved plan"
+      refute task =~ "ag ticket comments"
     end
 
     test "checker task excludes planning notes and ticket comments", %{orchestrator: pid} do
