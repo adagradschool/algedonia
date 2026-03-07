@@ -12,26 +12,14 @@ func TestResolveEditorCommandPrefersVisualOverEditor(t *testing.T) {
 	t.Setenv("VISUAL", "code --reuse-window")
 	t.Setenv("EDITOR", "zed")
 
-	binary, args := resolveEditorCommand(t.TempDir())
-	if binary != "code" {
-		t.Fatalf("binary = %q, want %q", binary, "code")
-	}
-	if !reflect.DeepEqual(args, []string{"--reuse-window"}) {
-		t.Fatalf("args = %#v, want %#v", args, []string{"--reuse-window"})
-	}
+	assertResolveFromTempDir(t, "code", []string{"--reuse-window"})
 }
 
 func TestResolveEditorCommandUsesEditorWhenVisualUnset(t *testing.T) {
 	t.Setenv("VISUAL", "")
 	t.Setenv("EDITOR", "cursor --new-window")
 
-	binary, args := resolveEditorCommand(t.TempDir())
-	if binary != "cursor" {
-		t.Fatalf("binary = %q, want %q", binary, "cursor")
-	}
-	if !reflect.DeepEqual(args, []string{"--new-window"}) {
-		t.Fatalf("args = %#v, want %#v", args, []string{"--new-window"})
-	}
+	assertResolveFromTempDir(t, "cursor", []string{"--new-window"})
 }
 
 func TestResolveEditorCommandUsesGitCoreEditor(t *testing.T) {
@@ -70,13 +58,7 @@ func TestResolveEditorCommandFallsBackToKnownEditors(t *testing.T) {
 	makeExecutable(t, binDir, "subl")
 	t.Setenv("PATH", binDir)
 
-	binary, args := resolveEditorCommand(t.TempDir())
-	if binary != "zed" {
-		t.Fatalf("binary = %q, want %q", binary, "zed")
-	}
-	if len(args) != 0 {
-		t.Fatalf("args = %#v, want empty args", args)
-	}
+	assertResolveFromTempDir(t, "zed", nil)
 }
 
 func TestResolveEditorCommandReturnsEmptyWhenNoEditorFound(t *testing.T) {
@@ -90,6 +72,18 @@ func TestResolveEditorCommandReturnsEmptyWhenNoEditorFound(t *testing.T) {
 	}
 	if len(args) != 0 {
 		t.Fatalf("args = %#v, want empty args", args)
+	}
+}
+
+func assertResolveFromTempDir(t *testing.T, wantBinary string, wantArgs []string) {
+	t.Helper()
+
+	binary, args := resolveEditorCommand(t.TempDir())
+	if binary != wantBinary {
+		t.Fatalf("binary = %q, want %q", binary, wantBinary)
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
 	}
 }
 
