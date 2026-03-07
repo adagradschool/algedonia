@@ -33,13 +33,15 @@ type LoopProcess struct {
 	stopped bool
 
 	// adapter fields — set when started via StartLoopWithAdapter
-	adapter      adapter.AgentAdapter
-	process      *adapter.Process
-	role         string
-	promptsDir   string
-	workdir      string
-	workspaceDir string
-	attempt      int
+	adapter       adapter.AgentAdapter
+	process       *adapter.Process
+	role          string
+	promptsDir    string
+	workdir       string
+	workspaceDir  string
+	workspaceSlug string
+	ticketID      string
+	attempt       int
 }
 
 // Manager tracks running loop processes and streams their output.
@@ -132,10 +134,13 @@ func (m *Manager) newTerminalChunker(loopID string) *Chunker {
 
 	return NewChunker(flushInterval, maxSize, func(data []byte) {
 		encoded := base64.StdEncoding.EncodeToString(data)
-		if err := m.sendFunc("terminal_output", map[string]interface{}{
+		payload := map[string]interface{}{
 			"loop_id": loopID,
 			"data":    encoded,
-		}); err != nil {
+		}
+		mergeScopePayload(payload, m.scopeForLoop(loopID))
+
+		if err := m.sendFunc("terminal_output", payload); err != nil {
 			log.Printf("Failed to send terminal_output for loop %s: %v", loopID, err)
 		}
 	})
@@ -179,16 +184,52 @@ func (m *Manager) waitAndNotifyExit(loopID string, waitFn func() error, done cha
 		}
 	}
 
-	if err := m.sendFunc("loop_exited", map[string]interface{}{
+	payload := map[string]interface{}{
 		"loop_id":   loopID,
 		"exit_code": exitCode,
-	}); err != nil {
+	}
+	mergeScopePayload(payload, m.scopeForLoop(loopID))
+
+	if err := m.sendFunc("loop_exited", payload); err != nil {
 		log.Printf("Failed to send loop_exited for loop %s: %v", loopID, err)
 	}
 
 	m.mu.Lock()
 	delete(m.loops, loopID)
 	m.mu.Unlock()
+}
+
+func (m *Manager) scopeForLoop(loopID string) map[string]interface{} {
+	m.mu.Lock()
+	lp := m.loops[loopID]
+	m.mu.Unlock()
+
+	if lp == nil {
+		return nil
+	}
+
+	lp.mu.Lock()
+	defer lp.mu.Unlock()
+
+	scope := map[string]interface{}{}
+
+	if role := strings.TrimSpace(lp.role); role != "" {
+		scope["role"] = role
+	}
+
+	if workspaceSlug := strings.TrimSpace(lp.workspaceSlug); workspaceSlug != "" {
+		scope["workspace_slug"] = workspaceSlug
+	}
+
+	if ticketID := strings.TrimSpace(lp.ticketID); ticketID != "" {
+		scope["ticket_id"] = ticketID
+	}
+
+	if len(scope) == 0 {
+		return nil
+	}
+
+	return scope
 }
 
 // StartLoop spawns a process in a PTY and streams output to the server.
@@ -251,7 +292,7 @@ func (m *Manager) StartLoop(ctx context.Context, loopID, command string, args []
 }
 
 // StartLoopWithAdapter spawns a loop using a registered adapter.
-func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, workspaceDir, workspaceSlug, taskDesc, model, effort string, attempt int) error {
+func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, role, workdir, workspaceDir, workspaceSlug, ticketID, taskDesc, model, effort string, attempt int) error {
 	m.mu.Lock()
 	if _, exists := m.loops[loopID]; exists {
 		m.mu.Unlock()
@@ -279,7 +320,7 @@ func (m *Manager) StartLoopWithAdapter(ctx context.Context, loopID, agentType, r
 	_, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	chunker := m.newTerminalChunker(loopID)
-	lp := m.registerAdapterLoop(loopID, role, workdir, workspaceDir, promptsDir, attempt, ag, proc, chunker, cancel, done)
+	lp := m.registerAdapterLoop(loopID, role, workdir, workspaceDir, workspaceSlug, ticketID, promptsDir, attempt, ag, proc, chunker, cancel, done)
 
 	tee := io.TeeReader(reader, proc.Collector())
 	go readOutputLoop(tee, loopID, chunker, m.broadcastTerminal)

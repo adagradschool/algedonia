@@ -8,91 +8,28 @@ import (
 )
 
 func TestHandleStartLoopOverviewRouting(t *testing.T) {
-	var mu sync.Mutex
-	var events []sentEvent
-
-	// Overview requires claude binary — use a mock
-	script := "#!/bin/sh\necho 'overview output'\n"
-	reg, dir := setupMockAgent(t, "claude", script)
-
-	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
-
-	ctx := context.Background()
-	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id": "overview-test",
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{
+		"loop_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
 		"role":    "overview",
 		"task":    "Generate overview",
-		"model":   "test-model",
 	})
-	if err != nil {
-		t.Fatalf("HandleStartLoop overview: %v", err)
-	}
-
-	// Wait for completion
-	deadline := time.After(10 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out")
-		default:
-		}
-		if mgr.RunningCount() == 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Should have loop_exited (overview uses StartOverviewLoop which sends loop_exited)
-	mu.Lock()
-	defer mu.Unlock()
-	found := false
-	for _, e := range events {
-		if e.Event == "loop_exited" && e.Payload["loop_id"] == "overview-test" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected loop_exited event for overview")
-		for _, e := range events {
-			t.Logf("  event: %s %v", e.Event, e.Payload)
-		}
+	if err == nil {
+		t.Fatal("expected error for missing required scoped fields")
 	}
 }
 
-func TestHandleStartLoopDefaultAgentType(t *testing.T) {
-	// When agent_type is empty and role is set, should default to defaultCodingAgent()
-	t.Setenv("ALGEDONIA_DEFAULT_CODING_AGENT", "claude_code")
-	script := "#!/bin/sh\necho 'done'\n"
-	reg, dir := setupMockAgent(t, "claude", script)
-
-	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, reg, dir)
-	configureScopedWorktree(t, mgr, "scope")
-
-	ctx := context.Background()
-	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id": "default-agent-test",
-		"role":    "maker",
-		// agent_type intentionally omitted
+func TestHandleStartLoopRequiresAgentType(t *testing.T) {
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
+	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{
+		"loop_id":        "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+		"role":           "maker",
 		"task":           "do something",
 		"workspace_slug": "scope",
-		"ticket_id":      "deadbeef",
+		"ticket_id":      "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 	})
-	if err != nil {
-		t.Fatalf("HandleStartLoop: %v", err)
-	}
-
-	// Wait for completion — if it started, the default worked
-	deadline := time.After(10 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out")
-		default:
-		}
-		if mgr.RunningCount() == 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error when agent_type is missing")
 	}
 }
 
@@ -106,12 +43,12 @@ func TestHandleStartLoopWorkdirDefault(t *testing.T) {
 	ctx := context.Background()
 	// workdir is resolved from workspace_slug + ticket_id to the ticket worktree.
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id":        "workdir-test",
+		"loop_id":        "ffffffff-ffff-4fff-8fff-ffffffffffff",
 		"role":           "maker",
 		"agent_type":     "claude_code",
 		"task":           "do something",
 		"workspace_slug": "scope",
-		"ticket_id":      "feedcafe",
+		"ticket_id":      "12121212-1212-4212-8212-121212121212",
 	})
 	if err != nil {
 		t.Fatalf("HandleStartLoop: %v", err)
@@ -138,7 +75,7 @@ func TestHandleStartLoopRoleMissingScope(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, reg, dir)
 
 	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{
-		"loop_id":    "missing-scope",
+		"loop_id":    "34343434-3434-4343-8343-343434343434",
 		"role":       "maker",
 		"agent_type": "claude_code",
 		"task":       "do something",
@@ -178,7 +115,7 @@ func TestSendEvent(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	mgr.sendEvent("test_event", map[string]interface{}{
-		"loop_id": "test-loop",
+		"loop_id": "56565656-5656-4565-8565-565656565656",
 		"data":    "hello",
 	})
 
@@ -201,7 +138,7 @@ func TestSendEventErrorDoesNotPanic(t *testing.T) {
 
 	// Should not panic
 	mgr.sendEvent("test_event", map[string]interface{}{
-		"loop_id": "test-loop",
+		"loop_id": "78787878-7878-4787-8787-787878787878",
 	})
 }
 

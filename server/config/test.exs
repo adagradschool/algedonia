@@ -40,6 +40,7 @@ config :algedonia, :supabase_req_options, plug: {Req.Test, Algedonia.Auth.Supaba
 # Don't start DaemonMonitor or Orchestrator in tests (they're tested explicitly)
 config :algedonia, :start_daemon_monitor, false
 config :algedonia, :start_orchestrator, false
+config :algedonia, :unscoped_tenant_query_mode, :raise
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false

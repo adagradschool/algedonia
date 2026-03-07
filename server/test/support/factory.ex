@@ -6,6 +6,7 @@ defmodule Algedonia.Factory do
   alias Algedonia.Daemons.DaemonRegistration
   alias Algedonia.Loops.Loop
   alias Algedonia.Repo
+  alias Algedonia.TenantScope
   alias Algedonia.Tickets.Ticket
   alias Algedonia.Workspaces.{Workspace, WorkspaceMembership}
 
@@ -49,16 +50,18 @@ defmodule Algedonia.Factory do
         {workspace, Map.put(overrides, :workspace_id, workspace.id)}
       end
 
-    overrides =
-      if Map.has_key?(overrides, :number) do
-        overrides
-      else
-        Map.put(overrides, :number, Algedonia.Workspaces.next_ticket_number!(workspace))
-      end
+    with_workspace_scope(workspace.id, fn ->
+      overrides =
+        if Map.has_key?(overrides, :number) do
+          overrides
+        else
+          Map.put(overrides, :number, Algedonia.Workspaces.next_ticket_number!(workspace))
+        end
 
-    %Ticket{}
-    |> Ticket.changeset(ticket_attrs(overrides))
-    |> Repo.insert!()
+      %Ticket{}
+      |> Ticket.changeset(ticket_attrs(overrides))
+      |> Repo.insert!()
+    end)
   end
 
   @doc """
@@ -67,11 +70,16 @@ defmodule Algedonia.Factory do
   def default_workspace! do
     case Process.get(:default_workspace) do
       %Workspace{} = workspace ->
+        if is_nil(TenantScope.get_workspace()) do
+          TenantScope.put_workspace(workspace.id)
+        end
+
         workspace
 
       _ ->
         workspace = insert_workspace!(%{slug: "algedonia", name: "Algedonia"})
         Process.put(:default_workspace, workspace)
+        TenantScope.put_workspace(workspace.id)
         workspace
     end
   end
@@ -196,16 +204,48 @@ defmodule Algedonia.Factory do
         Map.put(overrides, :ticket_id, ticket.id)
       end
 
-    overrides =
-      if Map.has_key?(overrides, :workspace_id) do
-        overrides
-      else
-        ticket = Repo.get!(Ticket, overrides.ticket_id)
-        Map.put(overrides, :workspace_id, ticket.workspace_id)
+    workspace_id =
+      cond do
+        Map.has_key?(overrides, :workspace_id) ->
+          overrides.workspace_id
+
+        is_binary(TenantScope.get_workspace()) ->
+          TenantScope.get_workspace()
+
+        true ->
+          ticket_workspace_id!(overrides.ticket_id)
       end
 
-    %Loop{}
-    |> Loop.changeset(loop_attrs(overrides))
-    |> Repo.insert!()
+    with_workspace_scope(workspace_id, fn ->
+      %Loop{}
+      |> Loop.changeset(loop_attrs(Map.put(overrides, :workspace_id, workspace_id)))
+      |> Repo.insert!()
+    end)
+  end
+
+  defp with_workspace_scope(workspace_id, fun)
+       when is_binary(workspace_id) and is_function(fun, 0) do
+    previous = TenantScope.get_workspace()
+    TenantScope.put_workspace(workspace_id)
+
+    try do
+      fun.()
+    after
+      if is_binary(previous) do
+        TenantScope.put_workspace(previous)
+      end
+    end
+  end
+
+  defp ticket_workspace_id!(ticket_id) when is_binary(ticket_id) do
+    dumped_ticket_id = Ecto.UUID.dump!(ticket_id)
+
+    case Repo.query("SELECT workspace_id::text FROM tickets WHERE id = $1", [dumped_ticket_id]) do
+      {:ok, %{rows: [[workspace_id]]}} when is_binary(workspace_id) ->
+        workspace_id
+
+      _ ->
+        raise Ecto.NoResultsError, queryable: Ticket
+    end
   end
 end

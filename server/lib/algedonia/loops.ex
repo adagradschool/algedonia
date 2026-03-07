@@ -6,17 +6,18 @@ defmodule Algedonia.Loops do
 
   alias Algedonia.Loops.{Loop, LoopStep}
   alias Algedonia.Repo
+  alias Algedonia.TenantScope
 
   @doc """
   Gets a single loop. Raises `Ecto.NoResultsError` if not found.
   """
-  @spec get_loop!(binary()) :: Loop.t()
+  @spec get_loop!(Algedonia.Types.id()) :: Loop.t()
   def get_loop!(id), do: Repo.get!(Loop, id)
 
   @doc """
   Gets a single loop, returns nil if not found.
   """
-  @spec get_loop(binary()) :: Loop.t() | nil
+  @spec get_loop(Algedonia.Types.id()) :: Loop.t() | nil
   def get_loop(id), do: Repo.get(Loop, id)
 
   @doc """
@@ -55,7 +56,7 @@ defmodule Algedonia.Loops do
   @doc """
   Gets a loop with ticket preloaded. Raises if not found.
   """
-  @spec get_loop_with_ticket!(binary()) :: Loop.t()
+  @spec get_loop_with_ticket!(Algedonia.Types.id()) :: Loop.t()
   def get_loop_with_ticket!(id) do
     get_loop!(id) |> Repo.preload(:ticket)
   end
@@ -70,33 +71,12 @@ defmodule Algedonia.Loops do
 
   @doc """
   Creates a loop.
-
-  Automatically derives `workspace_id` from the associated ticket when not
-  explicitly provided, so callers never need to pass it manually.
   """
   @spec create_loop(map()) :: {:ok, Loop.t()} | {:error, Ecto.Changeset.t()}
   def create_loop(attrs) do
-    attrs = maybe_derive_workspace_id(attrs)
-
     %Loop{}
     |> Loop.changeset(attrs)
     |> Repo.insert()
-  end
-
-  defp maybe_derive_workspace_id(attrs) do
-    has_workspace? =
-      Map.has_key?(attrs, :workspace_id) or Map.has_key?(attrs, "workspace_id")
-
-    ticket_id = attrs[:ticket_id] || attrs["ticket_id"]
-
-    if has_workspace? or is_nil(ticket_id) do
-      attrs
-    else
-      case Repo.get(Algedonia.Tickets.Ticket, ticket_id, skip_workspace_scope: true) do
-        %{workspace_id: wid} -> Map.put(attrs, :workspace_id, wid)
-        nil -> attrs
-      end
-    end
   end
 
   @doc """
@@ -171,7 +151,7 @@ defmodule Algedonia.Loops do
   @doc """
   Lists hook loops for a ticket, ordered by insertion time.
   """
-  @spec list_hook_loops_for_ticket(binary()) :: [Loop.t()]
+  @spec list_hook_loops_for_ticket(Algedonia.Types.id()) :: [Loop.t()]
   def list_hook_loops_for_ticket(ticket_id) do
     Loop
     |> where([l], l.ticket_id == ^ticket_id and l.role == :hook)
@@ -185,15 +165,21 @@ defmodule Algedonia.Loops do
   This is used when a daemon disconnects so orphaned loops do not remain
   stuck in a running state.
   """
-  @spec requeue_running_task_loops_for_daemon(binary()) :: [Loop.t()]
+  @spec requeue_running_task_loops_for_daemon(Algedonia.Types.id()) :: [Loop.t()]
   def requeue_running_task_loops_for_daemon(daemon_id) when is_binary(daemon_id) do
-    Loop
-    |> where(
-      [l],
-      l.assigned_daemon_id == ^daemon_id and l.role == :task and
-        l.status == :running
-    )
-    |> Repo.all()
+    daemon_id
+    |> running_task_loop_workspace_ids_for_daemon()
+    |> Enum.flat_map(fn workspace_id ->
+      TenantScope.with_workspace(workspace_id, fn ->
+        Loop
+        |> where(
+          [l],
+          l.assigned_daemon_id == ^daemon_id and l.role == :task and
+            l.status == :running
+        )
+        |> Repo.all()
+      end)
+    end)
     |> Enum.map(fn loop ->
       interrupt_running_steps(loop.id)
 
@@ -216,6 +202,7 @@ defmodule Algedonia.Loops do
   @doc """
   Marks all running steps for a loop as interrupted.
   """
+  @spec interrupt_running_steps(Algedonia.Types.id()) :: {non_neg_integer(), nil}
   def interrupt_running_steps(loop_id) do
     now = DateTime.utc_now()
 
@@ -227,11 +214,17 @@ defmodule Algedonia.Loops do
   @doc """
   Returns running loops assigned to a daemon.
   """
-  @spec list_running_loops_for_daemon(binary()) :: [Loop.t()]
+  @spec list_running_loops_for_daemon(Algedonia.Types.id()) :: [Loop.t()]
   def list_running_loops_for_daemon(daemon_id) do
-    Loop
-    |> where([l], l.assigned_daemon_id == ^daemon_id and l.status == :running)
-    |> Repo.all()
+    daemon_id
+    |> running_loop_workspace_ids_for_daemon()
+    |> Enum.flat_map(fn workspace_id ->
+      TenantScope.with_workspace(workspace_id, fn ->
+        Loop
+        |> where([l], l.assigned_daemon_id == ^daemon_id and l.status == :running)
+        |> Repo.all()
+      end)
+    end)
   end
 
   @doc """
@@ -239,16 +232,21 @@ defmodule Algedonia.Loops do
   """
   @spec list_pending_unassigned_task_loops() :: [Loop.t()]
   def list_pending_unassigned_task_loops do
-    Loop
-    |> where([l], l.role == :task and l.status == :pending and is_nil(l.assigned_daemon_id))
-    |> order_by([l], asc: l.inserted_at)
-    |> Repo.all()
+    pending_unassigned_task_workspace_ids()
+    |> Enum.flat_map(fn workspace_id ->
+      TenantScope.with_workspace(workspace_id, fn ->
+        Loop
+        |> where([l], l.role == :task and l.status == :pending and is_nil(l.assigned_daemon_id))
+        |> order_by([l], asc: l.inserted_at)
+        |> Repo.all()
+      end)
+    end)
   end
 
   @doc """
   Returns all loops for a ticket, ordered by insertion time.
   """
-  @spec list_loops_for_ticket(binary()) :: [Loop.t()]
+  @spec list_loops_for_ticket(Algedonia.Types.id()) :: [Loop.t()]
   def list_loops_for_ticket(ticket_id) do
     Loop
     |> where([l], l.ticket_id == ^ticket_id)
@@ -259,7 +257,7 @@ defmodule Algedonia.Loops do
   @doc """
   Returns all task loops for a ticket, ordered by insertion time.
   """
-  @spec list_task_loops_for_ticket(binary()) :: [Loop.t()]
+  @spec list_task_loops_for_ticket(Algedonia.Types.id()) :: [Loop.t()]
   def list_task_loops_for_ticket(ticket_id) do
     Loop
     |> where([l], l.ticket_id == ^ticket_id and l.role == :task)
@@ -270,7 +268,9 @@ defmodule Algedonia.Loops do
   @doc """
   Returns the first task-loop ID for each ticket ID.
   """
-  @spec first_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
+  @spec first_loop_ids_for_tickets([Algedonia.Types.id()]) :: %{
+          Algedonia.Types.id() => Algedonia.Types.id()
+        }
   def first_loop_ids_for_tickets([]), do: %{}
 
   def first_loop_ids_for_tickets(ticket_ids) do
@@ -287,7 +287,9 @@ defmodule Algedonia.Loops do
   @doc """
   Returns the first inspectable loop ID for each ticket ID.
   """
-  @spec first_inspect_loop_ids_for_tickets([binary()]) :: %{binary() => binary()}
+  @spec first_inspect_loop_ids_for_tickets([Algedonia.Types.id()]) :: %{
+          Algedonia.Types.id() => Algedonia.Types.id()
+        }
   def first_inspect_loop_ids_for_tickets([]), do: %{}
 
   def first_inspect_loop_ids_for_tickets(ticket_ids) do
@@ -309,8 +311,12 @@ defmodule Algedonia.Loops do
   @doc """
   Returns active loop info for the given ticket IDs.
   """
-  @spec active_loop_info_for_tickets([binary()]) :: %{
-          binary() => %{loop_id: binary(), stage: String.t(), attempt: integer()}
+  @spec active_loop_info_for_tickets([Algedonia.Types.id()]) :: %{
+          Algedonia.Types.id() => %{
+            loop_id: Algedonia.Types.id(),
+            stage: String.t(),
+            attempt: integer()
+          }
         }
   def active_loop_info_for_tickets([]), do: %{}
 
@@ -358,7 +364,7 @@ defmodule Algedonia.Loops do
   @doc """
   Returns the first task-loop ID for a ticket.
   """
-  @spec first_loop_id(binary()) :: binary() | nil
+  @spec first_loop_id(Algedonia.Types.id()) :: Algedonia.Types.id() | nil
   def first_loop_id(ticket_id) do
     ticket_id
     |> list_task_loops_for_ticket()
@@ -372,7 +378,7 @@ defmodule Algedonia.Loops do
   @doc """
   Returns the first inspectable loop ID for a ticket.
   """
-  @spec first_inspect_loop_id(binary()) :: binary() | nil
+  @spec first_inspect_loop_id(Algedonia.Types.id()) :: Algedonia.Types.id() | nil
   def first_inspect_loop_id(ticket_id) do
     ticket_id
     |> list_loops_for_ticket()
@@ -388,7 +394,7 @@ defmodule Algedonia.Loops do
   @doc """
   Subscribes to loop-status events for a ticket.
   """
-  @spec subscribe_ticket_loops(binary()) :: :ok | {:error, term()}
+  @spec subscribe_ticket_loops(Algedonia.Types.id()) :: :ok | {:error, term()}
   def subscribe_ticket_loops(ticket_id) do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, "ticket_loops:#{ticket_id}")
   end
@@ -396,7 +402,7 @@ defmodule Algedonia.Loops do
   @doc """
   Subscribes to updates for a specific loop.
   """
-  @spec subscribe(binary()) :: :ok | {:error, term()}
+  @spec subscribe(Algedonia.Types.id()) :: :ok | {:error, term()}
   def subscribe(loop_id) do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, "loop:#{loop_id}")
   end
@@ -434,7 +440,7 @@ defmodule Algedonia.Loops do
   @doc """
   Lists all steps for a loop, ordered by started_at ascending.
   """
-  @spec list_steps_for_loop(binary()) :: [LoopStep.t()]
+  @spec list_steps_for_loop(Algedonia.Types.id()) :: [LoopStep.t()]
   def list_steps_for_loop(loop_id) do
     LoopStep
     |> where([s], s.loop_id == ^loop_id)
@@ -445,7 +451,7 @@ defmodule Algedonia.Loops do
   @doc """
   Returns the currently running step for a loop, or nil.
   """
-  @spec current_running_step(binary()) :: LoopStep.t() | nil
+  @spec current_running_step(Algedonia.Types.id()) :: LoopStep.t() | nil
   def current_running_step(loop_id) do
     LoopStep
     |> where([s], s.loop_id == ^loop_id and s.status == "running")
@@ -457,7 +463,7 @@ defmodule Algedonia.Loops do
   @doc """
   Returns the most recent step for a loop, or nil.
   """
-  @spec latest_step(binary()) :: LoopStep.t() | nil
+  @spec latest_step(Algedonia.Types.id()) :: LoopStep.t() | nil
   def latest_step(loop_id) do
     LoopStep
     |> where([s], s.loop_id == ^loop_id)
@@ -470,7 +476,7 @@ defmodule Algedonia.Loops do
   Returns the current phase for a loop by querying the latest step's role.
   Returns nil if no steps exist.
   """
-  @spec current_phase(binary()) :: String.t() | nil
+  @spec current_phase(Algedonia.Types.id()) :: String.t() | nil
   def current_phase(loop_id) do
     case latest_step(loop_id) do
       nil -> nil
@@ -481,7 +487,7 @@ defmodule Algedonia.Loops do
   @doc """
   Finds the last running step matching the given role and attempt, then completes it.
   """
-  @spec complete_last_running(binary(), String.t(), integer(), map()) ::
+  @spec complete_last_running(Algedonia.Types.id(), String.t(), integer(), map()) ::
           {:ok, LoopStep.t()} | :not_found
   def complete_last_running(loop_id, role, attempt, attrs) do
     step =
@@ -533,7 +539,7 @@ defmodule Algedonia.Loops do
   Deletes all loops (and their steps via DB cascade) for a ticket.
   Returns the number of deleted loops.
   """
-  @spec delete_loops_for_ticket(binary()) :: {non_neg_integer(), nil}
+  @spec delete_loops_for_ticket(Algedonia.Types.id()) :: {non_neg_integer(), nil}
   def delete_loops_for_ticket(ticket_id) do
     from(l in Loop, where: l.ticket_id == ^ticket_id)
     |> Repo.delete_all()
@@ -553,6 +559,55 @@ defmodule Algedonia.Loops do
     latest
     |> Repo.all()
     |> Map.new()
+  end
+
+  defp running_task_loop_workspace_ids_for_daemon(daemon_id) do
+    daemon_id = Ecto.UUID.dump!(daemon_id)
+
+    workspace_ids_for_query(
+      """
+      SELECT DISTINCT workspace_id::text
+      FROM loops
+      WHERE assigned_daemon_id = $1 AND role = 'task' AND status = 'running'
+      """,
+      [daemon_id]
+    )
+  end
+
+  defp running_loop_workspace_ids_for_daemon(daemon_id) do
+    daemon_id = Ecto.UUID.dump!(daemon_id)
+
+    workspace_ids_for_query(
+      """
+      SELECT DISTINCT workspace_id::text
+      FROM loops
+      WHERE assigned_daemon_id = $1 AND status = 'running'
+      """,
+      [daemon_id]
+    )
+  end
+
+  defp pending_unassigned_task_workspace_ids do
+    workspace_ids_for_query(
+      """
+      SELECT DISTINCT workspace_id::text
+      FROM loops
+      WHERE role = 'task' AND status = 'pending' AND assigned_daemon_id IS NULL
+      """,
+      []
+    )
+  end
+
+  defp workspace_ids_for_query(sql, params) do
+    case Repo.query(sql, params) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn [workspace_id] -> workspace_id end)
+        |> Enum.filter(&is_binary/1)
+
+      _ ->
+        []
+    end
   end
 
   defp uuid?(value) when is_binary(value) do

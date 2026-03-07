@@ -62,7 +62,12 @@ defmodule Algedonia.Repo do
 
   defp maybe_warn_unscoped(%Ecto.Query{from: %{source: {source, _}}})
        when source in @tenant_sources do
-    Logger.warning("Unscoped query on tenant table #{source} — TenantScope not set")
+    message = "Unscoped query on tenant table #{source} — TenantScope not set"
+
+    case Application.get_env(:algedonia, :unscoped_tenant_query_mode, :warn) do
+      :raise -> raise ArgumentError, message
+      _ -> Logger.warning(message)
+    end
   end
 
   defp maybe_warn_unscoped(_query), do: :ok

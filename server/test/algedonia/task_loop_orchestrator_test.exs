@@ -2,7 +2,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   use Algedonia.DataCase, async: true
 
   alias Algedonia.CheckerHandoff
-  alias Algedonia.{Loops, Repo, TaskLoopOrchestrator, Tickets}
+  alias Algedonia.{Loops, Repo, TaskLoopOrchestrator, TenantScope, Tickets}
   alias Ecto.Adapters.SQL.Sandbox
   import Algedonia.Factory
 
@@ -21,29 +21,55 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     # Allow the GenServer to use this test's DB connection
     Sandbox.allow(Repo, self(), pid)
 
-    {:ok, orchestrator: pid}
+    workspace = default_workspace!()
+    previous_scope = put_workspace_scope(workspace)
+    on_exit(fn -> restore_workspace_scope(previous_scope) end)
+
+    {:ok, orchestrator: pid, workspace: workspace}
+  end
+
+  defp handle_attempt_complete(pid, loop_id, payload, daemon_name, workspace_id) do
+    GenServer.call(pid, {:attempt_complete, loop_id, payload, daemon_name, workspace_id})
   end
 
   defp handle_attempt_complete(pid, loop_id, payload, daemon_name) do
-    GenServer.call(pid, {:attempt_complete, loop_id, payload, daemon_name})
+    handle_attempt_complete(pid, loop_id, payload, daemon_name, TenantScope.get_workspace())
   end
 
-  defp handle_attempt_error(pid, loop_id, payload, daemon_name) do
-    GenServer.call(pid, {:attempt_error, loop_id, payload, daemon_name})
+  defp handle_attempt_error(pid, loop_id, payload, daemon_name, workspace_id) do
+    GenServer.call(pid, {:attempt_error, loop_id, payload, daemon_name, workspace_id})
+  end
+
+  defp get_history(pid, loop_id, workspace_id) do
+    GenServer.call(pid, {:get_loop_history, loop_id, workspace_id})
   end
 
   defp get_history(pid, loop_id) do
-    GenServer.call(pid, {:get_loop_history, loop_id})
+    get_history(pid, loop_id, TenantScope.get_workspace())
   end
 
   describe "task loop checker handoff repair history" do
     test "does not add extra checker history entries for handoff repair", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
       loop_id = loop.id
       daemon = insert_daemon!(%{status: :online})
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop_id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
 
       assert :ok =
@@ -51,7 +77,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  pid,
                  loop_id,
                  %{"session_id" => "maker-1", "exit_code" => 0},
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "checker"}}
@@ -65,7 +92,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                    "handoff_valid" => false,
                    "handoff_error" => "missing checker_result.json"
                  },
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "checker", "task" => repair_task}}
@@ -94,7 +122,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                    "feedback" => "Needs more test coverage",
                    "feedback_path" => expected_feedback_path
                  },
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
@@ -118,11 +147,25 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       orchestrator: pid
     } do
       ticket = insert_ticket!(%{status: :in_progress, coding_agent: :claude_code})
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
       loop_id = loop.id
       daemon = insert_daemon!(%{status: :online})
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "agent_type" => "claude_code"}}
     end
   end
@@ -130,11 +173,25 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "start_task_loop includes ticket_id" do
     test "push payload contains ticket_id", %{orchestrator: pid} do
       ticket = insert_ticket!(%{status: :in_progress})
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
       loop_id = loop.id
       daemon = insert_daemon!(%{status: :online})
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       ticket_id = ticket.id
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "ticket_id" => ^ticket_id}}
     end
@@ -157,14 +214,26 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           body: "approved plan"
         })
 
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
       ticket_ref =
         if is_integer(ticket.number), do: Integer.to_string(ticket.number), else: ticket.id
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
       assert task =~ "ag ticket comments #{ticket_ref} --json"
@@ -191,7 +260,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       daemon = insert_daemon!(%{status: :online})
       loop_id = loop.id
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
 
       assert :ok =
@@ -199,7 +273,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  pid,
                  loop.id,
                  %{"session_id" => "maker-1", "exit_code" => 0},
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "checker", "task" => checker_task}}
@@ -229,7 +304,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           body: "Add error handling here."
         })
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
 
       assert task =~ "Inline review comments:"
@@ -256,7 +336,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
       {:ok, _} = Algedonia.InlineReviews.update_status(review, :resolved)
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task}}
 
       refute task =~ "Inline review comments:"
@@ -283,7 +368,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     daemon = insert_daemon!(%{status: :online})
 
-    assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+    assert :ok =
+             GenServer.call(
+               pid,
+               {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+             )
+
     assert_receive {:push, _, _, %{"role" => "maker"}}
 
     %{ticket: ticket, loop: loop, daemon: daemon}
@@ -319,7 +409,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  pid,
                  loop.id,
                  %{"session_id" => "maker-1", "exit_code" => 0},
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, loop_id, %{"role" => "checker", "attempt" => 1}}
@@ -336,7 +427,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -366,7 +458,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                    "exit_code" => 2,
                    "message" => "agent exited with code 2"
                  },
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
@@ -386,7 +479,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -396,7 +490,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  pid,
                  loop.id,
                  valid_checker_payload(loop.id, 1, "pass", "All checks pass"),
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       reloaded = Algedonia.Loops.get_loop!(loop.id)
@@ -410,7 +505,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -419,7 +515,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         valid_checker_payload(loop.id, 1, "pass", "All good"),
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       reloaded_ticket = Tickets.get_ticket!(ticket.id)
@@ -435,7 +532,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -444,7 +542,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         valid_checker_payload(loop.id, 1, "pass", "All good"),
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       reloaded_ticket = Tickets.get_ticket!(ticket.id)
@@ -460,7 +559,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -470,7 +570,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  pid,
                  loop.id,
                  valid_checker_payload(loop.id, 1, "fail", "Missing error handling"),
-                 daemon.name
+                 daemon.name,
+                 loop.workspace_id
                )
 
       assert_receive {:push, _, loop_id, %{"role" => "maker", "task" => task}}
@@ -493,7 +594,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -502,7 +604,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         valid_checker_payload(loop.id, 1, "fail", "Still broken"),
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "maker"}}
@@ -512,7 +615,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         %{"session_id" => "maker-2", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, _, %{"role" => "checker"}}
@@ -521,7 +625,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop.id,
         valid_checker_payload(loop.id, 2, "fail", "Still broken again"),
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       # No more maker push — loop is failed
@@ -542,7 +647,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop_id,
         %{"session_id" => "maker-1", "exit_code" => 0},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "checker"}}
@@ -552,7 +658,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop_id,
         %{"session_id" => "c1", "handoff_valid" => false, "handoff_error" => "missing json"},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "checker", "task" => t1}}
@@ -563,7 +670,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop_id,
         %{"session_id" => "c2", "handoff_valid" => false, "handoff_error" => "still missing"},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "checker", "task" => t2}}
@@ -574,7 +682,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         pid,
         loop_id,
         %{"session_id" => "c3", "handoff_valid" => false, "handoff_error" => "still missing"},
-        daemon.name
+        daemon.name,
+        loop.workspace_id
       )
 
       # Should get a new maker attempt (retry)
@@ -617,11 +726,22 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           workspace_id: workspace.id
         })
 
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :repo_not_ready} =
-               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
     end
 
     test "allows task loop when repo is ready", %{orchestrator: pid} do
@@ -637,12 +757,25 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           workspace_id: workspace.id
         })
 
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
       daemon = insert_daemon!(%{status: :online})
 
       Algedonia.Daemons.set_repo_status(daemon.name, "ready-ws", %{"status" => "ready"})
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, _, %{"role" => "maker"}}
     end
 
@@ -651,7 +784,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, _, %{"role" => "maker"}}
     end
   end
@@ -671,7 +809,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :already_running} =
-               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
     end
 
     test "returns {:error, :already_running} for passed loop", %{orchestrator: pid} do
@@ -680,7 +821,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :already_running} =
-               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
     end
 
     test "returns {:error, :already_running} for failed loop", %{orchestrator: pid} do
@@ -689,7 +833,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       daemon = insert_daemon!(%{status: :online})
 
       assert {:error, :already_running} =
-               GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
     end
 
     test "allows starting a pending loop", %{orchestrator: pid} do
@@ -697,7 +844,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending, max_attempts: 3})
       daemon = insert_daemon!(%{status: :online})
 
-      assert :ok = GenServer.call(pid, {:start_task_loop, loop.id, daemon.name, []})
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
       assert_receive {:push, _, _, %{"role" => "maker"}}
     end
   end
@@ -821,8 +973,11 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
           started_at: ~U[2026-01-01 00:02:00Z]
         })
 
-      assert GenServer.call(pid, {:current_step_terminal_id, loop.id}) == checker_step.id
-      assert GenServer.call(pid, {:latest_step_terminal_id, loop.id}) == checker_step.id
+      assert GenServer.call(pid, {:current_step_terminal_id, loop.id, loop.workspace_id}) ==
+               checker_step.id
+
+      assert GenServer.call(pid, {:latest_step_terminal_id, loop.id, loop.workspace_id}) ==
+               checker_step.id
 
       # Verify maker step is in history
       history = get_history(pid, loop.id)
@@ -830,10 +985,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert Enum.any?(history, &(&1.id == maker_step.id))
     end
 
-    test "returns nil ids when loop has no steps", %{orchestrator: pid} do
+    test "returns nil ids when loop has no steps", %{orchestrator: pid, workspace: workspace} do
       loop_id = Ecto.UUID.generate()
-      assert GenServer.call(pid, {:current_step_terminal_id, loop_id}) == nil
-      assert GenServer.call(pid, {:latest_step_terminal_id, loop_id}) == nil
+      assert GenServer.call(pid, {:current_step_terminal_id, loop_id, workspace.id}) == nil
+      assert GenServer.call(pid, {:latest_step_terminal_id, loop_id, workspace.id}) == nil
     end
   end
 end

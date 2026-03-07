@@ -79,10 +79,13 @@ go build -o algedonia-agent ./cmd/algedonia-agent
 - JSON keys: `snake_case`
 - Timestamps: Unix milliseconds
 - Binary data: raw frames, not Base64
+- Every loop lifecycle payload must be workspace-scoped (`workspace_slug` + `ticket_id`, and `workspace_id` where available internally).
+- IDs must be UUID strings in protocol payloads and tests; no ad-hoc IDs.
 
 ### Database
 - Tables: `snake_case`, UUIDs for app tables (bigserial for `events` only)
 - Status fields: `Ecto.Enum` on Elixir side, `CHECK` constraints in SQL
+- Tenant-table operations must run under explicit `TenantScope` workspace context; unscoped tenant queries are contract violations.
 
 ## Design Docs
 

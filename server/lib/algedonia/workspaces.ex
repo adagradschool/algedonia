@@ -6,6 +6,7 @@ defmodule Algedonia.Workspaces do
 
   alias Algedonia.Accounts.User
   alias Algedonia.Repo
+  alias Algedonia.TenantScope
   alias Algedonia.Workspaces.{TransitionHook, Workspace, WorkspaceInvitation, WorkspaceMembership}
 
   @stage_order %{
@@ -32,13 +33,13 @@ defmodule Algedonia.Workspaces do
   @doc """
   Gets a workspace by ID, raising if not found.
   """
-  @spec get_workspace!(integer()) :: Workspace.t()
+  @spec get_workspace!(Algedonia.Types.id()) :: Workspace.t()
   def get_workspace!(id), do: Repo.get!(Workspace, id)
 
   @doc """
   Gets a workspace by ID, returning nil if not found.
   """
-  @spec get_workspace(integer()) :: Workspace.t() | nil
+  @spec get_workspace(Algedonia.Types.id()) :: Workspace.t() | nil
   def get_workspace(id), do: Repo.get(Workspace, id)
 
   @doc """
@@ -94,7 +95,8 @@ defmodule Algedonia.Workspaces do
   @doc """
   Gets a membership for a user in a workspace, or nil.
   """
-  @spec get_membership(integer(), integer()) :: WorkspaceMembership.t() | nil
+  @spec get_membership(Algedonia.Types.id(), Algedonia.Types.id()) ::
+          WorkspaceMembership.t() | nil
   def get_membership(workspace_id, user_id) do
     Repo.get_by(WorkspaceMembership, workspace_id: workspace_id, user_id: user_id)
   end
@@ -102,7 +104,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Lists all members of a workspace, returning user records.
   """
-  @spec list_members(integer()) :: [User.t()]
+  @spec list_members(Algedonia.Types.id()) :: [User.t()]
   def list_members(workspace_id) do
     User
     |> join(:inner, [u], m in WorkspaceMembership, on: m.user_id == u.id)
@@ -114,7 +116,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Removes a member from a workspace by deleting their membership.
   """
-  @spec remove_member(integer(), integer()) ::
+  @spec remove_member(Algedonia.Types.id(), Algedonia.Types.id()) ::
           {:ok, WorkspaceMembership.t()} | {:error, :not_found}
   def remove_member(workspace_id, user_id) do
     case get_membership(workspace_id, user_id) do
@@ -143,7 +145,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Lists pending invitations for a workspace, preloading the inviter.
   """
-  @spec list_invitations(integer()) :: [WorkspaceInvitation.t()]
+  @spec list_invitations(Algedonia.Types.id()) :: [WorkspaceInvitation.t()]
   def list_invitations(workspace_id) do
     WorkspaceInvitation
     |> where([i], i.workspace_id == ^workspace_id and i.status == :pending)
@@ -155,7 +157,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Cancels a pending invitation by setting its status to `:cancelled`.
   """
-  @spec cancel_invitation(String.t()) ::
+  @spec cancel_invitation(Algedonia.Types.id()) ::
           {:ok, WorkspaceInvitation.t()} | {:error, Ecto.Changeset.t()}
   def cancel_invitation(invitation_id) do
     invitation = Repo.get!(WorkspaceInvitation, invitation_id)
@@ -206,29 +208,31 @@ defmodule Algedonia.Workspaces do
   """
   @spec next_ticket_number!(Workspace.t()) :: integer()
   def next_ticket_number!(%Workspace{} = workspace) do
-    Repo.transaction(fn ->
-      locked =
-        Workspace
-        |> where([w], w.id == ^workspace.id)
-        |> lock("FOR UPDATE")
-        |> Repo.one!()
+    TenantScope.with_workspace(workspace.id, fn ->
+      Repo.transaction(fn ->
+        locked =
+          Workspace
+          |> where([w], w.id == ^workspace.id)
+          |> lock("FOR UPDATE")
+          |> Repo.one!()
 
-      # Use the greater of the counter and MAX(number)+1 to stay in sync
-      # even if tickets were created through other paths.
-      max_existing =
-        Algedonia.Tickets.Ticket
-        |> where([t], t.workspace_id == ^workspace.id)
-        |> select([t], max(t.number))
-        |> Repo.one() || 0
+        # Use the greater of the counter and MAX(number)+1 to stay in sync
+        # even if tickets were created through other paths.
+        max_existing =
+          Algedonia.Tickets.Ticket
+          |> where([t], t.workspace_id == ^workspace.id)
+          |> select([t], max(t.number))
+          |> Repo.one() || 0
 
-      number = max(locked.next_ticket_number, max_existing + 1)
+        number = max(locked.next_ticket_number, max_existing + 1)
 
-      {:ok, _} =
-        locked
-        |> Workspace.changeset(%{next_ticket_number: number + 1})
-        |> Repo.update()
+        {:ok, _} =
+          locked
+          |> Workspace.changeset(%{next_ticket_number: number + 1})
+          |> Repo.update()
 
-      number
+        number
+      end)
     end)
     |> case do
       {:ok, number} -> number
@@ -257,7 +261,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Lists transition hooks for a workspace, sorted by stage progression order.
   """
-  @spec list_transition_hooks(integer()) :: [TransitionHook.t()]
+  @spec list_transition_hooks(Algedonia.Types.id()) :: [TransitionHook.t()]
   def list_transition_hooks(workspace_id) do
     TransitionHook
     |> where([h], h.workspace_id == ^workspace_id)
@@ -270,7 +274,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Gets a single transition hook by ID. Returns nil if not found.
   """
-  @spec get_transition_hook(binary()) :: TransitionHook.t() | nil
+  @spec get_transition_hook(Algedonia.Types.id()) :: TransitionHook.t() | nil
   def get_transition_hook(id), do: Repo.get(TransitionHook, id)
 
   @doc """
@@ -307,7 +311,7 @@ defmodule Algedonia.Workspaces do
   @doc """
   Returns enabled hooks matching a specific transition for a workspace.
   """
-  @spec get_hooks_for_transition(integer(), atom(), atom()) :: [TransitionHook.t()]
+  @spec get_hooks_for_transition(Algedonia.Types.id(), atom(), atom()) :: [TransitionHook.t()]
   def get_hooks_for_transition(workspace_id, from_status, to_status) do
     TransitionHook
     |> where([h], h.workspace_id == ^workspace_id)

@@ -22,14 +22,14 @@ func setupWorkspaceHandoffPaths(t *testing.T, loopID string, attempt int) (strin
 }
 
 func TestLoadCheckerHandoff_RequiresWorkspaceDir(t *testing.T) {
-	_, _, _, err := loadCheckerHandoff("loop-no-workspace", 1, "")
+	_, _, _, err := loadCheckerHandoff("11111111-1111-4111-8111-111111111111", 1, "")
 	if err == nil {
 		t.Fatal("expected error when workspaceDir is missing")
 	}
 }
 
 func TestLoadCheckerHandoff_Valid(t *testing.T) {
-	loopID := "test-loop-valid"
+	loopID := "22222222-2222-4222-8222-222222222222"
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
@@ -58,7 +58,7 @@ func TestLoadCheckerHandoff_Valid(t *testing.T) {
 }
 
 func TestLoadCheckerHandoff_InvalidJSON(t *testing.T) {
-	loopID := "test-loop-badjson"
+	loopID := "33333333-3333-4333-8333-333333333333"
 	attempt := 1
 	wsDir, jsonPath, _ := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
@@ -73,7 +73,7 @@ func TestLoadCheckerHandoff_InvalidJSON(t *testing.T) {
 }
 
 func TestLoadCheckerHandoff_InvalidVerdict(t *testing.T) {
-	loopID := "test-loop-badverdict"
+	loopID := "44444444-4444-4444-8444-444444444444"
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
@@ -90,7 +90,7 @@ func TestLoadCheckerHandoff_InvalidVerdict(t *testing.T) {
 }
 
 func TestLoadCheckerHandoff_MismatchedFeedbackPath(t *testing.T) {
-	loopID := "test-loop-mismatch"
+	loopID := "55555555-5555-4555-8555-555555555555"
 	attempt := 1
 	wsDir, jsonPath, _ := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
@@ -107,7 +107,7 @@ func TestLoadCheckerHandoff_MismatchedFeedbackPath(t *testing.T) {
 }
 
 func TestLoadCheckerHandoff_EmptyFeedbackMarkdown(t *testing.T) {
-	loopID := "test-loop-emptyfb"
+	loopID := "66666666-6666-4666-8666-666666666666"
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
@@ -127,7 +127,7 @@ func TestLoadCheckerHandoff_EmptyFeedbackMarkdown(t *testing.T) {
 }
 
 func TestLoadCheckerHandoff_RelativeFeedbackPathResolvesInWorkspace(t *testing.T) {
-	loopID := "test-loop-relative"
+	loopID := "77777777-7777-4777-8777-777777777777"
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 

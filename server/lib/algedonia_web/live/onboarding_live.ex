@@ -1,7 +1,7 @@
 defmodule AlgedoniaWeb.OnboardingLive do
   use AlgedoniaWeb, :live_view
 
-  alias Algedonia.{Accounts.GitHub, Daemons, Tickets, Workspaces}
+  alias Algedonia.{Accounts.GitHub, Daemons, TenantScope, Tickets, Workspaces}
 
   import AlgedoniaWeb.Helpers, only: [slugify: 1]
 
@@ -25,7 +25,9 @@ defmodule AlgedoniaWeb.OnboardingLive do
 
       workspace ->
         ticket_count =
-          Tickets.list_tickets(workspace_id: workspace.id) |> length()
+          TenantScope.with_workspace(workspace.id, fn ->
+            Tickets.list_tickets(workspace_id: workspace.id) |> length()
+          end)
 
         if ticket_count > 0 do
           push_navigate(socket, to: ~p"/w/#{workspace.slug}/tickets")

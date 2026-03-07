@@ -9,6 +9,10 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
   @daemon_name "test-daemon"
 
   setup do
+    workspace = Algedonia.Factory.default_workspace!()
+    previous_scope = Algedonia.DataCase.put_workspace_scope(workspace)
+    on_exit(fn -> Algedonia.DataCase.restore_workspace_scope(previous_scope) end)
+
     user = Algedonia.Factory.insert_user!()
     token = Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{user_id: user.id})
 
@@ -19,7 +23,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         "daemon_name" => @daemon_name
       })
 
-    {:ok, socket: socket, user: user}
+    {:ok, socket: socket, user: user, workspace: workspace}
   end
 
   describe "join" do
@@ -209,7 +213,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
           "workspace_slug" => "other-user-ws"
         })
 
-      assert_reply ref, :error, %{reason: "unauthorized"}
+      assert_reply ref, :error, %{reason: "invalid_workspace_scope"}
       assert Algedonia.Daemons.get_repo_status(@daemon_name, "other-user-ws") == nil
     end
   end
@@ -251,7 +255,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       Algedonia.Factory.insert_membership!(workspace, user)
 
       token = Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{user_id: user.id})
-      daemon_id = "test-heartbeat-daemon-#{System.unique_integer([:positive])}"
+      daemon_id = Ecto.UUID.generate()
       daemon_name = "test-heartbeat-name-#{System.unique_integer([:positive])}"
 
       {:ok, socket} =
@@ -281,19 +285,39 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       {:ok, socket: socket}
     end
 
-    test "decodes base64 data and appends to terminal buffer", %{socket: socket} do
-      loop_id = "test-loop-#{System.unique_integer([:positive])}"
+    test "decodes base64 data and appends to terminal buffer", %{
+      socket: socket,
+      workspace: workspace,
+      user: user
+    } do
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      loop_id = Ecto.UUID.generate()
       data = Base.encode64("hello terminal")
 
-      ref = push(socket, "terminal_output", %{"loop_id" => loop_id, "data" => data})
+      ref =
+        push(socket, "terminal_output", %{
+          "loop_id" => loop_id,
+          "data" => data,
+          "workspace_slug" => workspace.slug
+        })
+
       refute_reply ref, _
 
       scrollback = Algedonia.Terminals.get_scrollback(loop_id)
       assert scrollback =~ "hello terminal"
     end
 
-    test "rejects invalid base64", %{socket: socket} do
-      ref = push(socket, "terminal_output", %{"loop_id" => "x", "data" => "not!valid!base64!!"})
+    test "rejects invalid base64", %{socket: socket, workspace: workspace, user: user} do
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      ref =
+        push(socket, "terminal_output", %{
+          "loop_id" => "11111111-1111-4111-8111-111111111111",
+          "data" => "not!valid!base64!!",
+          "workspace_slug" => workspace.slug
+        })
+
       assert_reply ref, :error, %{reason: "invalid_base64"}
     end
   end
@@ -306,11 +330,23 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       {:ok, socket: socket}
     end
 
-    test "broadcasts terminal_ended on PubSub", %{socket: socket} do
-      loop_id = "test-exit-#{System.unique_integer([:positive])}"
+    test "broadcasts terminal_ended on PubSub", %{
+      socket: socket,
+      workspace: workspace,
+      user: user
+    } do
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      loop_id = Ecto.UUID.generate()
       Phoenix.PubSub.subscribe(Algedonia.PubSub, "terminal:#{loop_id}")
 
-      ref = push(socket, "loop_exited", %{"loop_id" => loop_id, "exit_code" => 0})
+      ref =
+        push(socket, "loop_exited", %{
+          "loop_id" => loop_id,
+          "exit_code" => 0,
+          "workspace_slug" => workspace.slug
+        })
+
       refute_reply ref, _
 
       assert_receive {:terminal_ended, ^loop_id, 0}, 1000
@@ -318,19 +354,27 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
   end
 
   describe "attempt_complete" do
-    setup %{socket: socket} do
+    setup %{socket: socket, user: user} do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
 
-      {:ok, socket: socket}
+      {:ok, socket: socket, user: user}
     end
 
-    test "routes hook loop completion to HookExecutor", %{socket: socket} do
-      ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
+    test "routes hook loop completion to HookExecutor", %{
+      socket: socket,
+      user: user,
+      workspace: workspace
+    } do
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      ticket =
+        Algedonia.Factory.insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
 
       loop =
         Algedonia.Factory.insert_loop!(%{
           ticket_id: ticket.id,
+          workspace_id: workspace.id,
           role: :hook,
           status: :running
         })
@@ -338,6 +382,9 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       ref =
         push(socket, "attempt_complete", %{
           "loop_id" => loop.id,
+          "role" => "hook",
+          "workspace_slug" => workspace.slug,
+          "ticket_id" => ticket.id,
           "exit_code" => 0,
           "session_id" => "hook-1"
         })
@@ -349,24 +396,37 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
   end
 
   describe "error" do
-    setup %{socket: socket} do
+    setup %{socket: socket, user: user} do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
 
-      {:ok, socket: socket}
+      {:ok, socket: socket, user: user}
     end
 
-    test "routes unknown loop errors to TaskLoopOrchestrator", %{socket: socket} do
+    test "routes unknown loop errors to TaskLoopOrchestrator", %{
+      socket: socket,
+      user: user,
+      workspace: workspace
+    } do
+      Algedonia.Factory.insert_membership!(workspace, user)
+
       ref =
         push(socket, "error", %{
-          "loop_id" => "nonexistent-loop",
+          "loop_id" => "22222222-2222-4222-8222-222222222222",
+          "role" => "task",
+          "workspace_slug" => workspace.slug,
+          "ticket_id" => "88888888-8888-4888-8888-888888888888",
           "message" => "something went wrong"
         })
 
       refute_reply ref, _
     end
 
-    test "routes task loop errors to TaskLoopOrchestrator", %{socket: socket} do
+    test "routes task loop errors to TaskLoopOrchestrator", %{
+      socket: socket,
+      user: user,
+      workspace: workspace
+    } do
       test_pid = self()
 
       push_fn = fn daemon_name, loop_id, opts ->
@@ -380,11 +440,15 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
 
       daemon = Daemons.get_daemon_by_name(@daemon_name)
       assert daemon
-      ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      ticket =
+        Algedonia.Factory.insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
 
       loop =
         Algedonia.Factory.insert_loop!(%{
           ticket_id: ticket.id,
+          workspace_id: workspace.id,
           role: :task,
           status: :running,
           current_attempt: 1,
@@ -406,6 +470,9 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       ref =
         push(socket, "error", %{
           "loop_id" => loop.id,
+          "role" => "task",
+          "workspace_slug" => workspace.slug,
+          "ticket_id" => ticket.id,
           "message" => "agent exited with code 2",
           "exit_code" => 2,
           "session_id" => "maker-1"
@@ -417,12 +484,20 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       assert Algedonia.Loops.get_loop!(loop.id).current_attempt == 2
     end
 
-    test "routes hook loop errors to HookExecutor", %{socket: socket} do
-      ticket = Algedonia.Factory.insert_ticket!(%{status: :in_progress})
+    test "routes hook loop errors to HookExecutor", %{
+      socket: socket,
+      user: user,
+      workspace: workspace
+    } do
+      Algedonia.Factory.insert_membership!(workspace, user)
+
+      ticket =
+        Algedonia.Factory.insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
 
       loop =
         Algedonia.Factory.insert_loop!(%{
           ticket_id: ticket.id,
+          workspace_id: workspace.id,
           role: :hook,
           status: :running
         })
@@ -430,6 +505,9 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       ref =
         push(socket, "error", %{
           "loop_id" => loop.id,
+          "role" => "hook",
+          "workspace_slug" => workspace.slug,
+          "ticket_id" => ticket.id,
           "message" => "hook failed",
           "exit_code" => 2,
           "session_id" => "hook-err"
@@ -452,11 +530,14 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     test "forwards stdin_input broadcast to daemon", %{socket: _socket} do
       AlgedoniaWeb.DaemonChannel.push_stdin_input(
         @daemon_id,
-        "loop-stdin-test",
+        "33333333-3333-4333-8333-333333333333",
         "aGVsbG8="
       )
 
-      assert_push "stdin_input", %{"loop_id" => "loop-stdin-test", "data" => "aGVsbG8="}
+      assert_push "stdin_input", %{
+        "loop_id" => "33333333-3333-4333-8333-333333333333",
+        "data" => "aGVsbG8="
+      }
     end
   end
 
@@ -471,11 +552,24 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     test "forwards start_loop broadcast to daemon", %{socket: _socket} do
       AlgedoniaWeb.DaemonChannel.push_start_loop(
         @daemon_id,
-        "loop-push-test",
-        %{"command" => "echo"}
+        "44444444-4444-4444-8444-444444444444",
+        %{
+          "role" => "maker",
+          "agent_type" => "claude_code",
+          "task" => "Run task",
+          "workspace_slug" => "my-workspace",
+          "ticket_id" => "55555555-5555-4555-8555-555555555555"
+        }
       )
 
-      assert_push "start_loop", %{"loop_id" => "loop-push-test", "command" => "echo"}
+      assert_push "start_loop", %{
+        "loop_id" => "44444444-4444-4444-8444-444444444444",
+        "role" => "maker",
+        "agent_type" => "claude_code",
+        "task" => "Run task",
+        "workspace_slug" => "my-workspace",
+        "ticket_id" => "55555555-5555-4555-8555-555555555555"
+      }
     end
   end
 
@@ -490,12 +584,12 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     test "forwards cleanup_worktree broadcast to daemon", %{socket: _socket} do
       AlgedoniaWeb.DaemonChannel.push_cleanup_worktree(
         @daemon_id,
-        "ticket-123",
+        "66666666-6666-4666-8666-666666666666",
         "my-workspace"
       )
 
       assert_push "cleanup_worktree", %{
-        "ticket_id" => "ticket-123",
+        "ticket_id" => "66666666-6666-4666-8666-666666666666",
         "workspace_slug" => "my-workspace"
       }
     end
@@ -512,12 +606,12 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     test "forwards open_editor broadcast to daemon", %{socket: _socket} do
       AlgedoniaWeb.DaemonChannel.push_open_editor(
         @daemon_id,
-        "ticket-456",
+        "77777777-7777-4777-8777-777777777777",
         "editor-workspace"
       )
 
       assert_push "open_editor", %{
-        "ticket_id" => "ticket-456",
+        "ticket_id" => "77777777-7777-4777-8777-777777777777",
         "workspace_slug" => "editor-workspace"
       }
     end

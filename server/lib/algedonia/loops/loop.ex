@@ -4,6 +4,10 @@ defmodule Algedonia.Loops.Loop do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Algedonia.Daemons.DaemonRegistration
+  alias Algedonia.Loops.LoopStep
+  alias Algedonia.Tickets.Ticket
+  alias Algedonia.Workspaces.Workspace
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -35,7 +39,30 @@ defmodule Algedonia.Loops.Loop do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          workspace_id: Algedonia.Types.id(),
+          workspace: Workspace.t() | Ecto.Association.NotLoaded.t(),
+          title: String.t(),
+          description: String.t() | nil,
+          status: :pending | :running | :passed | :failed,
+          role: :task | :hook,
+          manual_gate: boolean(),
+          current_attempt: integer(),
+          max_attempts: integer(),
+          rubric: String.t() | nil,
+          branch_name: String.t() | nil,
+          checker_config: map() | nil,
+          land_mode: String.t() | nil,
+          pr_url: String.t() | nil,
+          ticket_id: Algedonia.Types.id(),
+          ticket: Ticket.t() | Ecto.Association.NotLoaded.t(),
+          assigned_daemon_id: Algedonia.Types.id() | nil,
+          assigned_daemon: DaemonRegistration.t() | Ecto.Association.NotLoaded.t() | nil,
+          steps: [LoopStep.t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(loop, attrs) do
@@ -57,6 +84,6 @@ defmodule Algedonia.Loops.Loop do
       :ticket_id,
       :assigned_daemon_id
     ])
-    |> validate_required([:title, :ticket_id])
+    |> validate_required([:title, :ticket_id, :workspace_id])
   end
 end

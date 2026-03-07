@@ -21,7 +21,18 @@ defmodule Algedonia.Tickets.Comment do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          author: String.t(),
+          body: String.t(),
+          ticket_id: Algedonia.Types.id(),
+          ticket: Ticket.t() | Ecto.Association.NotLoaded.t(),
+          parent_id: Algedonia.Types.id() | nil,
+          parent: t() | Ecto.Association.NotLoaded.t() | nil,
+          replies: [t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(comment, attrs) do

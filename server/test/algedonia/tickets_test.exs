@@ -110,6 +110,8 @@ defmodule Algedonia.TicketsTest do
     end
 
     test "raises on missing" do
+      default_workspace!()
+
       assert_raise Ecto.NoResultsError, fn ->
         Tickets.get_ticket!(Ecto.UUID.generate())
       end

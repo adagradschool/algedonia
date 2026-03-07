@@ -4,7 +4,7 @@ defmodule Algedonia.Terminals.TerminalBufferTest do
   alias Algedonia.Terminals.TerminalBuffer
 
   setup do
-    loop_id = "test-buffer-#{System.unique_integer([:positive])}"
+    loop_id = Ecto.UUID.generate()
     {:ok, pid} = TerminalBuffer.start_link(loop_id)
     %{pid: pid, loop_id: loop_id}
   end

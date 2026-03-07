@@ -2,7 +2,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   @moduledoc "GenServer managing the task loop lifecycle: maker → checker → retry/pass."
   use GenServer
 
-  alias Algedonia.{Agents, CheckerHandoff, Daemons, Loops, PromptBuilder, Tickets}
+  alias Algedonia.{Agents, CheckerHandoff, Daemons, Loops, PromptBuilder, TenantScope, Tickets}
 
   @max_handoff_repairs 2
 
@@ -18,13 +18,27 @@ defmodule Algedonia.TaskLoopOrchestrator do
     )
   end
 
-  @doc "Starts a task loop maker run."
+  @doc """
+  Starts a task loop maker run.
+
+  Requires `:workspace_id` in opts.
+  """
   @spec start_task_loop(binary(), binary(), keyword()) :: :ok | {:error, term()}
   def start_task_loop(loop_id, daemon_name, opts \\ []) do
-    GenServer.call(
-      Keyword.get(opts, :name, __MODULE__),
-      {:start_task_loop, loop_id, daemon_name, opts}
-    )
+    workspace_id = Keyword.get(opts, :workspace_id)
+
+    case cast_workspace_id(workspace_id) do
+      {:ok, scoped_workspace_id} ->
+        opts = Keyword.put(opts, :workspace_id, scoped_workspace_id)
+
+        GenServer.call(
+          Keyword.get(opts, :name, __MODULE__),
+          {:start_task_loop, loop_id, daemon_name, opts}
+        )
+
+      :error ->
+        {:error, :workspace_scope_required}
+    end
   end
 
   @doc "Handles an attempt completion from the daemon."
@@ -32,7 +46,8 @@ defmodule Algedonia.TaskLoopOrchestrator do
   def handle_attempt_complete(loop_id, payload, opts \\ []) do
     call_if_alive(
       opts,
-      {:attempt_complete, loop_id, payload, Keyword.get(opts, :daemon_name)},
+      {:attempt_complete, loop_id, payload, Keyword.get(opts, :daemon_name),
+       Keyword.get(opts, :workspace_id)},
       {:error, :orchestrator_not_running}
     )
   end
@@ -42,7 +57,8 @@ defmodule Algedonia.TaskLoopOrchestrator do
   def handle_attempt_error(loop_id, payload, opts \\ []) do
     call_if_alive(
       opts,
-      {:attempt_error, loop_id, payload, Keyword.get(opts, :daemon_name)},
+      {:attempt_error, loop_id, payload, Keyword.get(opts, :daemon_name),
+       Keyword.get(opts, :workspace_id)},
       {:error, :orchestrator_not_running}
     )
   end
@@ -50,18 +66,20 @@ defmodule Algedonia.TaskLoopOrchestrator do
   @doc "Returns DB-persisted history for a loop's maker/checker steps."
   @spec get_loop_history(binary(), keyword()) :: [map()]
   def get_loop_history(lid, opts \\ []) do
-    call_if_alive(opts, {:get_loop_history, lid}, [])
+    call_if_alive(opts, {:get_loop_history, lid, Keyword.get(opts, :workspace_id)}, [])
   end
 
   @doc "Returns the currently running step terminal id for a loop."
   @spec current_step_terminal_id(binary(), keyword()) :: binary() | nil
   def current_step_terminal_id(lid, opts \\ []),
-    do: call_if_alive(opts, {:current_step_terminal_id, lid}, nil)
+    do:
+      call_if_alive(opts, {:current_step_terminal_id, lid, Keyword.get(opts, :workspace_id)}, nil)
 
   @doc "Returns the latest step terminal id for a loop."
   @spec latest_step_terminal_id(binary(), keyword()) :: binary() | nil
   def latest_step_terminal_id(lid, opts \\ []),
-    do: call_if_alive(opts, {:latest_step_terminal_id, lid}, nil)
+    do:
+      call_if_alive(opts, {:latest_step_terminal_id, lid, Keyword.get(opts, :workspace_id)}, nil)
 
   defp call_if_alive(opts, msg, default) do
     case GenServer.whereis(Keyword.get(opts, :name, __MODULE__)) do
@@ -78,66 +96,94 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   @impl true
   def handle_call({:start_task_loop, lid, dn, opts}, _from, st) do
-    case start_loop(lid, dn, opts, st) do
+    workspace_id = Keyword.get(opts, :workspace_id)
+
+    case run_with_workspace(workspace_id, {:error, :workspace_scope_required}, fn ->
+           start_loop(lid, dn, opts, workspace_id, st)
+         end) do
       {:ok, s} -> {:reply, :ok, s}
       {:error, r} -> {:reply, {:error, r}, st}
     end
   end
 
-  def handle_call({:attempt_complete, lid, payload, dn}, _from, st) do
-    case handle_completion(lid, payload, dn, st) do
+  def handle_call({:attempt_complete, lid, payload, dn, workspace_id}, _from, st) do
+    workspace_id = workspace_id_for_loop(st, lid, workspace_id)
+
+    case run_with_workspace(workspace_id, {:error, :workspace_scope_required}, fn ->
+           handle_completion(lid, payload, dn, st)
+         end) do
       {:ok, s} -> {:reply, :ok, s}
       {:error, r} -> {:reply, {:error, r}, st}
     end
   end
 
-  def handle_call({:attempt_error, lid, payload, dn}, _from, st) do
-    case handle_error(lid, payload, dn, st) do
+  def handle_call({:attempt_error, lid, payload, dn, workspace_id}, _from, st) do
+    workspace_id = workspace_id_for_loop(st, lid, workspace_id)
+
+    case run_with_workspace(workspace_id, {:error, :workspace_scope_required}, fn ->
+           handle_error(lid, payload, dn, st)
+         end) do
       {:ok, s} -> {:reply, :ok, s}
       {:error, r} -> {:reply, {:error, r}, st}
     end
   end
 
-  def handle_call({:get_loop_history, lid}, _from, st) do
+  def handle_call({:get_loop_history, lid, workspace_id}, _from, st) do
+    workspace_id = workspace_id_for_loop(st, lid, workspace_id)
+
     steps =
-      lid
-      |> Loops.list_steps_for_loop()
-      |> Enum.map(&step_to_map/1)
+      run_with_workspace(workspace_id, [], fn ->
+        lid
+        |> Loops.list_steps_for_loop()
+        |> Enum.map(&step_to_map/1)
+      end)
 
     {:reply, steps, st}
   end
 
-  def handle_call({:current_step_terminal_id, lid}, _from, st) do
+  def handle_call({:current_step_terminal_id, lid, workspace_id}, _from, st) do
+    workspace_id = workspace_id_for_loop(st, lid, workspace_id)
+
     id =
-      case Loops.current_running_step(lid) do
-        nil -> nil
-        step -> step.id
-      end
+      run_with_workspace(workspace_id, nil, fn ->
+        case Loops.current_running_step(lid) do
+          nil -> nil
+          step -> step.id
+        end
+      end)
 
     {:reply, id, st}
   end
 
-  def handle_call({:latest_step_terminal_id, lid}, _from, st) do
+  def handle_call({:latest_step_terminal_id, lid, workspace_id}, _from, st) do
+    workspace_id = workspace_id_for_loop(st, lid, workspace_id)
+
     id =
-      case Loops.latest_step(lid) do
-        nil -> nil
-        step -> step.id
-      end
+      run_with_workspace(workspace_id, nil, fn ->
+        case Loops.latest_step(lid) do
+          nil -> nil
+          step -> step.id
+        end
+      end)
 
     {:reply, id, st}
   end
 
   @impl true
   def handle_info({:ticket_updated, %{status: :halted} = ticket}, state) do
-    {:noreply, halt_running_loops(ticket, state)}
+    {:noreply,
+     run_with_workspace(ticket.workspace_id, state, fn -> halt_running_loops(ticket, state) end)}
   end
 
   def handle_info({:ticket_updated, %{status: :planning} = ticket}, state) do
-    {:noreply, auto_start_planning_loop(ticket, state)}
+    {:noreply,
+     run_with_workspace(ticket.workspace_id, state, fn ->
+       auto_start_planning_loop(ticket, state)
+     end)}
   end
 
   def handle_info({:ticket_updated, %{status: :archived} = ticket}, state) do
-    cleanup_ticket_worktree(ticket)
+    run_with_workspace(ticket.workspace_id, :ok, fn -> cleanup_ticket_worktree(ticket) end)
     {:noreply, state}
   end
 
@@ -163,7 +209,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp auto_start_planning_loop(ticket, state) do
     with {:ok, daemon} <- Daemons.find_online(),
          %{id: loop_id} <- Loops.list_task_loops_for_ticket(ticket.id) |> List.first(),
-         {:ok, new_state} <- start_loop(loop_id, daemon.name, [], state) do
+         {:ok, new_state} <- start_loop(loop_id, daemon.name, [], ticket.workspace_id, state) do
       new_state
     else
       _ -> state
@@ -182,8 +228,9 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   defp daemon_name_for(_), do: "unknown"
 
-  defp start_loop(loop_id, daemon_name, opts, state) do
+  defp start_loop(loop_id, daemon_name, opts, workspace_id, state) do
     with %{role: :task} = loop <- Loops.get_loop(loop_id) || {:error, :not_found},
+         true <- loop.workspace_id == workspace_id || {:error, :workspace_scope_mismatch},
          :ok <- guard_startable(loop),
          {:ok, daemon} <- fetch_daemon(daemon_name),
          :ok <- check_repo_ready(daemon.name, loop),
@@ -195,13 +242,14 @@ defmodule Algedonia.TaskLoopOrchestrator do
            }) do
       loop = Loops.preload_with_workspace(loop)
       task = PromptBuilder.maker_task(loop, loop.ticket, "")
-      ws_slug = loop.ticket.workspace && loop.ticket.workspace.slug
+      ws_slug = loop.ticket.workspace.slug
       ticket_id = loop.ticket.id
 
       run =
         task_run_options(opts, loop.ticket)
         |> mp("workspace_slug", ws_slug)
         |> mp("ticket_id", ticket_id)
+        |> mp("workspace_id", workspace_id)
 
       {:ok, _step} =
         Loops.create_step(%{
@@ -242,7 +290,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp handle_error(loop_id, payload, daemon_name, state) do
     with {:ok, _} <- Ecto.UUID.cast(loop_id),
          %{role: :task} = loop <- Loops.get_loop(loop_id) do
-      loop = Loops.preload_with_ticket(loop)
+      loop = Loops.preload_with_workspace(loop)
       sid = Map.get(payload, "session_id")
       ec = Map.get(payload, "exit_code", 1)
       message = Map.get(payload, "message", "agent exited with code #{ec}")
@@ -285,7 +333,12 @@ defmodule Algedonia.TaskLoopOrchestrator do
         loop = Loops.preload_with_workspace(loop)
         ct = PromptBuilder.checker_task(loop, loop.ticket, ws_slug_for(loop))
         att = loop.current_attempt
-        p = Map.merge(%{"role" => "checker", "task" => ct, "attempt" => att}, rc(state, loop.id))
+
+        p =
+          Map.merge(
+            %{"role" => "checker", "task" => ct, "attempt" => att},
+            scoped_run_context(state, loop)
+          )
 
         Loops.complete_last_running(loop.id, "maker", att, %{
           session_id: sid,
@@ -358,10 +411,10 @@ defmodule Algedonia.TaskLoopOrchestrator do
                status: :running,
                current_attempt: loop.current_attempt + 1
              }) do
-        loop = Loops.preload_with_ticket(loop)
+        loop = Loops.preload_with_workspace(loop)
         p = PromptBuilder.maker_task(loop, loop.ticket, feedback)
 
-        pl = Map.merge(%{"role" => "maker", "task" => p}, rc(state, loop.id))
+        pl = Map.merge(%{"role" => "maker", "task" => p}, scoped_run_context(state, loop))
 
         {:ok, _step} =
           Loops.create_step(%{
@@ -392,7 +445,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
           pl =
             Map.merge(
               %{"role" => "checker", "task" => task, "attempt" => loop.current_attempt},
-              rc(state, loop.id)
+              scoped_run_context(state, loop)
             )
 
           {:ok, state |> put_hr(loop.id, repairs) |> push(daemon.name, loop.id, pl)}
@@ -462,6 +515,34 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp put_rc(s, id, c), do: %{s | task_run_config: Map.put(s.task_run_config, id, c)}
   defp clear_rc(s, id), do: %{s | task_run_config: Map.delete(s.task_run_config, id)}
   defp rc(s, id), do: Map.get(s.task_run_config, id, %{})
+
+  defp run_with_workspace(workspace_id, fallback, fun) do
+    case cast_workspace_id(workspace_id) do
+      {:ok, scoped_workspace_id} -> TenantScope.with_workspace(scoped_workspace_id, fun)
+      :error -> fallback
+    end
+  end
+
+  defp workspace_id_for_loop(state, loop_id, explicit_workspace_id) do
+    if is_binary(explicit_workspace_id),
+      do: explicit_workspace_id,
+      else: rc(state, loop_id)["workspace_id"]
+  end
+
+  defp cast_workspace_id(workspace_id) when is_binary(workspace_id),
+    do: Ecto.UUID.cast(workspace_id)
+
+  defp cast_workspace_id(_), do: :error
+
+  defp scoped_run_context(state, loop) do
+    %{
+      "agent_type" => Agents.ticket_agent_type(loop.ticket),
+      "workspace_slug" => loop.ticket.workspace.slug,
+      "ticket_id" => loop.ticket.id,
+      "workspace_id" => loop.ticket.workspace_id
+    }
+    |> Map.merge(rc(state, loop.id))
+  end
 
   defp ws_slug_for(%{ticket: %{workspace: %{slug: slug}}}), do: slug
   defp ws_slug_for(_), do: nil

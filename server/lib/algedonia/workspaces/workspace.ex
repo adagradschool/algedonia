@@ -5,7 +5,27 @@ defmodule Algedonia.Workspaces.Workspace do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @type t :: %__MODULE__{}
+  alias Algedonia.Tickets.Ticket
+  alias Algedonia.Workspaces.{TransitionHook, WorkspaceInvitation, WorkspaceMembership}
+
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          name: String.t(),
+          slug: String.t(),
+          prefix: String.t(),
+          github_repo_url: String.t() | nil,
+          tracker_config: map(),
+          playback_config: map(),
+          defaults: map(),
+          planning_mode: :auto | :always_approve | :always_review,
+          next_ticket_number: integer(),
+          tickets: [Ticket.t()] | Ecto.Association.NotLoaded.t(),
+          workspace_memberships: [WorkspaceMembership.t()] | Ecto.Association.NotLoaded.t(),
+          invitations: [WorkspaceInvitation.t()] | Ecto.Association.NotLoaded.t(),
+          transition_hooks: [TransitionHook.t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: NaiveDateTime.t(),
+          updated_at: NaiveDateTime.t()
+        }
   @planning_modes [:auto, :always_approve, :always_review]
 
   @primary_key {:id, :binary_id, autogenerate: true}

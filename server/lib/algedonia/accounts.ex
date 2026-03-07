@@ -8,13 +8,18 @@ defmodule Algedonia.Accounts do
   alias Algedonia.Repo
   alias Algedonia.Workspaces.{Workspace, WorkspaceMembership}
 
+  @spec get_user(Algedonia.Types.id()) :: User.t() | nil
   def get_user(id), do: Repo.get(User, id)
+  @spec get_user!(Algedonia.Types.id()) :: User.t()
   def get_user!(id), do: Repo.get!(User, id)
 
+  @spec get_user_by_name(String.t()) :: User.t() | nil
   def get_user_by_name(name) do
     Repo.get_by(User, name: name)
   end
 
+  @spec get_or_create_user(%{required(:name) => String.t(), optional(atom()) => term()}) ::
+          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def get_or_create_user(%{name: name} = attrs) when is_binary(name) do
     case get_user_by_name(name) do
       nil ->
@@ -27,6 +32,11 @@ defmodule Algedonia.Accounts do
     end
   end
 
+  @spec get_or_create_user_from_github(%{
+          required(:github_id) => integer(),
+          optional(atom()) => term()
+        }) ::
+          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def get_or_create_user_from_github(%{github_id: _github_id} = attrs) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -47,6 +57,7 @@ defmodule Algedonia.Accounts do
     )
   end
 
+  @spec list_workspaces_for_user(Algedonia.Types.id()) :: [Workspace.t()]
   def list_workspaces_for_user(user_id) do
     Workspace
     |> join(:inner, [w], m in WorkspaceMembership, on: m.workspace_id == w.id)

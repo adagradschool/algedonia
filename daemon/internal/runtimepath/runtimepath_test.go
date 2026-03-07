@@ -24,12 +24,13 @@ func TestAttemptCompleteMarkerPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	got, err := AttemptCompleteMarkerPath("scope", "loop-1")
+	loopID := "11111111-1111-4111-8111-111111111111"
+	got, err := AttemptCompleteMarkerPath("scope", loopID)
 	if err != nil {
 		t.Fatalf("AttemptCompleteMarkerPath returned error: %v", err)
 	}
 
-	want := filepath.Join(home, ".algedonia", "workspaces", "scope", "runtime", "loop-1", "attempt_complete.json")
+	want := filepath.Join(home, ".algedonia", "workspaces", "scope", "runtime", loopID, "attempt_complete.json")
 	if got != want {
 		t.Fatalf("AttemptCompleteMarkerPath() = %q, want %q", got, want)
 	}

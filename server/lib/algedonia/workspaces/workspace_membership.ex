@@ -5,7 +5,19 @@ defmodule Algedonia.Workspaces.WorkspaceMembership do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @type t :: %__MODULE__{}
+  alias Algedonia.Accounts.User
+  alias Algedonia.Workspaces.Workspace
+
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          role: :owner | :member,
+          workspace_id: Algedonia.Types.id(),
+          workspace: Workspace.t() | Ecto.Association.NotLoaded.t(),
+          user_id: Algedonia.Types.id(),
+          user: User.t() | Ecto.Association.NotLoaded.t(),
+          inserted_at: NaiveDateTime.t(),
+          updated_at: NaiveDateTime.t()
+        }
   @roles [:owner, :member]
 
   @primary_key {:id, :binary_id, autogenerate: true}

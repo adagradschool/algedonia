@@ -4,6 +4,7 @@ defmodule Algedonia.Daemons.DaemonRegistration do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Algedonia.Accounts.User
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -23,6 +24,23 @@ defmodule Algedonia.Daemons.DaemonRegistration do
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          name: String.t(),
+          display_name: String.t() | nil,
+          status: :online | :unhealthy | :offline,
+          capacity: integer(),
+          running_loops: integer(),
+          available_agents: [String.t()],
+          bare_repos: [String.t()],
+          last_heartbeat_at: DateTime.t() | nil,
+          connected_at: DateTime.t() | nil,
+          user_id: Algedonia.Types.id(),
+          user: User.t() | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   def changeset(daemon, attrs) do
     daemon

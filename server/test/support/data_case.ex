@@ -16,6 +16,7 @@ defmodule Algedonia.DataCase do
 
   use ExUnit.CaseTemplate
 
+  alias Algedonia.TenantScope
   alias Ecto.Adapters.SQL.Sandbox
 
   using do
@@ -38,8 +39,13 @@ defmodule Algedonia.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
+    TenantScope.clear_workspace()
     pid = Sandbox.start_owner!(Algedonia.Repo, shared: not tags[:async])
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
+
+    on_exit(fn ->
+      TenantScope.clear_workspace()
+      Sandbox.stop_owner(pid)
+    end)
   end
 
   @doc """
@@ -56,5 +62,50 @@ defmodule Algedonia.DataCase do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  @doc """
+  Sets TenantScope to the given workspace (struct with `:id` or binary UUID).
+
+  Returns the previous workspace scope so callers can restore it.
+  """
+  def put_workspace_scope(workspace_or_id) do
+    previous = TenantScope.get_workspace()
+    TenantScope.put_workspace(workspace_id!(workspace_or_id))
+    previous
+  end
+
+  @doc """
+  Restores TenantScope from a value previously returned by `put_workspace_scope/1`.
+  """
+  def restore_workspace_scope(nil), do: TenantScope.clear_workspace()
+
+  def restore_workspace_scope(workspace_id) when is_binary(workspace_id),
+    do: TenantScope.put_workspace(workspace_id)
+
+  @doc """
+  Runs `fun` under the given workspace TenantScope and restores prior scope after.
+  """
+  def with_workspace_scope(workspace_or_id, fun) when is_function(fun, 0) do
+    previous = put_workspace_scope(workspace_or_id)
+
+    try do
+      fun.()
+    after
+      restore_workspace_scope(previous)
+    end
+  end
+
+  @doc """
+  Clears TenantScope for the current process.
+  """
+  def clear_workspace_scope, do: TenantScope.clear_workspace()
+
+  defp workspace_id!(%{id: workspace_id}) when is_binary(workspace_id), do: workspace_id
+  defp workspace_id!(workspace_id) when is_binary(workspace_id), do: workspace_id
+
+  defp workspace_id!(value) do
+    raise ArgumentError,
+          "workspace scope must be a workspace struct with binary :id or a binary workspace_id, got: #{inspect(value)}"
   end
 end
