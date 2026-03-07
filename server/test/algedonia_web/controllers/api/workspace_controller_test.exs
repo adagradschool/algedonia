@@ -1,11 +1,22 @@
 defmodule AlgedoniaWeb.Api.WorkspaceControllerTest do
   use AlgedoniaWeb.ConnCase, async: true
 
+  alias Algedonia.Workspaces
+
   describe "GET /api/workspaces" do
-    test "returns 200 with workspace list for authenticated user", %{
+    test "returns 200 with workspace list and orchestration fields for authenticated user", %{
       user: user,
       workspace: workspace
     } do
+      {:ok, workspace} =
+        Workspaces.update_workspace(workspace, %{
+          github_repo_url: "https://github.com/example/algedonia",
+          tracker_config: %{"planning_states" => ["planning", "ready"]},
+          playback_config: %{"concurrency" => 2},
+          defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
+          planning_mode: :always_approve
+        })
+
       token = Phoenix.Token.sign(AlgedoniaWeb.Endpoint, "daemon_auth", %{user_id: user.id})
 
       conn =
@@ -20,6 +31,11 @@ defmodule AlgedoniaWeb.Api.WorkspaceControllerTest do
       assert ws["name"] == workspace.name
       assert ws["slug"] == workspace.slug
       assert ws["prefix"] == workspace.prefix
+      assert ws["github_repo_url"] == workspace.github_repo_url
+      assert ws["tracker_config"] == workspace.tracker_config
+      assert ws["playback_config"] == workspace.playback_config
+      assert ws["defaults"] == workspace.defaults
+      assert ws["planning_mode"] == "always_approve"
     end
 
     test "returns 401 for unauthenticated request" do

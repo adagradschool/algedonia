@@ -10,7 +10,17 @@ defmodule AlgedoniaWeb.Api.WorkspaceController do
     json(conn, %{
       workspaces:
         Enum.map(workspaces, fn w ->
-          %{id: w.id, name: w.name, slug: w.slug, prefix: w.prefix}
+          %{
+            id: w.id,
+            name: w.name,
+            slug: w.slug,
+            prefix: w.prefix,
+            github_repo_url: w.github_repo_url,
+            tracker_config: w.tracker_config,
+            playback_config: w.playback_config,
+            defaults: w.defaults,
+            planning_mode: w.planning_mode
+          }
         end)
     })
   end

@@ -75,16 +75,19 @@ defmodule Algedonia.Workspaces do
 
   Uses `on_conflict: :nothing` so it's safe to call multiple times.
   """
-  @spec ensure_membership(Workspace.t(), User.t()) ::
+  @spec ensure_membership(Workspace.t(), User.t(), keyword()) ::
           {:ok, WorkspaceMembership.t()} | {:error, Ecto.Changeset.t()}
-  def ensure_membership(%Workspace{} = workspace, %User{} = user) do
+  def ensure_membership(%Workspace{} = workspace, %User{} = user, opts \\ []) do
+    role = Keyword.get(opts, :role, :member)
+
     Repo.insert(
       WorkspaceMembership.changeset(%WorkspaceMembership{}, %{
         workspace_id: workspace.id,
         user_id: user.id,
-        role: "member"
+        role: role
       }),
-      on_conflict: :nothing
+      on_conflict: :nothing,
+      conflict_target: [:workspace_id, :user_id]
     )
   end
 

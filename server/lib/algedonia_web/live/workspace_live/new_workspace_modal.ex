@@ -85,7 +85,7 @@ defmodule AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal do
 
         case Workspaces.create_workspace(attrs) do
           {:ok, workspace} ->
-            Workspaces.ensure_membership(workspace, user)
+            Workspaces.ensure_membership(workspace, user, role: :owner)
 
             {:noreply,
              socket
