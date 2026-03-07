@@ -134,7 +134,7 @@ defmodule Algedonia.WorkspacesTest do
           INSERT INTO workspace_memberships (workspace_id, user_id, role, inserted_at, updated_at)
           VALUES ($1, $2, $3, NOW(), NOW())
           """,
-          [Ecto.UUID.dump!(workspace.id), Ecto.UUID.dump!(user.id), "admin"]
+          [workspace.id, user.id, "admin"]
         )
       end
     end
