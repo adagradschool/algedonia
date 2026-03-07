@@ -155,11 +155,24 @@ defmodule Algedonia.HookExecutor do
   end
 
   defp mark_hook_running(loop, daemon_id) do
-    Loops.update_loop(loop, %{
-      status: :running,
-      assigned_daemon_id: daemon_id,
-      current_attempt: max(loop.current_attempt, 0) + 1
-    })
+    attempt = max(loop.current_attempt, 0) + 1
+
+    with {:ok, loop} <-
+           Loops.update_loop(loop, %{
+             status: :running,
+             assigned_daemon_id: daemon_id,
+             current_attempt: attempt
+           }),
+         {:ok, _step} <-
+           Loops.create_step(%{
+             loop_id: loop.id,
+             role: "hook",
+             attempt: attempt,
+             status: "running",
+             started_at: DateTime.utc_now()
+           }) do
+      {:ok, loop}
+    end
   end
 
   defp check_repo_ready(daemon_name, %Ticket{workspace_id: workspace_id}) do

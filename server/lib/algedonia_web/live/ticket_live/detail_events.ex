@@ -300,9 +300,14 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   defp planning_path(socket, ticket) do
     slug = socket.assigns.workspace_slug
-    ref = short_id(ticket.id)
 
-    ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{ref}?#{%{role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
+    loop_id =
+      case Loops.find_or_create_planning_loop(ticket) do
+        {:ok, loop} -> loop.id
+        {:error, _} -> Ecto.UUID.generate()
+      end
+
+    ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{short_id(loop_id)}?#{%{role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
   end
 
   defp next_form_counter(id),

@@ -14,7 +14,7 @@ defmodule Algedonia.Loops.Loop do
 
   @statuses [:pending, :running, :passed, :failed]
 
-  @roles [:task, :hook]
+  @roles [:task, :hook, :planning]
 
   schema "loops" do
     belongs_to :workspace, Algedonia.Workspaces.Workspace

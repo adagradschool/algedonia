@@ -280,12 +280,17 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> element(~s{button[phx-click="plan_ticket"][phx-value-id="#{ticket.id}"]})
       |> render_click()
 
-      assert_redirect(
-        view,
-        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(ticket.id, 0, 8)}?#{%{role: "planning", agent_type: "claude_code"}}"
-      )
+      {redirect_to, _flash} = assert_redirect(view)
+
+      prefix = "/w/#{workspace.slug}/tickets/#{ticket.number}/loops/"
+      assert String.starts_with?(redirect_to, prefix)
+      rest = String.replace_leading(redirect_to, prefix, "")
+      assert rest =~ ~r/^[0-9a-f]{8}\?.*role=planning/
 
       assert Tickets.get_ticket!(ticket.id).status == :planning
+
+      # A real planning loop must exist in the DB (not a ticket ID masquerading as a loop ref)
+      assert [%{role: :planning}] = Loops.list_planning_loops_for_ticket(ticket.id)
     end
 
     test "start work from planning list creates loop and navigates to loop screen", %{

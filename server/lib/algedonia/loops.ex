@@ -81,6 +81,48 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Finds an existing pending/running planning loop for a ticket, or creates one
+  with a single planning step.
+  """
+  @spec find_or_create_planning_loop(Algedonia.Tickets.Ticket.t()) ::
+          {:ok, Loop.t()} | {:error, Ecto.Changeset.t()}
+  def find_or_create_planning_loop(ticket) do
+    existing =
+      Loop
+      |> where([l], l.ticket_id == ^ticket.id and l.role == :planning)
+      |> where([l], l.status in [:pending, :running])
+      |> order_by([l], desc: l.inserted_at)
+      |> limit(1)
+      |> Repo.one()
+
+    case existing do
+      %Loop{} = loop ->
+        {:ok, loop}
+
+      nil ->
+        with {:ok, loop} <-
+               create_loop(%{
+                 workspace_id: ticket.workspace_id,
+                 ticket_id: ticket.id,
+                 title: "Planning: #{ticket.title}",
+                 role: :planning,
+                 status: :pending,
+                 max_attempts: 1
+               }),
+             {:ok, _step} <-
+               create_step(%{
+                 loop_id: loop.id,
+                 role: "planning",
+                 attempt: 1,
+                 status: "running",
+                 started_at: DateTime.utc_now()
+               }) do
+          {:ok, loop}
+        end
+    end
+  end
+
+  @doc """
   Updates a loop's status and broadcasts the change.
   """
   @spec update_loop_status(Loop.t(), atom()) :: {:ok, Loop.t()} | {:error, Ecto.Changeset.t()}
@@ -262,6 +304,17 @@ defmodule Algedonia.Loops do
   def list_task_loops_for_ticket(ticket_id) do
     Loop
     |> where([l], l.ticket_id == ^ticket_id and l.role == :task)
+    |> order_by([l], asc: l.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns all planning loops for a ticket, ordered by insertion time.
+  """
+  @spec list_planning_loops_for_ticket(Algedonia.Types.id()) :: [Loop.t()]
+  def list_planning_loops_for_ticket(ticket_id) do
+    Loop
+    |> where([l], l.ticket_id == ^ticket_id and l.role == :planning)
     |> order_by([l], asc: l.inserted_at)
     |> Repo.all()
   end

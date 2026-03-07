@@ -198,14 +198,18 @@ defmodule Algedonia.TaskLoopOrchestrator do
     loops = running_loops_for_ticket(ticket.id)
 
     Enum.reduce(loops, state, fn loop, acc ->
-      AlgedoniaWeb.DaemonChannel.push_stop_loop(
-        daemon_name_for(loop),
-        loop.id,
-        "ticket halted"
-      )
+      if loop.role == :planning do
+        acc
+      else
+        AlgedoniaWeb.DaemonChannel.push_stop_loop(
+          daemon_name_for(loop),
+          loop.id,
+          "ticket halted"
+        )
 
-      {:ok, _} = Loops.update_loop_status(loop, :failed)
-      acc
+        {:ok, _} = Loops.update_loop_status(loop, :failed)
+        acc
+      end
     end)
   end
 

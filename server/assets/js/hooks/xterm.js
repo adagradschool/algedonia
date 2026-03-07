@@ -350,10 +350,7 @@ const XTerm = {
     this.metrics.queueFlushes += 1
 
     try {
-      const normalized = this.normalizeCarriageReturns(merged)
-      if (normalized && normalized.length > 0) {
-        this.term.write(normalized)
-      }
+      this.term.write(merged)
       if (stickToBottom) {
         this.term.scrollToBottom()
       }

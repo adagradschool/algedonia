@@ -79,7 +79,10 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute render(view) =~ "No online daemon available"
     end
 
-    test "ad hoc planning session loads ticket context", %{conn: conn, workspace: workspace} do
+    test "planning session with real loop loads ticket context", %{
+      conn: conn,
+      workspace: workspace
+    } do
       ticket =
         Factory.insert_ticket!(%{
           workspace_id: workspace.id,
@@ -87,10 +90,12 @@ defmodule AlgedoniaWeb.LoopLiveTest do
           title: "Plan this"
         })
 
+      {:ok, loop} = Loops.find_or_create_planning_loop(ticket)
+
       {:ok, _view, html} =
         live(
           conn,
-          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/plan-#{String.slice(ticket.id, 0, 8)}"
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{role: "planning"}}"
         )
 
       assert html =~ "Planning: Plan this"
@@ -104,10 +109,12 @@ defmodule AlgedoniaWeb.LoopLiveTest do
           title: "Plan this"
         })
 
+      {:ok, loop} = Loops.find_or_create_planning_loop(ticket)
+
       {:ok, view, _html} =
         live(
           conn,
-          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/plan-#{String.slice(ticket.id, 0, 8)}?#{%{role: "planning"}}"
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{role: "planning"}}"
         )
 
       assert render(view) =~ "No online daemon available"
@@ -124,15 +131,75 @@ defmodule AlgedoniaWeb.LoopLiveTest do
           title: "Plan this"
         })
 
+      {:ok, loop} = Loops.find_or_create_planning_loop(ticket)
+
       {:ok, view, _html} =
         live(
           conn,
-          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/plan-#{String.slice(ticket.id, 0, 8)}?#{%{role: "planning"}}"
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}?#{%{role: "planning"}}"
         )
 
       assert has_element?(view, "#loop-left-sidebar-panel")
       refute has_element?(view, "#loop-index-badge")
       refute has_element?(view, "#loop-terminal-panel .h-12 span", "maker")
+    end
+
+    test "stale planning URL with non-UUID ref self-heals to real planning loop", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "Stale plan"
+        })
+
+      # Simulate a stale URL using short_id(ticket.id) as the loop_ref — no matching loop exists
+      stale_ref = String.slice(ticket.id, 0, 8)
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{stale_ref}?#{%{role: "planning"}}"
+        )
+
+      # The view should self-heal: ensure_planning_loop creates a real loop
+      loop_id = :sys.get_state(view.pid).socket.assigns.loop_id
+      assert {:ok, _} = Ecto.UUID.cast(loop_id)
+
+      # A planning loop should now exist for this ticket
+      planning_loops = Loops.list_planning_loops_for_ticket(ticket.id)
+      assert [%{role: :planning}] = planning_loops
+    end
+
+    test "planning loop_id sent to daemon is always a full UUID", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "UUID check"
+        })
+
+      stale_ref = String.slice(ticket.id, 0, 8)
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{stale_ref}?#{%{role: "planning"}}"
+        )
+
+      loop_id = :sys.get_state(view.pid).socket.assigns.loop_id
+
+      assert String.length(loop_id) == 36
+
+      assert String.match?(
+               loop_id,
+               ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+             )
     end
 
     test "renders split panel shell with resize handle and persistence wiring", %{

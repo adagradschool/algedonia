@@ -374,11 +374,16 @@ defmodule AlgedoniaWeb.DaemonChannel do
     :ok
   end
 
-  defp route_attempt_complete("hook", loop_id, payload, daemon_name, workspace_id) do
-    HookExecutor.handle_attempt_complete(loop_id, payload,
-      daemon_name: daemon_name,
-      workspace_id: workspace_id
-    )
+  defp route_attempt_complete("hook", loop_id, payload, _daemon_name, workspace_id) do
+    HookExecutor.handle_attempt_complete(loop_id, payload, workspace_id: workspace_id)
+
+    :ok
+  end
+
+  defp route_attempt_complete("planning", loop_id, payload, _daemon_name, workspace_id) do
+    TenantScope.with_workspace(workspace_id, fn ->
+      complete_planning_loop(loop_id, payload)
+    end)
 
     :ok
   end
@@ -394,16 +399,41 @@ defmodule AlgedoniaWeb.DaemonChannel do
     :ok
   end
 
-  defp route_attempt_error("hook", loop_id, payload, daemon_name, workspace_id) do
-    HookExecutor.handle_attempt_error(loop_id, payload,
-      daemon_name: daemon_name,
-      workspace_id: workspace_id
-    )
+  defp route_attempt_error("hook", loop_id, payload, _daemon_name, workspace_id) do
+    HookExecutor.handle_attempt_error(loop_id, payload, workspace_id: workspace_id)
+
+    :ok
+  end
+
+  defp route_attempt_error("planning", loop_id, payload, _daemon_name, workspace_id) do
+    TenantScope.with_workspace(workspace_id, fn ->
+      complete_planning_loop(loop_id, payload)
+    end)
 
     :ok
   end
 
   defp route_attempt_error(_, _, _, _, _), do: {:error, :invalid_role}
+
+  defp complete_planning_loop(loop_id, payload) do
+    case Loops.get_loop(loop_id) do
+      %{role: :planning} = loop ->
+        ec = Map.get(payload, "exit_code", 0)
+        sid = Map.get(payload, "session_id")
+
+        Loops.complete_last_running(loop.id, "planning", loop.current_attempt, %{
+          session_id: sid,
+          exit_code: ec,
+          status: "completed"
+        })
+
+        _ = Loops.update_loop_status(loop, :passed)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
 
   defp workspace_id_from_payload(%{"workspace_slug" => workspace_slug})
        when is_binary(workspace_slug) do

@@ -78,6 +78,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     role = params["role"] || socket.assigns.role
 
     planning? = ContextHelper.planning_session?(role)
+
+    # Ensure planning sessions have a real loop record
+    socket =
+      if planning? do
+        ensure_planning_loop(socket)
+      else
+        socket
+      end
+
     prefix = ContextHelper.workspace_prefix(socket)
 
     page_title =
@@ -387,10 +396,12 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         put_flash(socket, :error, "No online daemon available")
 
       {:ok, daemon} ->
-        if socket.assigns.loop_record do
-          start_persisted_loop(socket, daemon.name)
-        else
-          start_ad_hoc_loop(socket, daemon.name)
+        loop = socket.assigns.loop_record
+
+        cond do
+          loop && loop.role == :planning -> start_planning_loop(socket, daemon)
+          loop -> start_persisted_loop(socket, daemon.name)
+          true -> start_ad_hoc_loop(socket, daemon.name)
         end
     end
   end
@@ -432,6 +443,35 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       {:error, _} ->
         put_flash(socket, :error, "Unable to start loop")
     end
+  end
+
+  defp start_planning_loop(socket, daemon) do
+    loop = socket.assigns.loop_record
+    task = ContextHelper.ad_hoc_task(socket)
+
+    {:ok, loop} =
+      Loops.update_loop(loop, %{
+        status: :running,
+        assigned_daemon_id: daemon.id,
+        current_attempt: 1
+      })
+
+    opts =
+      %{}
+      |> maybe_put("role", "planning")
+      |> maybe_put("agent_type", socket.assigns[:agent_type])
+      |> maybe_put("model", socket.assigns[:selected_model])
+      |> maybe_put("effort", socket.assigns[:selected_effort])
+      |> maybe_put("task", task)
+      |> maybe_put("workspace_slug", socket.assigns[:workspace_slug])
+      |> maybe_put("ticket_id", socket.assigns.ticket && socket.assigns.ticket.id)
+
+    DaemonChannel.push_start_loop(daemon.name, loop.id, opts)
+
+    socket
+    |> assign(:active, true)
+    |> assign(:loop_record, loop)
+    |> OverviewHelper.maybe_start_overview_generation()
   end
 
   defp start_ad_hoc_loop(socket, daemon_name) do
@@ -490,4 +530,21 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp workspace_id(socket) do
     socket.assigns[:ticket] && socket.assigns.ticket.workspace_id
   end
+
+  defp ensure_planning_loop(%{assigns: %{loop_record: %{role: :planning}}} = socket), do: socket
+
+  defp ensure_planning_loop(%{assigns: %{ticket: ticket}} = socket) when not is_nil(ticket) do
+    case Loops.find_or_create_planning_loop(ticket) do
+      {:ok, loop} ->
+        socket
+        |> assign(:loop_id, loop.id)
+        |> assign(:loop_record, loop)
+        |> ContextHelper.assign_loop_context(loop.id)
+
+      {:error, _} ->
+        socket
+    end
+  end
+
+  defp ensure_planning_loop(socket), do: socket
 end
