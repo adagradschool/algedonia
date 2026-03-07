@@ -31,7 +31,7 @@ func (a *CodexAdapter) Start(workdir string, task string, config map[string]stri
 
 	cmd := exec.Command("codex", args...)
 	cmd.Dir = workdir
-	cmd.Env = os.Environ()
+	cmd.Env = spawnEnv(os.Environ())
 
 	loopID := strings.TrimSpace(config["loop_id"])
 	role := strings.TrimSpace(config["role"])

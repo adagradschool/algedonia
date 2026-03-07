@@ -27,7 +27,7 @@ func (a *ClaudeCodeAdapter) Start(workdir string, task string, config map[string
 
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = workdir
-	cmd.Env = os.Environ()
+	cmd.Env = spawnEnv(os.Environ())
 
 	loopID := strings.TrimSpace(config["loop_id"])
 	role := strings.TrimSpace(config["role"])

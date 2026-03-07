@@ -3,6 +3,7 @@ package adapter
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +113,57 @@ func TestCodexAdapterStartRequiresWorkspaceSlug(t *testing.T) {
 	a := &CodexAdapter{}
 	if _, err := a.Start(dir, "task", nil); err == nil {
 		t.Fatal("expected Start to fail when workspace_slug is missing")
+	}
+}
+
+func TestCodexAdapterSpawnSkipsBrewUpdate(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "brew_update_called")
+
+	codexScript := `#!/bin/sh
+if [ "${HOMEBREW_NO_AUTO_UPDATE:-}" != "1" ]; then
+  brew update
+fi
+printf 'codex-started\n'
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(codexScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	brewScript := "#!/bin/sh\n" +
+		"touch '" + marker + "'\n" +
+		"exit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "brew"), []byte(brewScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	a := &CodexAdapter{}
+	proc, err := a.Start(dir, "task", map[string]string{
+		"workspace_slug": "scope",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	reader, _, err := a.AttachPTY(proc)
+	if err != nil {
+		t.Fatalf("AttachPTY: %v", err)
+	}
+	go io.Copy(io.Discard, reader)
+
+	result, err := a.Wait(proc)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, want 0", result.ExitCode)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("brew update marker exists, expected spawn to skip brew update")
 	}
 }
