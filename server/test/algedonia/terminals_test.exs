@@ -4,7 +4,7 @@ defmodule Algedonia.TerminalsTest do
   alias Algedonia.Terminals
 
   defp unique_loop_id do
-    "test-loop-#{System.unique_integer([:positive])}"
+    Ecto.UUID.generate()
   end
 
   test "start_buffer/1 creates a buffer" do
@@ -28,7 +28,7 @@ defmodule Algedonia.TerminalsTest do
   end
 
   test "get_scrollback/1 returns empty string for unknown loop" do
-    assert Terminals.get_scrollback("nonexistent") == ""
+    assert Terminals.get_scrollback("ffffffff-ffff-4fff-8fff-ffffffffffff") == ""
   end
 
   test "append and get_scrollback round-trip" do
@@ -73,6 +73,6 @@ defmodule Algedonia.TerminalsTest do
   end
 
   test "active?/1 returns false for unknown loop" do
-    refute Terminals.active?("unknown-loop")
+    refute Terminals.active?("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
   end
 end

@@ -43,11 +43,16 @@ defmodule Algedonia.PromptBuilderTest do
 
   describe "ticket_reference/1" do
     test "returns number as string when present" do
-      assert PromptBuilder.ticket_reference(%{number: 42, id: "uuid"}) == "42"
+      assert PromptBuilder.ticket_reference(%{
+               number: 42,
+               id: "11111111-1111-4111-8111-111111111111"
+             }) ==
+               "42"
     end
 
     test "returns id when number is nil" do
-      assert PromptBuilder.ticket_reference(%{number: nil, id: "uuid-123"}) == "uuid-123"
+      id = "22222222-2222-4222-8222-222222222222"
+      assert PromptBuilder.ticket_reference(%{number: nil, id: id}) == id
     end
   end
 

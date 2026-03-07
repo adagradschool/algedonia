@@ -17,6 +17,8 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   @doc """
   Loads ticket detail assigns onto the socket for the :show action.
   """
+  @spec load_detail(Phoenix.LiveView.Socket.t(), Algedonia.Types.id(), binary()) ::
+          Phoenix.LiveView.Socket.t()
   def load_detail(socket, workspace_id, ticket_ref) do
     ticket = Tickets.get_ticket_by_ref!(workspace_id, ticket_ref)
     if connected?(socket), do: Loops.subscribe_ticket_loops(ticket.id)
@@ -42,6 +44,8 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   end
 
   @doc false
+  @spec handle(binary(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle("autosave_ticket", %{"ticket" => params}, socket) do
     case Tickets.update_ticket(socket.assigns.ticket, params) do
       {:ok, updated} -> {:noreply, assign_saved_ticket(socket, updated)}

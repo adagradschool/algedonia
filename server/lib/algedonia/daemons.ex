@@ -11,18 +11,22 @@ defmodule Algedonia.Daemons do
   @topic "monitor"
   @repo_status_table :daemon_repo_status
 
+  @spec list_daemons() :: [DaemonRegistration.t()]
   def list_daemons do
     Repo.all(DaemonRegistration)
   end
 
+  @spec get_daemon!(Algedonia.Types.id()) :: DaemonRegistration.t()
   def get_daemon!(id) do
     Repo.get!(DaemonRegistration, id)
   end
 
+  @spec get_daemon(Algedonia.Types.id()) :: DaemonRegistration.t() | nil
   def get_daemon(id) do
     Repo.get(DaemonRegistration, id)
   end
 
+  @spec get_daemon_by_name(String.t()) :: DaemonRegistration.t() | nil
   def get_daemon_by_name(name) do
     Repo.get_by(DaemonRegistration, name: name)
   end
@@ -46,6 +50,8 @@ defmodule Algedonia.Daemons do
     end
   end
 
+  @spec register_daemon(map()) ::
+          {:ok, DaemonRegistration.t()} | {:error, Ecto.Changeset.t() | :name_taken}
   def register_daemon(attrs) do
     name = Map.get(attrs, :name) || Map.get(attrs, "name")
     user_id = Map.get(attrs, :user_id) || Map.get(attrs, "user_id")
@@ -78,6 +84,8 @@ defmodule Algedonia.Daemons do
     end)
   end
 
+  @spec update_heartbeat(DaemonRegistration.t(), map()) ::
+          {:ok, DaemonRegistration.t()} | {:error, Ecto.Changeset.t()}
   def update_heartbeat(daemon, attrs) do
     was_unhealthy = daemon.status == :unhealthy
 
@@ -103,6 +111,8 @@ defmodule Algedonia.Daemons do
     end)
   end
 
+  @spec mark_unhealthy(DaemonRegistration.t()) ::
+          {:ok, DaemonRegistration.t()} | {:error, Ecto.Changeset.t()}
   def mark_unhealthy(daemon) do
     daemon
     |> DaemonRegistration.changeset(%{status: :unhealthy})
@@ -117,6 +127,8 @@ defmodule Algedonia.Daemons do
     end)
   end
 
+  @spec mark_offline(DaemonRegistration.t()) ::
+          {:ok, DaemonRegistration.t()} | {:error, Ecto.Changeset.t()}
   def mark_offline(daemon) do
     daemon
     |> DaemonRegistration.changeset(%{status: :offline, running_loops: 0})
@@ -134,7 +146,7 @@ defmodule Algedonia.Daemons do
   @doc """
   Stores the repo clone status for a daemon and workspace.
   """
-  @spec set_repo_status(binary(), binary(), map()) :: :ok
+  @spec set_repo_status(String.t(), String.t(), map()) :: :ok
   def set_repo_status(daemon_name, workspace_slug, status_payload) do
     ensure_repo_status_table()
     :ets.insert(@repo_status_table, {{daemon_name, workspace_slug}, status_payload})
@@ -145,7 +157,7 @@ defmodule Algedonia.Daemons do
   @doc """
   Returns the repo clone status for a daemon and workspace, or nil.
   """
-  @spec get_repo_status(binary(), binary()) :: map() | nil
+  @spec get_repo_status(String.t(), String.t()) :: map() | nil
   def get_repo_status(daemon_name, workspace_slug) do
     ensure_repo_status_table()
     key = {daemon_name, workspace_slug}
@@ -159,7 +171,7 @@ defmodule Algedonia.Daemons do
   @doc """
   Returns true if the daemon's repo is ready for the given workspace, or not required.
   """
-  @spec repo_ready?(binary(), binary()) :: boolean()
+  @spec repo_ready?(String.t(), String.t()) :: boolean()
   def repo_ready?(daemon_name, workspace_slug) do
     case get_repo_status(daemon_name, workspace_slug) do
       %{"status" => "ready"} -> true
@@ -171,9 +183,12 @@ defmodule Algedonia.Daemons do
   @doc """
   Re-dispatches pending task loops to a daemon that just came back online.
   """
+  @spec redispatch_pending_loops(DaemonRegistration.t()) :: [term()]
   def redispatch_pending_loops(daemon) do
     for loop <- Loops.list_pending_unassigned_task_loops() do
-      case TaskLoopOrchestrator.start_task_loop(loop.id, daemon.name) do
+      case TaskLoopOrchestrator.start_task_loop(loop.id, daemon.name,
+             workspace_id: loop.workspace_id
+           ) do
         :ok ->
           :ok
 
@@ -188,6 +203,7 @@ defmodule Algedonia.Daemons do
   Reconciles server state with what the daemon reports it's running.
   Stops orphan loops on the daemon and redispatches missing loops.
   """
+  @spec reconcile_running_loops(DaemonRegistration.t(), [Algedonia.Types.id()]) :: :ok
   def reconcile_running_loops(daemon, reported_loop_ids) when is_list(reported_loop_ids) do
     server_running =
       daemon.id
@@ -207,6 +223,7 @@ defmodule Algedonia.Daemons do
     :ok
   end
 
+  @spec subscribe() :: :ok | {:error, term()}
   def subscribe do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, @topic)
   end

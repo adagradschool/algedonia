@@ -4,6 +4,19 @@ defmodule Algedonia.LoopsTest do
   alias Algedonia.Loops
   import Algedonia.Factory
 
+  setup do
+    workspace = insert_workspace!(%{slug: "loops-test-#{System.unique_integer([:positive])}"})
+    Process.put(:default_workspace, workspace)
+    previous_scope = put_workspace_scope(workspace)
+
+    on_exit(fn ->
+      Process.delete(:default_workspace)
+      restore_workspace_scope(previous_scope)
+    end)
+
+    {:ok, workspace: workspace}
+  end
+
   describe "get_loop!/1" do
     test "returns the loop with given id" do
       loop = insert_loop!(%{title: "Test loop"})
@@ -28,7 +41,12 @@ defmodule Algedonia.LoopsTest do
       ticket = insert_ticket!()
 
       assert {:ok, loop} =
-               Loops.create_loop(%{title: "New loop", ticket_id: ticket.id, role: :task})
+               Loops.create_loop(%{
+                 title: "New loop",
+                 ticket_id: ticket.id,
+                 workspace_id: ticket.workspace_id,
+                 role: :task
+               })
 
       assert loop.title == "New loop"
       assert loop.status == :pending
@@ -38,6 +56,7 @@ defmodule Algedonia.LoopsTest do
     test "fails without required fields" do
       assert {:error, changeset} = Loops.create_loop(%{})
       assert errors_on(changeset).title
+      assert errors_on(changeset).workspace_id
     end
   end
 

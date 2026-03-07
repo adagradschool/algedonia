@@ -5,6 +5,7 @@ defmodule Algedonia.Workspaces.TransitionHook do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Algedonia.Workspaces.Workspace
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -22,7 +23,17 @@ defmodule Algedonia.Workspaces.TransitionHook do
     timestamps(type: :utc_datetime)
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          workspace_id: Algedonia.Types.id(),
+          workspace: Workspace.t() | Ecto.Association.NotLoaded.t(),
+          from_status: :backlog | :planning | :in_progress | :halted | :completed | :archived,
+          to_status: :backlog | :planning | :in_progress | :halted | :completed | :archived,
+          instruction: String.t(),
+          enabled: boolean(),
+          inserted_at: NaiveDateTime.t(),
+          updated_at: NaiveDateTime.t()
+        }
 
   @doc """
   Builds a changeset for creating or updating a transition hook.

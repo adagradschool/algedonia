@@ -24,53 +24,32 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 		return fmt.Errorf("missing loop_id in start_loop payload")
 	}
 
-	// Overview role uses headless pipe mode for fast generation
 	role := payloadStr(payload, "role")
-	if role == "overview" {
-		return m.StartOverviewLoop(ctx, loopID, payloadStr(payload, "task"), payloadStr(payload, "model"))
+	if role == "" {
+		return fmt.Errorf("missing role in start_loop payload")
 	}
 
-	// If a role is specified, route through adapter path
-	if role != "" {
-		agentType := payloadStr(payload, "agent_type")
-		if agentType == "" {
-			agentType = defaultCodingAgent()
-		}
-		attempt := parseAttempt(payload["attempt"])
-		wsSlug := payloadStr(payload, "workspace_slug")
-		ticketID := payloadStr(payload, "ticket_id")
-
-		workdir, workspaceDir, err := m.resolveScopedTicketWorkdir(ctx, wsSlug, ticketID)
-		if err != nil {
-			return fmt.Errorf("invalid start_loop scope: %w", err)
-		}
-
-		return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, workspaceDir, wsSlug,
-			payloadStr(payload, "task"), payloadStr(payload, "model"), payloadStr(payload, "effort"), attempt)
+	agentType := payloadStr(payload, "agent_type")
+	if agentType == "" {
+		return fmt.Errorf("missing agent_type in start_loop payload")
 	}
 
-	// Legacy raw-process path
-	command := payloadStr(payload, "command")
-	if command == "" {
-		command = "claude"
+	task := payloadStr(payload, "task")
+	if task == "" {
+		return fmt.Errorf("missing task in start_loop payload")
 	}
 
-	var args []string
-	if rawArgs, ok := payload["args"].([]interface{}); ok {
-		for _, a := range rawArgs {
-			if s, ok := a.(string); ok {
-				args = append(args, s)
-			}
-		}
-	}
-	if len(args) == 0 && command == "claude" {
-		args = []string{"--dangerously-skip-permissions"}
+	attempt := parseAttempt(payload["attempt"])
+	wsSlug := payloadStr(payload, "workspace_slug")
+	ticketID := payloadStr(payload, "ticket_id")
+
+	workdir, workspaceDir, err := m.resolveScopedTicketWorkdir(ctx, wsSlug, ticketID)
+	if err != nil {
+		return fmt.Errorf("invalid start_loop scope: %w", err)
 	}
 
-	workdir := payloadStr(payload, "workdir")
-	prompt := payloadStr(payload, "prompt")
-
-	return m.StartLoop(ctx, loopID, command, args, workdir, prompt)
+	return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, workspaceDir, wsSlug,
+		ticketID, task, payloadStr(payload, "model"), payloadStr(payload, "effort"), attempt)
 }
 
 // HandleStdinInput is a command handler for "stdin_input" events from the server.
@@ -248,30 +227,16 @@ func (m *Manager) resolveScopedTicketWorkdir(ctx context.Context, workspaceSlug,
 		return "", "", fmt.Errorf("workspace base dir not configured for workspace %q", workspaceSlug)
 	}
 
-	workdir := m.resolveWorktree(ctx, workspaceDir, ticketID)
 	expectedWorkdir := filepath.Join(workspaceDir, "worktrees", repo.TicketPrefix(ticketID))
+	workdir, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, repo.TicketPrefix(ticketID))
+	if err != nil {
+		return "", "", fmt.Errorf("ensuring ticket worktree: %w", err)
+	}
 	if filepath.Clean(workdir) != filepath.Clean(expectedWorkdir) {
 		return "", "", fmt.Errorf("failed to resolve ticket worktree at %s", expectedWorkdir)
 	}
 
 	return workdir, workspaceDir, nil
-}
-
-// resolveWorktree resolves the working directory to a ticket-scoped worktree
-// when a worktree manager is configured and a ticket_id is provided.
-// Falls back to the workspace dir (or its root subdir) if no worktree can be created.
-func (m *Manager) resolveWorktree(ctx context.Context, workdir, ticketID string) string {
-	if ticketID == "" || m.worktreeMgr == nil || workdir == m.repoRoot {
-		return workdir
-	}
-	prefix := repo.TicketPrefix(ticketID)
-	wtPath, err := m.worktreeMgr.EnsureWorktree(ctx, workdir, prefix)
-	if err != nil {
-		log.Printf("Failed to create worktree for ticket %s: %v, falling back to workspace dir", ticketID, err)
-		return workdir
-	}
-	log.Printf("Resolved worktree for ticket %s at %s", ticketID, wtPath)
-	return wtPath
 }
 
 // HandleCleanupWorktree is a command handler for "cleanup_worktree" events.
@@ -285,12 +250,12 @@ func (m *Manager) HandleCleanupWorktree(ctx context.Context, payload map[string]
 	}
 
 	if m.worktreeMgr == nil {
-		return nil
+		return fmt.Errorf("worktree manager not configured")
 	}
 
 	workdir := m.workdirForWorkspace(workspaceSlug)
 	if workdir == m.repoRoot {
-		return nil
+		return fmt.Errorf("workspace base dir not configured for workspace %q", workspaceSlug)
 	}
 
 	prefix := repo.TicketPrefix(ticketID)
@@ -308,14 +273,13 @@ func (m *Manager) HandleCleanupWorktree(ctx context.Context, payload map[string]
 func (m *Manager) HandleOpenEditor(ctx context.Context, payload map[string]interface{}) error {
 	workspaceSlug := payloadStr(payload, "workspace_slug")
 	ticketID := payloadStr(payload, "ticket_id")
+	if workspaceSlug == "" || ticketID == "" {
+		return fmt.Errorf("missing ticket_id or workspace_slug in open_editor payload")
+	}
 
-	workdir := m.workdirForWorkspace(workspaceSlug)
-	if ticketID != "" && m.worktreeMgr != nil && workdir != m.repoRoot {
-		prefix := repo.TicketPrefix(ticketID)
-		wtPath := filepath.Join(workdir, "worktrees", prefix)
-		if info, err := os.Stat(wtPath); err == nil && info.IsDir() {
-			workdir = wtPath
-		}
+	workdir, _, err := m.resolveScopedTicketWorkdir(ctx, workspaceSlug, ticketID)
+	if err != nil {
+		return fmt.Errorf("invalid open_editor scope: %w", err)
 	}
 
 	cmd := openEditorCommand(ctx, workdir)

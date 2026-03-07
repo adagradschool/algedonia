@@ -4,7 +4,7 @@ defmodule Algedonia.CheckerHandoffTest do
   alias Algedonia.CheckerHandoff
 
   test "validate/4 accepts valid payload" do
-    loop_id = "loop-123"
+    loop_id = "11111111-1111-4111-8111-111111111111"
     attempt = 2
     workspace_slug = "my-workspace"
     expected = CheckerHandoff.expected_paths(loop_id, attempt, workspace_slug)
@@ -23,7 +23,7 @@ defmodule Algedonia.CheckerHandoffTest do
   end
 
   test "validate/4 rejects invalid handoff marker" do
-    loop_id = "loop-123"
+    loop_id = "11111111-1111-4111-8111-111111111111"
     attempt = 1
     workspace_slug = "my-workspace"
 
@@ -33,7 +33,7 @@ defmodule Algedonia.CheckerHandoffTest do
       "verdict" => "pass",
       "feedback" => "ignored",
       "feedback_path" =>
-        ".algedonia/workspaces/my-workspace/handoffs/loop-123/attempt-1/checker_feedback.md"
+        ".algedonia/workspaces/my-workspace/handoffs/11111111-1111-4111-8111-111111111111/attempt-1/checker_feedback.md"
     }
 
     assert {:error, "missing checker_result.json"} =
@@ -41,7 +41,8 @@ defmodule Algedonia.CheckerHandoffTest do
   end
 
   test "expected_paths/3 uses workspace-scoped path" do
-    paths = CheckerHandoff.expected_paths("loop-ws", 1, "my-workspace")
+    loop_id = "22222222-2222-4222-8222-222222222222"
+    paths = CheckerHandoff.expected_paths(loop_id, 1, "my-workspace")
 
     expected_base =
       Path.join([
@@ -50,7 +51,7 @@ defmodule Algedonia.CheckerHandoffTest do
         "workspaces",
         "my-workspace",
         "handoffs",
-        "loop-ws",
+        loop_id,
         "attempt-1"
       ])
 
@@ -60,12 +61,13 @@ defmodule Algedonia.CheckerHandoffTest do
 
   test "validate/4 rejects missing workspace slug" do
     payload = %{"handoff_valid" => true, "verdict" => "pass", "feedback" => "ok"}
-    assert {:error, _} = CheckerHandoff.validate("loop-ws", 1, nil, payload)
-    assert {:error, _} = CheckerHandoff.validate("loop-ws", 1, "", payload)
+    loop_id = "33333333-3333-4333-8333-333333333333"
+    assert {:error, _} = CheckerHandoff.validate(loop_id, 1, nil, payload)
+    assert {:error, _} = CheckerHandoff.validate(loop_id, 1, "", payload)
   end
 
   test "validate/4 rejects feedback path mismatch" do
-    loop_id = "loop-123"
+    loop_id = "11111111-1111-4111-8111-111111111111"
     attempt = 3
     workspace_slug = "my-workspace"
 
@@ -74,7 +76,7 @@ defmodule Algedonia.CheckerHandoffTest do
       "verdict" => "fail",
       "feedback" => "Needs fixes",
       "feedback_path" =>
-        ".algedonia/workspaces/my-workspace/handoffs/other-loop/attempt-3/checker_feedback.md"
+        ".algedonia/workspaces/my-workspace/handoffs/44444444-4444-4444-8444-444444444444/attempt-3/checker_feedback.md"
     }
 
     assert {:error, msg} = CheckerHandoff.validate(loop_id, attempt, workspace_slug, payload)

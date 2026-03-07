@@ -229,7 +229,7 @@ func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 	a := &ClaudeCodeAdapter{}
 	proc, err := a.Start(dir, "", map[string]string{
 		"workspace_slug": "scope",
-		"loop_id":        "loop-hook-1",
+		"loop_id":        "abababab-abab-4bab-8bab-abababababab",
 		"role":           "checker",
 		"workdir":        dir,
 	})
@@ -245,10 +245,10 @@ func TestClaudeCodeAdapterWaitReturnsOnHookMarker(t *testing.T) {
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		markerPath := filepath.Join(home, ".algedonia", "workspaces", "scope", "runtime", "loop-hook-1", "attempt_complete.json")
+		markerPath := filepath.Join(home, ".algedonia", "workspaces", "scope", "runtime", "abababab-abab-4bab-8bab-abababababab", "attempt_complete.json")
 		_ = os.MkdirAll(filepath.Dir(markerPath), 0o755)
 		data, _ := json.Marshal(map[string]string{
-			"loop_id":   "loop-hook-1",
+			"loop_id":   "abababab-abab-4bab-8bab-abababababab",
 			"role":      "checker",
 			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		})
@@ -284,7 +284,7 @@ func TestClaudeCodeAdapterWaitPrefersMarkerOverNonZeroExit(t *testing.T) {
 	script := `#!/bin/sh
 mkdir -p "$ALGEDONIA_RUNTIME_DIR/$ALGEDONIA_LOOP_ID"
 cat > "$ALGEDONIA_RUNTIME_DIR/$ALGEDONIA_LOOP_ID/attempt_complete.json" <<'EOF'
-{"loop_id":"loop-hook-race","role":"maker","source":"test"}
+{"loop_id":"cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd","role":"maker","source":"test"}
 EOF
 exit 1
 `
@@ -299,7 +299,7 @@ exit 1
 	a := &ClaudeCodeAdapter{}
 	proc, err := a.Start(dir, "", map[string]string{
 		"workspace_slug": "scope",
-		"loop_id":        "loop-hook-race",
+		"loop_id":        "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
 		"role":           "maker",
 		"workdir":        dir,
 	})

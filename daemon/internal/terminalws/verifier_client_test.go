@@ -57,7 +57,7 @@ func TestAPITokenVerifier(t *testing.T) {
 			v := NewAPITokenVerifier(srv.URL, "test-token-123")
 			v.httpClient = srv.Client()
 
-			err := v.Verify(context.Background(), "ws-token", "loop-1")
+			err := v.Verify(context.Background(), "ws-token", "11111111-1111-4111-8111-111111111111")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -94,7 +94,7 @@ func TestAPITokenVerifier_OtherErrorCodes(t *testing.T) {
 			v := NewAPITokenVerifier(srv.URL, "token")
 			v.httpClient = srv.Client()
 
-			err := v.Verify(context.Background(), "ws-token", "loop-1")
+			err := v.Verify(context.Background(), "ws-token", "11111111-1111-4111-8111-111111111111")
 			if err == nil {
 				t.Fatalf("expected error for status %d, got nil", tt.statusCode)
 			}
@@ -116,7 +116,7 @@ func TestAPITokenVerifier_WhitespaceTrimming(t *testing.T) {
 	v := NewAPITokenVerifier("  "+srv.URL+"  ", "  my-token  ")
 	v.httpClient = srv.Client()
 
-	err := v.Verify(context.Background(), "ws-token", "loop-1")
+	err := v.Verify(context.Background(), "ws-token", "11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestAPITokenVerifier_NetworkFailure(t *testing.T) {
 	srv.Close()
 
 	v := NewAPITokenVerifier(url, "token")
-	err := v.Verify(context.Background(), "ws-token", "loop-1")
+	err := v.Verify(context.Background(), "ws-token", "11111111-1111-4111-8111-111111111111")
 	if err == nil {
 		t.Fatal("expected error for network failure, got nil")
 	}

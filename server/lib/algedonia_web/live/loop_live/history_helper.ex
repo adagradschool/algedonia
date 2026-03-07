@@ -140,15 +140,18 @@ defmodule AlgedoniaWeb.LoopLive.HistoryHelper do
 
   defp current_step_id(socket, history) do
     loop_id = socket.assigns.loop_id
+    workspace_id = socket.assigns[:ticket] && socket.assigns.ticket.workspace_id
 
     cond do
       current = current_step_id_from_history_status(history) ->
         current.id
 
-      current_id = TaskLoopOrchestrator.current_step_terminal_id(loop_id) ->
+      current_id =
+          TaskLoopOrchestrator.current_step_terminal_id(loop_id, workspace_id: workspace_id) ->
         if Enum.any?(history, &(&1.id == current_id)), do: current_id
 
-      latest_id = TaskLoopOrchestrator.latest_step_terminal_id(loop_id) ->
+      latest_id =
+          TaskLoopOrchestrator.latest_step_terminal_id(loop_id, workspace_id: workspace_id) ->
         if Enum.any?(history, &(&1.id == latest_id)), do: latest_id
 
       true ->

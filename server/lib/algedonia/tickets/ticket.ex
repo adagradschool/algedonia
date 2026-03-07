@@ -5,6 +5,8 @@ defmodule Algedonia.Tickets.Ticket do
   use Ecto.Schema
   import Ecto.Changeset
   alias Algedonia.Agents
+  alias Algedonia.Tickets.Comment
+  alias Algedonia.Workspaces.Workspace
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -33,7 +35,26 @@ defmodule Algedonia.Tickets.Ticket do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          workspace_id: Algedonia.Types.id(),
+          workspace: Workspace.t() | Ecto.Association.NotLoaded.t(),
+          title: String.t(),
+          description: String.t() | nil,
+          number: integer() | nil,
+          status: :backlog | :planning | :halted | :in_progress | :completed | :archived,
+          type: :feature | :bug | :chore | :spike,
+          coding_agent: :codex | :claude_code,
+          priority: integer(),
+          assignee: String.t() | nil,
+          acceptance_criteria: String.t() | nil,
+          rubric: String.t() | nil,
+          max_attempts: integer(),
+          overview: String.t() | nil,
+          comments: [Comment.t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   @doc """
   Returns a changeset for creating or updating a ticket.

@@ -5,6 +5,7 @@ defmodule Algedonia.Loops.LoopStep do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Algedonia.Loops.Loop
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -25,7 +26,22 @@ defmodule Algedonia.Loops.LoopStep do
     belongs_to :loop, Algedonia.Loops.Loop
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          loop_id: Algedonia.Types.id(),
+          loop: Loop.t() | Ecto.Association.NotLoaded.t(),
+          role: String.t(),
+          attempt: integer(),
+          status: String.t(),
+          session_id: String.t() | nil,
+          exit_code: integer() | nil,
+          verdict: String.t() | nil,
+          feedback: String.t() | nil,
+          feedback_path: String.t() | nil,
+          error: String.t() | nil,
+          started_at: DateTime.t() | nil,
+          finished_at: DateTime.t() | nil
+        }
 
   @required [:loop_id, :role, :attempt, :status, :started_at]
 

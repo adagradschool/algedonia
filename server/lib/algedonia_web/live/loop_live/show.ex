@@ -24,6 +24,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   @repo_ready_retry_limit 20
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(
         %{"loop_ref" => loop_ref, "workspace" => workspace_slug} = params,
         _session,
@@ -70,6 +71,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   @impl true
+  @spec handle_params(map(), binary(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, _uri, socket) do
     role = params["role"] || socket.assigns.role
 
@@ -103,6 +106,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   @impl true
+  @spec handle_event(binary(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("switch_tab", %{"tab" => tab}, socket)
       when tab in ["overview", "rubric"] do
     socket =
@@ -203,6 +208,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   @impl true
+  @spec handle_info(term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_info(:auto_start_loop, socket) do
     {:noreply, start_loop_on_daemon(socket)}
   end
@@ -238,7 +245,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
           |> push_event("terminal_ended", %{exit_code: exit_code})
           |> assign(:active, false)
           |> HistoryHelper.assign_history(
-            TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id)
+            TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id,
+              workspace_id: workspace_id(socket)
+            )
           )
           |> TerminalHelper.assign_terminal_run()
           |> TerminalHelper.assign_terminal_ws_access()
@@ -343,6 +352,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       else: "Checker Verdict"
   end
 
+  @spec loop_show_path(binary(), Tickets.Ticket.t() | nil, binary() | nil, Algedonia.Types.id()) ::
+          binary()
   def loop_show_path(workspace_slug, ticket, route_ticket_ref, loop_id) do
     ref = if ticket, do: ticket_ref(ticket), else: route_ticket_ref || "ad-hoc"
 
@@ -385,6 +396,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   defp start_persisted_loop(socket, daemon_name) do
     case TaskLoopOrchestrator.start_task_loop(socket.assigns.loop_id, daemon_name,
+           workspace_id: workspace_id(socket),
            model: socket.assigns.selected_model,
            effort: socket.assigns.selected_effort,
            agent_type: socket.assigns.agent_type
@@ -395,7 +407,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         |> assign(:repo_ready_retry_count, 0)
         |> assign(:active, true)
         |> HistoryHelper.assign_history(
-          TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id)
+          TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id,
+            workspace_id: workspace_id(socket)
+          )
         )
         |> OverviewHelper.maybe_start_overview_generation()
 
@@ -405,7 +419,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
         |> assign(:repo_ready_retry_count, 0)
         |> assign(:active, true)
         |> HistoryHelper.assign_history(
-          TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id)
+          TaskLoopOrchestrator.get_loop_history(socket.assigns.loop_id,
+            workspace_id: workspace_id(socket)
+          )
         )
         |> OverviewHelper.maybe_start_overview_generation()
 
@@ -465,8 +481,12 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp list_ticket_comments(%{id: id}), do: Tickets.list_comments(id)
   defp list_ticket_comments(_), do: []
 
-  defp loop_history(%{assigns: %{loop_record: %{id: id}}}),
-    do: TaskLoopOrchestrator.get_loop_history(id)
+  defp loop_history(%{assigns: %{loop_record: %{id: id}}} = socket),
+    do: TaskLoopOrchestrator.get_loop_history(id, workspace_id: workspace_id(socket))
 
   defp loop_history(_), do: []
+
+  defp workspace_id(socket) do
+    socket.assigns[:ticket] && socket.assigns.ticket.workspace_id
+  end
 end

@@ -4,6 +4,8 @@ This is a web application written using the Phoenix web framework.
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
+- Tenant-scoped data access is a hard contract: all calls touching tenant tables (`tickets`, `loops`, `queue_entries`, `events`) must execute with an explicit workspace scope set in `Algedonia.TenantScope`. Do not rely on fallback inference.
+- IDs in API payloads, protocol messages, and tests must be UUID strings (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). Do not use placeholder non-UUID identifiers.
 
 ### Phoenix v1.8 guidelines
 

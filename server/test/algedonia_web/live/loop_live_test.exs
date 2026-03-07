@@ -7,16 +7,20 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
   describe "Show" do
     test "mounts and renders loop_id", %{conn: conn, workspace: workspace} do
-      {:ok, view, html} =
-        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-1")
+      loop_id = "11111111-1111-4111-8111-111111111111"
 
-      assert html =~ "test-loop-1"
+      {:ok, view, html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
+
+      assert html =~ loop_id
       assert has_element?(view, "[id^=terminal-attempt-]")
     end
 
     test "does not show start or stop buttons", %{conn: conn, workspace: workspace} do
+      loop_id = "22222222-2222-4222-8222-222222222222"
+
       {:ok, _view, html} =
-        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-new")
+        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       refute html =~ "Start Loop"
       refute html =~ "Stop Loop"
@@ -134,8 +138,10 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
+      loop_id = "33333333-3333-4333-8333-333333333333"
+
       {:ok, view, _html} =
-        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-resize")
+        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       assert has_element?(
                view,
@@ -151,8 +157,10 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
+      loop_id = "44444444-4444-4444-8444-444444444444"
+
       {:ok, view, _html} =
-        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-layout-contract")
+        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       refute has_element?(view, "#loop-workspace-layout[style*='--left-sidebar-width']")
       refute has_element?(view, "#loop-inspector-layout[style*='--inspector-width']")
@@ -164,7 +172,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     end
 
     test "sends scrollback on connect when buffer exists", %{conn: conn, workspace: workspace} do
-      loop_id = "scrollback-test-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       Terminals.append(loop_id, "prior output")
 
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
@@ -174,7 +182,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     end
 
     test "receives PubSub terminal data updates", %{conn: conn, workspace: workspace} do
-      loop_id = "pubsub-test-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       # Simulate terminal data arriving via PubSub
@@ -192,7 +200,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
-      loop_id = "coalesce-test-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       Phoenix.PubSub.broadcast(
@@ -211,7 +219,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
     end
 
     test "handles terminal_ended event", %{conn: conn, workspace: workspace} do
-      loop_id = "ended-test-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       Terminals.start_buffer(loop_id)
 
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
@@ -235,8 +243,10 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
+      loop_id = "55555555-5555-4555-8555-555555555555"
+
       {:ok, view, html} =
-        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-steps")
+        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       refute html =~ "History"
 
@@ -249,7 +259,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
-      loop_id = "history-tabs-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       send(view.pid, {:loop_history_updated, step_history_fixture()})
@@ -268,7 +278,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
-      loop_id = "history-transition-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       send(view.pid, {:loop_history_updated, maker_running_history_fixture()})
@@ -300,7 +310,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
-      loop_id = "history-order-#{System.unique_integer([:positive])}"
+      loop_id = Ecto.UUID.generate()
       {:ok, view, _html} = live(conn, "/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       send(view.pid, {:loop_history_updated, out_of_order_running_checker_history_fixture()})
@@ -396,8 +406,10 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       conn: conn,
       workspace: workspace
     } do
+      loop_id = "66666666-6666-4666-8666-666666666666"
+
       {:ok, view, _html} =
-        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/test-loop-shortcuts")
+        live(conn, ~p"/w/#{workspace.slug}/tickets/test-ticket/loops/#{loop_id}")
 
       render_hook(view, "toggle_shortcut_help", %{})
 

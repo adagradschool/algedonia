@@ -4,6 +4,7 @@ defmodule Algedonia.InlineReviews.InlineReview do
   """
   use Ecto.Schema
   import Ecto.Changeset
+  alias Algedonia.Loops.Loop
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -23,7 +24,19 @@ defmodule Algedonia.InlineReviews.InlineReview do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          loop_id: Algedonia.Types.id(),
+          loop: Loop.t() | Ecto.Association.NotLoaded.t(),
+          author: String.t(),
+          file_path: String.t(),
+          line_number: integer(),
+          diff_hunk: String.t(),
+          body: String.t(),
+          status: :pending | :addressed | :resolved,
+          inserted_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   @required [:loop_id, :author, :file_path, :line_number, :diff_hunk, :body]
 

@@ -5,7 +5,20 @@ defmodule Algedonia.Workspaces.WorkspaceInvitation do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @type t :: %__MODULE__{}
+  alias Algedonia.Accounts.User
+  alias Algedonia.Workspaces.Workspace
+
+  @type t :: %__MODULE__{
+          id: Algedonia.Types.id(),
+          github_username: String.t(),
+          status: :pending | :accepted | :cancelled,
+          workspace_id: Algedonia.Types.id(),
+          workspace: Workspace.t() | Ecto.Association.NotLoaded.t(),
+          invited_by_id: Algedonia.Types.id(),
+          invited_by: User.t() | Ecto.Association.NotLoaded.t(),
+          inserted_at: NaiveDateTime.t(),
+          updated_at: NaiveDateTime.t()
+        }
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id

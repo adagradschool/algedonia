@@ -78,7 +78,7 @@ func TestHandleTerminalWS_MissingParams(t *testing.T) {
 		query string
 	}{
 		{"missing both", ""},
-		{"missing token", "loop_id=abc"},
+		{"missing token", "loop_id=11111111-1111-4111-8111-111111111111"},
 		{"missing loop_id", "token=tok"},
 	}
 
@@ -117,7 +117,7 @@ func TestHandleTerminalWS_TokenVerificationFailure(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/terminal/ws?loop_id=abc&token=bad")
+	resp, err := http.Get(ts.URL + "/terminal/ws?loop_id=11111111-1111-4111-8111-111111111111&token=bad")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -136,7 +136,8 @@ func TestHandleTerminalWS_SuccessfulConnection(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=loop1&token=valid"
+	loopID := "22222222-2222-4222-8222-222222222222"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=" + loopID + "&token=valid"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -158,7 +159,8 @@ func TestHandleTerminalWS_InputFrame(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=loop1&token=valid"
+	loopID := "33333333-3333-4333-8333-333333333333"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=" + loopID + "&token=valid"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -187,8 +189,8 @@ func TestHandleTerminalWS_InputFrame(t *testing.T) {
 	if string(calls[0].data) != "hello" {
 		t.Errorf("input data = %q, want %q", string(calls[0].data), "hello")
 	}
-	if calls[0].loopID != "loop1" {
-		t.Errorf("loopID = %q, want %q", calls[0].loopID, "loop1")
+	if calls[0].loopID != loopID {
+		t.Errorf("loopID = %q, want %q", calls[0].loopID, loopID)
 	}
 
 	conn.Close(websocket.StatusNormalClosure, "done")
@@ -202,7 +204,8 @@ func TestHandleTerminalWS_ResizeFrame(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=loop1&token=valid"
+	loopID := "44444444-4444-4444-8444-444444444444"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=" + loopID + "&token=valid"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -244,7 +247,8 @@ func TestHandleTerminalWS_EdgeCaseFrames(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=loop1&token=valid"
+	loopID := "55555555-5555-4555-8555-555555555555"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/terminal/ws?loop_id=" + loopID + "&token=valid"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

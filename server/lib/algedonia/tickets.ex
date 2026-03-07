@@ -6,6 +6,7 @@ defmodule Algedonia.Tickets do
 
   alias Algedonia.Repo
   alias Algedonia.Tickets.{Comment, Ticket}
+  alias Algedonia.Workspaces.Workspace
 
   @topic "tickets"
   @display_statuses [:backlog, :planning, :in_progress, :halted, :completed, :archived]
@@ -57,7 +58,7 @@ defmodule Algedonia.Tickets do
   @doc """
   Gets a single ticket. Raises `Ecto.NoResultsError` if not found.
   """
-  @spec get_ticket!(binary()) :: Ticket.t()
+  @spec get_ticket!(Algedonia.Types.id()) :: Ticket.t()
   def get_ticket!(id), do: Repo.get!(Ticket, id)
 
   @doc """
@@ -65,7 +66,7 @@ defmodule Algedonia.Tickets do
 
   Accepts a UUID or a numeric ticket number.
   """
-  @spec get_ticket_by_ref!(binary(), binary()) :: Ticket.t()
+  @spec get_ticket_by_ref!(Algedonia.Types.id(), binary()) :: Ticket.t()
   def get_ticket_by_ref!(workspace_id, ref) when is_binary(ref) do
     case Integer.parse(ref) do
       {number, ""} -> get_ticket_by_number!(workspace_id, number)
@@ -76,7 +77,7 @@ defmodule Algedonia.Tickets do
   @doc """
   Gets a ticket by workspace ID and ticket number. Raises if not found.
   """
-  @spec get_ticket_by_number!(binary(), integer()) :: Ticket.t()
+  @spec get_ticket_by_number!(Algedonia.Types.id(), integer()) :: Ticket.t()
   def get_ticket_by_number!(workspace_id, number) do
     Repo.get_by!(Ticket, workspace_id: workspace_id, number: number)
   end
@@ -92,6 +93,8 @@ defmodule Algedonia.Tickets do
     |> broadcast(:ticket_created)
   end
 
+  @spec create_ticket_for_workspace(Workspace.t(), map()) ::
+          {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
   def create_ticket_for_workspace(%Algedonia.Workspaces.Workspace{} = workspace, attrs) do
     number = Algedonia.Workspaces.next_ticket_number!(workspace)
 
@@ -227,7 +230,7 @@ defmodule Algedonia.Tickets do
   Lists comments for a ticket, threaded. Returns top-level comments with
   replies preloaded one level deep, ordered by insertion time.
   """
-  @spec list_comments(binary()) :: [Comment.t()]
+  @spec list_comments(Algedonia.Types.id()) :: [Comment.t()]
   def list_comments(ticket_id) do
     replies_query = from(c in Comment, order_by: [asc: c.inserted_at])
 
@@ -241,7 +244,7 @@ defmodule Algedonia.Tickets do
   @doc """
   Gets a single comment. Raises `Ecto.NoResultsError` if not found.
   """
-  @spec get_comment!(binary()) :: Comment.t()
+  @spec get_comment!(Algedonia.Types.id()) :: Comment.t()
   def get_comment!(id), do: Repo.get!(Comment, id)
 
   @doc """
@@ -289,7 +292,7 @@ defmodule Algedonia.Tickets do
   @doc """
   Subscribes the caller to comment notifications for a specific ticket.
   """
-  @spec subscribe_comments(binary()) :: :ok | {:error, term()}
+  @spec subscribe_comments(Algedonia.Types.id()) :: :ok | {:error, term()}
   def subscribe_comments(ticket_id) do
     Phoenix.PubSub.subscribe(Algedonia.PubSub, "ticket:#{ticket_id}")
   end
@@ -330,14 +333,18 @@ defmodule Algedonia.Tickets do
 
   # -- Markdown export (delegated) --
 
+  @spec export_markdown(Ticket.t()) :: String.t()
   defdelegate export_markdown(ticket), to: Algedonia.Tickets.MarkdownExport, as: :render
 
   # -- Planning workflow (delegated) --
 
+  @spec start_work(Ticket.t()) :: {:ok, Algedonia.Types.id()} | {:error, atom()}
   defdelegate start_work(ticket), to: Algedonia.Tickets.Planning
+  @spec start_planning(Ticket.t()) :: {:ok, Ticket.t()} | {:error, atom() | Ecto.Changeset.t()}
   defdelegate start_planning(ticket), to: Algedonia.Tickets.Planning
 
   # -- Search (delegated) --
 
+  @spec search_tickets_grouped(keyword()) :: %{grouped: map(), count: integer()}
   defdelegate search_tickets_grouped(opts), to: Algedonia.Tickets.Search
 end

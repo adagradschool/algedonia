@@ -62,7 +62,7 @@ func TestManagerStartAndWait(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
-	err := mgr.StartLoop(ctx, "loop-1", "echo", []string{"hello from loop"}, "", "")
+	err := mgr.StartLoop(ctx, "11111111-1111-4111-8111-111111111111", "echo", []string{"hello from loop"}, "", "")
 	if err != nil {
 		t.Fatalf("StartLoop: %v", err)
 	}
@@ -101,8 +101,8 @@ func TestManagerStartAndWait(t *testing.T) {
 	for _, e := range events {
 		switch e.Event {
 		case "terminal_output":
-			if e.Payload["loop_id"] != "loop-1" {
-				t.Errorf("terminal_output loop_id = %v, want loop-1", e.Payload["loop_id"])
+			if e.Payload["loop_id"] != "11111111-1111-4111-8111-111111111111" {
+				t.Errorf("terminal_output loop_id = %v, want 11111111-1111-4111-8111-111111111111", e.Payload["loop_id"])
 			}
 			if encoded, ok := e.Payload["data"].(string); ok {
 				decoded, _ := base64.StdEncoding.DecodeString(encoded)
@@ -110,8 +110,8 @@ func TestManagerStartAndWait(t *testing.T) {
 			}
 			hasOutput = true
 		case "loop_exited":
-			if e.Payload["loop_id"] != "loop-1" {
-				t.Errorf("loop_exited loop_id = %v, want loop-1", e.Payload["loop_id"])
+			if e.Payload["loop_id"] != "11111111-1111-4111-8111-111111111111" {
+				t.Errorf("loop_exited loop_id = %v, want 11111111-1111-4111-8111-111111111111", e.Payload["loop_id"])
 			}
 			exitCode, ok := e.Payload["exit_code"]
 			if !ok {
@@ -145,13 +145,13 @@ func TestManagerDuplicateStart(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	ctx := context.Background()
-	err := mgr.StartLoop(ctx, "loop-dup", "sleep", []string{"10"}, "", "")
+	err := mgr.StartLoop(ctx, "22222222-2222-4222-8222-222222222222", "sleep", []string{"10"}, "", "")
 	if err != nil {
 		t.Fatalf("first StartLoop: %v", err)
 	}
-	defer mgr.StopLoop("loop-dup", "test cleanup")
+	defer mgr.StopLoop("22222222-2222-4222-8222-222222222222", "test cleanup")
 
-	err = mgr.StartLoop(ctx, "loop-dup", "echo", []string{"hi"}, "", "")
+	err = mgr.StartLoop(ctx, "22222222-2222-4222-8222-222222222222", "echo", []string{"hi"}, "", "")
 	if err == nil {
 		t.Fatal("expected error for duplicate loop ID")
 	}
@@ -164,7 +164,7 @@ func TestManagerStopLoop(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
-	err := mgr.StartLoop(ctx, "loop-stop", "sleep", []string{"60"}, "", "")
+	err := mgr.StartLoop(ctx, "33333333-3333-4333-8333-333333333333", "sleep", []string{"60"}, "", "")
 	if err != nil {
 		t.Fatalf("StartLoop: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestManagerStopLoop(t *testing.T) {
 		t.Errorf("RunningCount() = %d, want 1", mgr.RunningCount())
 	}
 
-	err = mgr.StopLoop("loop-stop", "test")
+	err = mgr.StopLoop("33333333-3333-4333-8333-333333333333", "test")
 	if err != nil {
 		t.Fatalf("StopLoop: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestManagerStopLoop(t *testing.T) {
 	defer mu.Unlock()
 	found := false
 	for _, e := range events {
-		if e.Event == "loop_exited" && e.Payload["loop_id"] == "loop-stop" {
+		if e.Event == "loop_exited" && e.Payload["loop_id"] == "33333333-3333-4333-8333-333333333333" {
 			found = true
 		}
 	}
@@ -200,7 +200,7 @@ func TestManagerStopLoop(t *testing.T) {
 func TestManagerStopNotFoundIsIdempotent(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
-	err := mgr.StopLoop("nonexistent", "test")
+	err := mgr.StopLoop("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "test")
 	if err != nil {
 		t.Fatalf("expected nil for nonexistent loop, got %v", err)
 	}
@@ -211,16 +211,11 @@ func TestHandleStartLoop(t *testing.T) {
 
 	ctx := context.Background()
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id": "handle-test",
-		"command": "echo",
-		"args":    []interface{}{"handled"},
+		"loop_id": "88888888-8888-4888-8888-888888888888",
 	})
-	if err != nil {
-		t.Fatalf("HandleStartLoop: %v", err)
+	if err == nil {
+		t.Fatal("expected error for missing required start_loop fields")
 	}
-
-	// Wait for it to exit
-	time.Sleep(500 * time.Millisecond)
 }
 
 func TestHandleStartLoopMissingID(t *testing.T) {
@@ -236,10 +231,10 @@ func TestHandleStopLoop(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	ctx := context.Background()
-	_ = mgr.StartLoop(ctx, "handle-stop-test", "sleep", []string{"60"}, "", "")
+	_ = mgr.StartLoop(ctx, "91919191-9191-4919-8919-919191919191", "sleep", []string{"60"}, "", "")
 
 	err := mgr.HandleStopLoop(ctx, map[string]interface{}{
-		"loop_id": "handle-stop-test",
+		"loop_id": "91919191-9191-4919-8919-919191919191",
 		"reason":  "test",
 	})
 	if err != nil {
@@ -255,16 +250,16 @@ func TestSendInput(t *testing.T) {
 
 	ctx := context.Background()
 	// Start cat — it echoes stdin back to stdout via PTY
-	err := mgr.StartLoop(ctx, "loop-stdin", "cat", nil, "", "")
+	err := mgr.StartLoop(ctx, "a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1", "cat", nil, "", "")
 	if err != nil {
 		t.Fatalf("StartLoop: %v", err)
 	}
-	defer mgr.StopLoop("loop-stdin", "test cleanup")
+	defer mgr.StopLoop("a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1", "test cleanup")
 
 	// Give cat time to start
 	time.Sleep(300 * time.Millisecond)
 
-	err = mgr.SendInput("loop-stdin", []byte("hello\n"))
+	err = mgr.SendInput("a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1", []byte("hello\n"))
 	if err != nil {
 		t.Fatalf("SendInput: %v", err)
 	}
@@ -300,7 +295,7 @@ func TestSendInput(t *testing.T) {
 func TestSendInputNotFound(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
-	err := mgr.SendInput("nonexistent", []byte("data"))
+	err := mgr.SendInput("cccccccc-cccc-4ccc-8ccc-cccccccccccc", []byte("data"))
 	if err == nil {
 		t.Fatal("expected error for nonexistent loop")
 	}
@@ -313,17 +308,17 @@ func TestHandleStdinInput(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
 
 	ctx := context.Background()
-	err := mgr.StartLoop(ctx, "loop-handler-stdin", "cat", nil, "", "")
+	err := mgr.StartLoop(ctx, "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2", "cat", nil, "", "")
 	if err != nil {
 		t.Fatalf("StartLoop: %v", err)
 	}
-	defer mgr.StopLoop("loop-handler-stdin", "test cleanup")
+	defer mgr.StopLoop("b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2", "test cleanup")
 
 	time.Sleep(300 * time.Millisecond)
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("world\n"))
 	err = mgr.HandleStdinInput(ctx, map[string]interface{}{
-		"loop_id": "loop-handler-stdin",
+		"loop_id": "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2",
 		"data":    encoded,
 	})
 	if err != nil {
@@ -369,11 +364,11 @@ func TestHandleStdinInputMissingID(t *testing.T) {
 
 func TestBroadcastTerminalSlowSubscriberDisconnected(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
-	_, ch, _ := mgr.SubscribeTerminal("loop-overflow", 0)
+	_, ch, _ := mgr.SubscribeTerminal("44444444-4444-4444-8444-444444444444", 0)
 
 	// Fill subscriber queue and trigger overflow handling.
 	for i := 0; i < 512; i++ {
-		mgr.broadcastTerminal("loop-overflow", []byte("x"))
+		mgr.broadcastTerminal("44444444-4444-4444-8444-444444444444", []byte("x"))
 	}
 
 	deadline := time.After(2 * time.Second)
@@ -391,7 +386,7 @@ func TestBroadcastTerminalSlowSubscriberDisconnected(t *testing.T) {
 
 func TestSubscribeTerminalReplayFromSeq(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
-	loopID := "loop-replay"
+	loopID := "55555555-5555-4555-8555-555555555555"
 
 	for i := 0; i < 5; i++ {
 		mgr.broadcastTerminal(loopID, []byte(fmt.Sprintf("chunk-%d", i+1)))
@@ -421,7 +416,7 @@ func TestSubscribeTerminalReplayFromSeq(t *testing.T) {
 func TestSubscribeTerminalReplayTrimmedByByteCap(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 	mgr.replayMax = 12
-	loopID := "loop-replay-trim"
+	loopID := "66666666-6666-4666-8666-666666666666"
 
 	mgr.broadcastTerminal(loopID, []byte("aaaaa")) // seq 1
 	mgr.broadcastTerminal(loopID, []byte("bbbbb")) // seq 2
@@ -441,7 +436,7 @@ func TestSubscribeTerminalReplayTrimmedByByteCap(t *testing.T) {
 func TestBroadcastTerminalGapFreeUnderBurst(t *testing.T) {
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 	mgr.replayMax = 2 * 1024 * 1024
-	loopID := "loop-burst"
+	loopID := "77777777-7777-4777-8777-777777777777"
 	const total = 1000
 
 	for i := 0; i < total; i++ {
@@ -470,7 +465,7 @@ func TestSendFuncError(t *testing.T) {
 	}, nil, "")
 
 	ctx := context.Background()
-	err := mgr.StartLoop(ctx, "send-fail", "echo", []string{"hello"}, "", "")
+	err := mgr.StartLoop(ctx, "88888888-8888-4888-8888-888888888888", "echo", []string{"hello"}, "", "")
 	if err != nil {
 		t.Fatalf("StartLoop: %v", err)
 	}
@@ -518,7 +513,7 @@ func TestStartLoopWithAdapter(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "adapter-loop", "claude_code", "maker", dir, "", "scope", "do a thing", "", "", 1)
+	err := mgr.StartLoopWithAdapter(ctx, "99999999-9999-4999-8999-999999999999", "claude_code", "maker", dir, "", "scope", "10101010-1010-4010-8010-101010101010", "do a thing", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}
@@ -542,7 +537,7 @@ func TestStartLoopWithAdapter(t *testing.T) {
 	defer mu.Unlock()
 	found := false
 	for _, e := range events {
-		if e.Event == "attempt_complete" && e.Payload["loop_id"] == "adapter-loop" {
+		if e.Event == "attempt_complete" && e.Payload["loop_id"] == "99999999-9999-4999-8999-999999999999" {
 			found = true
 		}
 	}
@@ -566,11 +561,11 @@ func TestHandleStartLoopWithRole(t *testing.T) {
 
 	ctx := context.Background()
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id":        "role-test",
+		"loop_id":        "c3c3c3c3-c3c3-43c3-83c3-c3c3c3c3c3c3",
 		"role":           "maker",
 		"agent_type":     "claude_code",
 		"workspace_slug": "scope",
-		"ticket_id":      "deadbeef",
+		"ticket_id":      "99999999-9999-4999-8999-999999999999",
 		"task":           "implement feature X",
 	})
 	if err != nil {
@@ -627,7 +622,7 @@ func TestHandleGetDiffIncludesUntrackedFiles(t *testing.T) {
 	}
 
 	err := mgr.HandleGetDiff(context.Background(), map[string]interface{}{
-		"loop_id":        "loop-diff-untracked",
+		"loop_id":        "d4d4d4d4-d4d4-44d4-84d4-d4d4d4d4d4d4",
 		"workspace_slug": workspaceSlug,
 		"ticket_id":      ticketID,
 	})
@@ -640,7 +635,7 @@ func TestHandleGetDiffIncludesUntrackedFiles(t *testing.T) {
 
 	var payload map[string]interface{}
 	for _, event := range events {
-		if event.Event == "diff_result" && event.Payload["loop_id"] == "loop-diff-untracked" {
+		if event.Event == "diff_result" && event.Payload["loop_id"] == "d4d4d4d4-d4d4-44d4-84d4-d4d4d4d4d4d4" {
 			payload = event.Payload
 			break
 		}
@@ -660,20 +655,19 @@ func TestHandleGetDiffIncludesUntrackedFiles(t *testing.T) {
 }
 
 func TestHandleStartLoopWithoutRole(t *testing.T) {
-	// Backward compatible — no role = legacy raw process path
 	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, "")
 
 	ctx := context.Background()
 	err := mgr.HandleStartLoop(ctx, map[string]interface{}{
-		"loop_id": "legacy-test",
-		"command": "echo",
-		"args":    []interface{}{"legacy"},
+		"loop_id":        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"agent_type":     "claude_code",
+		"workspace_slug": "scope",
+		"ticket_id":      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		"task":           "do work",
 	})
-	if err != nil {
-		t.Fatalf("HandleStartLoop without role: %v", err)
+	if err == nil {
+		t.Fatal("expected error when role is missing")
 	}
-
-	time.Sleep(500 * time.Millisecond)
 }
 
 func runGitCmd(t *testing.T, dir string, args ...string) {
@@ -704,7 +698,7 @@ func TestSendPromptToTUI(t *testing.T) {
 		// Use a goroutine since sendPromptToTUI blocks on warmup.
 		finished := make(chan struct{})
 		go func() {
-			sendPromptToTUI(done, "test-loop", prompt, writeFn)
+			sendPromptToTUI(done, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", prompt, writeFn)
 			close(finished)
 		}()
 
@@ -740,7 +734,7 @@ func TestSendPromptToTUI(t *testing.T) {
 
 		finished := make(chan struct{})
 		go func() {
-			sendPromptToTUI(done, "test-loop", "hello", writeFn)
+			sendPromptToTUI(done, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "hello", writeFn)
 			close(finished)
 		}()
 
@@ -786,7 +780,7 @@ func TestAgentCrashReportsError(t *testing.T) {
 	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
 
 	ctx := context.Background()
-	err := mgr.StartLoopWithAdapter(ctx, "crash-loop", "claude_code", "maker", dir, "", "scope", "do a thing", "", "", 1)
+	err := mgr.StartLoopWithAdapter(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "claude_code", "maker", dir, "", "scope", "20202020-2020-4020-8020-202020202020", "do a thing", "", "", 1)
 	if err != nil {
 		t.Fatalf("StartLoopWithAdapter: %v", err)
 	}
@@ -809,7 +803,7 @@ func TestAgentCrashReportsError(t *testing.T) {
 
 	found := false
 	for _, e := range events {
-		if e.Event == "error" && e.Payload["loop_id"] == "crash-loop" {
+		if e.Event == "error" && e.Payload["loop_id"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" {
 			found = true
 			if e.Payload["recoverable"] != true {
 				t.Errorf("recoverable = %v, want true", e.Payload["recoverable"])

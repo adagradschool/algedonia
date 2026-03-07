@@ -11,7 +11,7 @@ defmodule Algedonia.Tickets.Planning do
   Only tickets in `:planning` or `:halted` status can start work.
   Returns `{:ok, loop_id}` on success or `{:error, reason}` on failure.
   """
-  @spec start_work(Ticket.t()) :: {:ok, binary()} | {:error, atom()}
+  @spec start_work(Ticket.t()) :: {:ok, Algedonia.Types.id()} | {:error, atom()}
   def start_work(%Ticket{status: status}) when status not in [:planning, :halted] do
     {:error, :invalid_status}
   end
@@ -50,6 +50,7 @@ defmodule Algedonia.Tickets.Planning do
 
   defp create_single_loop(ticket) do
     attrs = %{
+      workspace_id: ticket.workspace_id,
       ticket_id: ticket.id,
       title: ticket.title,
       description: ticket.description || "",

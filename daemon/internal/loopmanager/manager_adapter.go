@@ -49,19 +49,21 @@ func (m *Manager) startAdapterProcess(ag adapter.AgentAdapter, loopID, workdir, 
 }
 
 // registerAdapterLoop creates a LoopProcess and inserts it into the loop map.
-func (m *Manager) registerAdapterLoop(loopID, role, workdir, workspaceDir, promptsDir string, attempt int, ag adapter.AgentAdapter, proc *adapter.Process, chunker *Chunker, cancel context.CancelFunc, done chan struct{}) *LoopProcess {
+func (m *Manager) registerAdapterLoop(loopID, role, workdir, workspaceDir, workspaceSlug, ticketID, promptsDir string, attempt int, ag adapter.AgentAdapter, proc *adapter.Process, chunker *Chunker, cancel context.CancelFunc, done chan struct{}) *LoopProcess {
 	lp := &LoopProcess{
-		LoopID:       loopID,
-		Chunker:      chunker,
-		Cancel:       cancel,
-		Done:         done,
-		adapter:      ag,
-		process:      proc,
-		role:         role,
-		promptsDir:   promptsDir,
-		workdir:      workdir,
-		workspaceDir: workspaceDir,
-		attempt:      attempt,
+		LoopID:        loopID,
+		Chunker:       chunker,
+		Cancel:        cancel,
+		Done:          done,
+		adapter:       ag,
+		process:       proc,
+		role:          role,
+		promptsDir:    promptsDir,
+		workdir:       workdir,
+		workspaceDir:  workspaceDir,
+		workspaceSlug: workspaceSlug,
+		ticketID:      ticketID,
+		attempt:       attempt,
 	}
 
 	m.mu.Lock()
@@ -92,38 +94,43 @@ func (m *Manager) waitForAdapter(loopID, role string, lp *LoopProcess, ag adapte
 
 	result, waitErr := ag.Wait(proc)
 	sessionID := ag.SessionID(proc)
+	scope := adapterScope(lp, role)
 
 	if waitErr != nil {
-		m.sendEvent("error", map[string]interface{}{
+		payload := map[string]interface{}{
 			"loop_id":     loopID,
 			"message":     fmt.Sprintf("agent wait error: %v", waitErr),
 			"recoverable": true,
-		})
+		}
+		mergeScopePayload(payload, scope)
+		m.sendEvent("error", payload)
 		return
 	}
 
-	m.handleAdapterResult(loopID, role, lp, result, sessionID)
+	m.handleAdapterResult(loopID, role, lp, result, sessionID, scope)
 }
 
 // handleAdapterResult dispatches the adapter exit result to the appropriate
 // role-specific handler.
-func (m *Manager) handleAdapterResult(loopID, role string, lp *LoopProcess, result *adapter.ExitResult, sessionID string) {
+func (m *Manager) handleAdapterResult(loopID, role string, lp *LoopProcess, result *adapter.ExitResult, sessionID string, scope map[string]interface{}) {
 	switch role {
 	case "checker":
-		m.handleCheckerResult(loopID, lp, result, sessionID)
+		m.handleCheckerResult(loopID, lp, result, sessionID, scope)
 	default:
-		m.handleDefaultResult(loopID, result, sessionID)
+		m.handleDefaultResult(loopID, result, sessionID, scope)
 	}
 }
 
 // handleCheckerResult builds the attempt payload with checker handoff data.
-func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *adapter.ExitResult, sessionID string) {
+func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *adapter.ExitResult, sessionID string, scope map[string]interface{}) {
 	if result.ExitCode != 0 {
-		m.sendEvent("error", map[string]interface{}{
+		payload := map[string]interface{}{
 			"loop_id":     loopID,
 			"message":     fmt.Sprintf("agent exited with code %d", result.ExitCode),
 			"recoverable": true,
-		})
+		}
+		mergeScopePayload(payload, scope)
+		m.sendEvent("error", payload)
 		return
 	}
 
@@ -141,6 +148,7 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 		"expected_handoff_feedback_path": expectedFeedback,
 		"attempt":                        lpAttempt,
 	}
+	mergeScopePayload(payload, scope)
 
 	verdict, feedbackPath, feedback, parseErr := loadCheckerHandoff(loopID, lpAttempt, lpWorkspaceDir)
 	if parseErr != nil {
@@ -163,18 +171,44 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 }
 
 // handleDefaultResult sends an attempt_complete or error event for non-checker roles.
-func (m *Manager) handleDefaultResult(loopID string, result *adapter.ExitResult, sessionID string) {
+func (m *Manager) handleDefaultResult(loopID string, result *adapter.ExitResult, sessionID string, scope map[string]interface{}) {
 	if result.ExitCode != 0 {
-		m.sendEvent("error", map[string]interface{}{
+		payload := map[string]interface{}{
 			"loop_id":     loopID,
 			"message":     fmt.Sprintf("agent exited with code %d", result.ExitCode),
 			"recoverable": true,
-		})
+		}
+		mergeScopePayload(payload, scope)
+		m.sendEvent("error", payload)
 		return
 	}
-	m.sendEvent("attempt_complete", map[string]interface{}{
+	payload := map[string]interface{}{
 		"loop_id":    loopID,
 		"exit_code":  result.ExitCode,
 		"session_id": sessionID,
-	})
+	}
+	mergeScopePayload(payload, scope)
+	m.sendEvent("attempt_complete", payload)
+}
+
+func adapterScope(lp *LoopProcess, role string) map[string]interface{} {
+	lp.mu.Lock()
+	defer lp.mu.Unlock()
+
+	scope := map[string]interface{}{
+		"role": role,
+	}
+	if strings.TrimSpace(lp.workspaceSlug) != "" {
+		scope["workspace_slug"] = strings.TrimSpace(lp.workspaceSlug)
+	}
+	if strings.TrimSpace(lp.ticketID) != "" {
+		scope["ticket_id"] = strings.TrimSpace(lp.ticketID)
+	}
+	return scope
+}
+
+func mergeScopePayload(payload map[string]interface{}, scope map[string]interface{}) {
+	for key, value := range scope {
+		payload[key] = value
+	}
 }

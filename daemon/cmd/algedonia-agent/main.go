@@ -224,7 +224,6 @@ func syncWorkspaces(
 ) {
 	workspaces, _ := payload["workspaces"].([]interface{})
 	if len(workspaces) == 0 {
-		sendCloneStatus(client, "", "not_configured", "", "")
 		return
 	}
 

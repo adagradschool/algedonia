@@ -8,6 +8,7 @@ defmodule Algedonia.HookExecutor do
   """
 
   alias Algedonia.{Agents, Daemons, Loops, Tickets, Workspaces}
+  alias Algedonia.TenantScope
   alias Algedonia.Tickets.Ticket
   alias AlgedoniaWeb.DaemonChannel
 
@@ -34,6 +35,7 @@ defmodule Algedonia.HookExecutor do
 
   defp create_hook_loop(hook, ticket) do
     Loops.create_loop(%{
+      workspace_id: ticket.workspace_id,
       ticket_id: ticket.id,
       title: "Hook: #{hook.from_status} → #{hook.to_status}",
       description: hook.instruction,
@@ -86,56 +88,55 @@ defmodule Algedonia.HookExecutor do
   Handles attempt completion events for hook loops.
   """
   @spec handle_attempt_complete(binary(), map(), keyword()) :: :ok
-  def handle_attempt_complete(loop_id, payload, _opts \\ []) do
-    case Loops.get_loop(loop_id) do
-      %{role: :hook} = loop ->
-        if Map.get(payload, "exit_code", 0) == 0 do
-          _ = Loops.update_loop_status(loop, :passed)
-        else
-          ticket = Tickets.get_ticket!(loop.ticket_id)
-          _ = handle_failure(loop, ticket)
-        end
+  def handle_attempt_complete(loop_id, payload, opts \\ []) do
+    case cast_workspace_id(Keyword.get(opts, :workspace_id)) do
+      {:ok, workspace_id} ->
+        TenantScope.with_workspace(workspace_id, fn ->
+          loop_id
+          |> Loops.get_loop()
+          |> maybe_complete_hook(payload)
+        end)
 
-        :ok
-
-      _ ->
+      :error ->
         :ok
     end
+
+    :ok
   end
 
   @doc """
   Handles attempt error events for hook loops.
   """
   @spec handle_attempt_error(binary(), map(), keyword()) :: :ok
-  def handle_attempt_error(loop_id, _payload, _opts \\ []) do
-    case Loops.get_loop(loop_id) do
-      %{role: :hook} = loop ->
-        ticket = Tickets.get_ticket!(loop.ticket_id)
-        _ = handle_failure(loop, ticket)
-        :ok
+  def handle_attempt_error(loop_id, _payload, opts \\ []) do
+    case cast_workspace_id(Keyword.get(opts, :workspace_id)) do
+      {:ok, workspace_id} ->
+        TenantScope.with_workspace(workspace_id, fn ->
+          loop_id
+          |> Loops.get_loop()
+          |> maybe_fail_hook()
+        end)
 
-      _ ->
+      :error ->
         :ok
     end
+
+    :ok
   end
 
   defp dispatch_hook_loop(loop, daemon_name, hook, ticket, from_status, to_status) do
     context = build_context(hook, ticket, from_status, to_status)
     task = build_hook_task(context)
-
-    ws_slug =
-      if ticket.workspace_id,
-        do: Workspaces.get_workspace!(ticket.workspace_id).slug,
-        else: nil
+    workspace = Workspaces.get_workspace!(ticket.workspace_id)
 
     opts =
       %{
         "role" => "hook",
         "agent_type" => Agents.ticket_agent_type(ticket),
         "ticket_id" => ticket.id,
+        "workspace_slug" => workspace.slug,
         "task" => task
       }
-      |> then(fn m -> if ws_slug, do: Map.put(m, "workspace_slug", ws_slug), else: m end)
 
     DaemonChannel.push_start_loop(daemon_name, loop.id, opts)
 
@@ -179,4 +180,30 @@ defmodule Algedonia.HookExecutor do
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n\n")
   end
+
+  defp cast_workspace_id(workspace_id) when is_binary(workspace_id),
+    do: Ecto.UUID.cast(workspace_id)
+
+  defp cast_workspace_id(_), do: :error
+
+  defp maybe_complete_hook(%{role: :hook} = loop, payload) do
+    if Map.get(payload, "exit_code", 0) == 0 do
+      _ = Loops.update_loop_status(loop, :passed)
+    else
+      ticket = Tickets.get_ticket!(loop.ticket_id)
+      _ = handle_failure(loop, ticket)
+    end
+
+    :ok
+  end
+
+  defp maybe_complete_hook(_loop, _payload), do: :ok
+
+  defp maybe_fail_hook(%{role: :hook} = loop) do
+    ticket = Tickets.get_ticket!(loop.ticket_id)
+    _ = handle_failure(loop, ticket)
+    :ok
+  end
+
+  defp maybe_fail_hook(_loop), do: :ok
 end

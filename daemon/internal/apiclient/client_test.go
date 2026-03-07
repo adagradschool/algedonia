@@ -140,7 +140,7 @@ func TestListTickets(t *testing.T) {
 				gotPath = r.URL.String()
 				w.WriteHeader(http.StatusOK)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"tickets": []Ticket{{ID: "t1", Number: 1, Title: "Test"}},
+					"tickets": []Ticket{{ID: "11111111-1111-4111-8111-111111111111", Number: 1, Title: "Test"}},
 				})
 			})
 
@@ -151,8 +151,8 @@ func TestListTickets(t *testing.T) {
 			if len(tickets) != 1 {
 				t.Fatalf("expected 1 ticket, got %d", len(tickets))
 			}
-			if tickets[0].ID != "t1" {
-				t.Errorf("ticket ID = %q, want %q", tickets[0].ID, "t1")
+			if tickets[0].ID != "11111111-1111-4111-8111-111111111111" {
+				t.Errorf("ticket ID = %q, want %q", tickets[0].ID, "11111111-1111-4111-8111-111111111111")
 			}
 
 			// Check path only for simple cases where query order is predictable
@@ -194,7 +194,7 @@ func TestGetTicket(t *testing.T) {
 			t.Errorf("path = %q, want /api/w/my-ws/tickets/42", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"ticket": Ticket{ID: "uuid1", Number: 42, Title: "My ticket"},
+			"ticket": Ticket{ID: "22222222-2222-4222-8222-222222222222", Number: 42, Title: "My ticket"},
 		})
 	})
 
@@ -221,7 +221,7 @@ func TestCreateTicket(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"ticket": Ticket{ID: "new1", Number: 1, Title: "New ticket"},
+			"ticket": Ticket{ID: "33333333-3333-4333-8333-333333333333", Number: 1, Title: "New ticket"},
 		})
 	})
 
@@ -232,8 +232,8 @@ func TestCreateTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ticket.ID != "new1" {
-		t.Errorf("ID = %q, want %q", ticket.ID, "new1")
+	if ticket.ID != "33333333-3333-4333-8333-333333333333" {
+		t.Errorf("ID = %q, want %q", ticket.ID, "33333333-3333-4333-8333-333333333333")
 	}
 }
 
@@ -243,7 +243,7 @@ func TestUpdateTicket(t *testing.T) {
 			t.Errorf("method = %q, want PATCH", r.Method)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"ticket": Ticket{ID: "t1", Number: 1, Title: "Updated", Status: "in_progress"},
+			"ticket": Ticket{ID: "44444444-4444-4444-8444-444444444444", Number: 1, Title: "Updated", Status: "in_progress"},
 		})
 	})
 
@@ -280,7 +280,7 @@ func TestListComments(t *testing.T) {
 			t.Errorf("path = %q, want /api/w/my-ws/tickets/3/comments", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"comments": []Comment{{ID: "c1", Author: "alice", Body: "hello"}},
+			"comments": []Comment{{ID: "55555555-5555-4555-8555-555555555555", Author: "alice", Body: "hello"}},
 		})
 	})
 
@@ -300,7 +300,7 @@ func TestCreateComment(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"comment": Comment{ID: "c2", Author: "bob", Body: "nice"},
+			"comment": Comment{ID: "66666666-6666-4666-8666-666666666666", Author: "bob", Body: "nice"},
 		})
 	})
 
@@ -311,8 +311,8 @@ func TestCreateComment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if comment.ID != "c2" {
-		t.Errorf("ID = %q, want %q", comment.ID, "c2")
+	if comment.ID != "66666666-6666-4666-8666-666666666666" {
+		t.Errorf("ID = %q, want %q", comment.ID, "66666666-6666-4666-8666-666666666666")
 	}
 }
 
@@ -321,8 +321,8 @@ func TestUpdateComment(t *testing.T) {
 		if r.Method != "PATCH" {
 			t.Errorf("method = %q, want PATCH", r.Method)
 		}
-		if r.URL.Path != "/api/w/my-ws/tickets/1/comments/c1" {
-			t.Errorf("path = %q, want /api/w/my-ws/tickets/1/comments/c1", r.URL.Path)
+		if r.URL.Path != "/api/w/my-ws/tickets/1/comments/77777777-7777-4777-8777-777777777777" {
+			t.Errorf("path = %q, want /api/w/my-ws/tickets/1/comments/77777777-7777-4777-8777-777777777777", r.URL.Path)
 		}
 		var body struct {
 			Comment map[string]interface{} `json:"comment"`
@@ -332,11 +332,11 @@ func TestUpdateComment(t *testing.T) {
 			t.Errorf("body = %v, want %q", body.Comment["body"], "updated body")
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"comment": Comment{ID: "c1", Author: "alice", Body: "updated body"},
+			"comment": Comment{ID: "77777777-7777-4777-8777-777777777777", Author: "alice", Body: "updated body"},
 		})
 	})
 
-	comment, err := client.UpdateComment("1", "c1", map[string]interface{}{
+	comment, err := client.UpdateComment("1", "77777777-7777-4777-8777-777777777777", map[string]interface{}{
 		"body": "updated body",
 	})
 	if err != nil {
@@ -352,14 +352,14 @@ func TestDeleteComment(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want DELETE", r.Method)
 		}
-		if r.URL.Path != "/api/w/my-ws/tickets/1/comments/c1" {
-			t.Errorf("path = %q, want /api/w/my-ws/tickets/1/comments/c1", r.URL.Path)
+		if r.URL.Path != "/api/w/my-ws/tickets/1/comments/88888888-8888-4888-8888-888888888888" {
+			t.Errorf("path = %q, want /api/w/my-ws/tickets/1/comments/88888888-8888-4888-8888-888888888888", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	err := client.DeleteComment("1", "c1")
+	err := client.DeleteComment("1", "88888888-8888-4888-8888-888888888888")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

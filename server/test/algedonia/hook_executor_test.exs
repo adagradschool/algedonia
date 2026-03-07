@@ -5,6 +5,13 @@ defmodule Algedonia.HookExecutorTest do
 
   import Algedonia.Factory
 
+  setup do
+    workspace = default_workspace!()
+    previous_scope = put_workspace_scope(workspace)
+    on_exit(fn -> restore_workspace_scope(previous_scope) end)
+    {:ok, workspace: workspace}
+  end
+
   describe "fire_hooks/4" do
     test "creates hook loops for matching hooks" do
       workspace = default_workspace!()
@@ -39,7 +46,7 @@ defmodule Algedonia.HookExecutorTest do
     end
 
     test "fires multiple hooks for the same transition" do
-      workspace = insert_workspace!()
+      workspace = default_workspace!()
       ticket = insert_ticket!(%{workspace_id: workspace.id, status: :planning})
 
       {:ok, _} =
@@ -56,7 +63,7 @@ defmodule Algedonia.HookExecutorTest do
     end
 
     test "auto-dispatches hook loop when daemon is online" do
-      workspace = insert_workspace!()
+      workspace = default_workspace!()
       daemon = insert_daemon!(%{name: "hook-auto-start", status: :online})
       ticket = insert_ticket!(%{workspace_id: workspace.id, status: :planning})
 
@@ -104,22 +111,25 @@ defmodule Algedonia.HookExecutorTest do
   describe "build_context/4" do
     test "includes hook instruction, ticket details, and github_repo_url" do
       workspace = insert_workspace!(%{github_repo_url: "https://github.com/org/repo"})
-      ticket = insert_ticket!(%{workspace_id: workspace.id, title: "Fix bug"})
 
-      {:ok, hook} =
-        Workspaces.create_transition_hook(workspace, %{
-          "from_status" => "backlog",
-          "to_status" => "planning",
-          "instruction" => "Run tests"
-        })
+      with_workspace_scope(workspace, fn ->
+        ticket = insert_ticket!(%{workspace_id: workspace.id, title: "Fix bug"})
 
-      context = HookExecutor.build_context(hook, ticket, :backlog, :planning)
+        {:ok, hook} =
+          Workspaces.create_transition_hook(workspace, %{
+            "from_status" => "backlog",
+            "to_status" => "planning",
+            "instruction" => "Run tests"
+          })
 
-      assert context.instruction == "Run tests"
-      assert context.ticket.title == "Fix bug"
-      assert context.ticket.status == :planning
-      assert context.ticket.previous_status == :backlog
-      assert context.github_repo_url == "https://github.com/org/repo"
+        context = HookExecutor.build_context(hook, ticket, :backlog, :planning)
+
+        assert context.instruction == "Run tests"
+        assert context.ticket.title == "Fix bug"
+        assert context.ticket.status == :planning
+        assert context.ticket.previous_status == :backlog
+        assert context.github_repo_url == "https://github.com/org/repo"
+      end)
     end
   end
 
@@ -170,7 +180,10 @@ defmodule Algedonia.HookExecutorTest do
           status: :running
         })
 
-      :ok = HookExecutor.handle_attempt_complete(loop.id, %{"exit_code" => 0})
+      :ok =
+        HookExecutor.handle_attempt_complete(loop.id, %{"exit_code" => 0},
+          workspace_id: workspace.id
+        )
 
       assert Loops.get_loop!(loop.id).status == :passed
       assert Tickets.get_ticket!(ticket.id).status == :in_progress
@@ -187,7 +200,10 @@ defmodule Algedonia.HookExecutorTest do
           status: :running
         })
 
-      :ok = HookExecutor.handle_attempt_error(loop.id, %{"message" => "boom"})
+      :ok =
+        HookExecutor.handle_attempt_error(loop.id, %{"message" => "boom"},
+          workspace_id: workspace.id
+        )
 
       assert Loops.get_loop!(loop.id).status == :failed
       assert Tickets.get_ticket!(ticket.id).status == :halted
@@ -268,7 +284,7 @@ defmodule Algedonia.HookExecutorTest do
     end
 
     test "status transition auto-starts hook loop when daemon is online" do
-      workspace = insert_workspace!()
+      workspace = default_workspace!()
       daemon = insert_daemon!(%{name: "hook-transition-auto", status: :online})
       Phoenix.PubSub.subscribe(Algedonia.PubSub, "daemon:#{daemon.name}")
 
