@@ -99,15 +99,33 @@ defmodule AlgedoniaWeb.SkillsLiveTest do
         assert html =~ "Missing required field description"
         assert html =~ "Field: description"
         assert html =~ "File: #{broken_path}"
+        assert html =~ "(checker)"
 
-        refute has_element?(
+        assert has_element?(
                  view,
-                 "#planning-skill-selector input[phx-value-skill='missing-description']"
+                 "#planning-skill-selector input[phx-value-skill='missing-description'][disabled]"
                )
 
-        refute has_element?(
+        assert has_element?(
                  view,
-                 "#checker-skill-selector input[phx-value-skill='missing-description']"
+                 "#checker-skill-selector input[phx-value-skill='missing-description'][disabled]"
+               )
+
+        assert has_element?(
+                 view,
+                 "#planning-skill-selector",
+                 "Missing required field description"
+               )
+
+        assert has_element?(view, "#checker-skill-selector", "Missing required field description")
+
+        view
+        |> element("#planning-skill-selector input[phx-value-skill='valid']")
+        |> render_click()
+
+        assert has_element?(
+                 view,
+                 "#planning-skill-selector input[phx-value-skill='valid'][checked]"
                )
       end)
     end

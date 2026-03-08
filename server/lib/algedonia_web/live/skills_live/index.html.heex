@@ -111,19 +111,44 @@
             class="p-4 space-y-2"
             disabled={not is_nil(@catalog_load_error)}
           >
-            <label
-              :for={entry <- Enum.filter(@catalog_entries, &(&1.validation_status == "valid"))}
-              class="flex items-center gap-2 text-sm text-fg-muted"
+            <div
+              :for={entry <- @catalog_entries}
+              id={"planning-selector-entry-#{entry.id}"}
+              class={selector_entry_classes(entry)}
             >
-              <input
-                type="checkbox"
-                checked={entry.name in @planning_selected_skills}
-                phx-click="toggle_planning_skill"
-                phx-value-skill={entry.name}
-              />
-              <span>{entry.name}</span>
-              <span class="text-[11px] text-fg-muted">({entry.type})</span>
-            </label>
+              <label class="flex items-start gap-2 text-sm text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={entry.name in @planning_selected_skills}
+                  disabled={selection_disabled?(entry, @catalog_load_error)}
+                  phx-click="toggle_planning_skill"
+                  phx-value-skill={entry.name}
+                />
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-fg">{entry.name}</span>
+                    <span class="text-[11px] text-fg-muted">({entry.type})</span>
+                    <span class={"inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium #{status_badge_classes(entry.validation_status)}"}>
+                      {format_status(entry.validation_status)}
+                    </span>
+                  </div>
+                  <div
+                    :if={entry.validation_status == "invalid"}
+                    class="mt-1 space-y-1"
+                  >
+                    <div
+                      :for={diag <- entry.diagnostics}
+                      class="text-xs text-fg-muted"
+                    >
+                      <div class="text-fg-secondary">{diag.message}</div>
+                      <div :if={diagnostic_context(diag) != ""} class="text-fg-muted">
+                        {diagnostic_context(diag)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+            </div>
             <div
               :if={@catalog_load_error}
               class="text-xs text-status-red"
@@ -144,19 +169,44 @@
             class="p-4 space-y-2"
             disabled={not is_nil(@catalog_load_error)}
           >
-            <label
-              :for={entry <- Enum.filter(@catalog_entries, &(&1.validation_status == "valid"))}
-              class="flex items-center gap-2 text-sm text-fg-muted"
+            <div
+              :for={entry <- @catalog_entries}
+              id={"checker-selector-entry-#{entry.id}"}
+              class={selector_entry_classes(entry)}
             >
-              <input
-                type="checkbox"
-                checked={entry.name in @checker_selected_skills}
-                phx-click="toggle_checker_skill"
-                phx-value-skill={entry.name}
-              />
-              <span>{entry.name}</span>
-              <span class="text-[11px] text-fg-muted">({entry.type})</span>
-            </label>
+              <label class="flex items-start gap-2 text-sm text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={entry.name in @checker_selected_skills}
+                  disabled={selection_disabled?(entry, @catalog_load_error)}
+                  phx-click="toggle_checker_skill"
+                  phx-value-skill={entry.name}
+                />
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-fg">{entry.name}</span>
+                    <span class="text-[11px] text-fg-muted">({entry.type})</span>
+                    <span class={"inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium #{status_badge_classes(entry.validation_status)}"}>
+                      {format_status(entry.validation_status)}
+                    </span>
+                  </div>
+                  <div
+                    :if={entry.validation_status == "invalid"}
+                    class="mt-1 space-y-1"
+                  >
+                    <div
+                      :for={diag <- entry.diagnostics}
+                      class="text-xs text-fg-muted"
+                    >
+                      <div class="text-fg-secondary">{diag.message}</div>
+                      <div :if={diagnostic_context(diag) != ""} class="text-fg-muted">
+                        {diagnostic_context(diag)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+            </div>
             <div
               :if={@catalog_load_error}
               class="text-xs text-status-red"

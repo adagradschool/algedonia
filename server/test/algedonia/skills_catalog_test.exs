@@ -34,6 +34,19 @@ defmodule Algedonia.SkillsCatalogTest do
           """
         )
 
+      inferred_invalid_path =
+        write_skill!(
+          root,
+          "missing-description",
+          """
+          ---
+          name: missing-description
+          type: checker
+          ---
+          Body
+          """
+        )
+
       payload = Skills.catalog(skills_root: root)
 
       assert payload.load_error == nil
@@ -54,6 +67,17 @@ defmodule Algedonia.SkillsCatalogTest do
                  Enum.any?(entry.diagnostics, fn diagnostic ->
                    diagnostic.code == "invalid_frontmatter_syntax" and
                      diagnostic.message =~ "line"
+                 end)
+             end)
+
+      assert Enum.any?(payload.entries, fn entry ->
+               entry.name == "missing-description" and
+                 entry.type == "checker" and
+                 entry.source_path == inferred_invalid_path and
+                 entry.validation_status == "invalid" and
+                 Enum.any?(entry.diagnostics, fn diagnostic ->
+                   diagnostic.code == "missing_required_field" and
+                     diagnostic.field == "description"
                  end)
              end)
     end

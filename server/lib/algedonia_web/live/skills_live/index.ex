@@ -88,6 +88,18 @@ defmodule AlgedoniaWeb.SkillsLive.Index do
 
   defp format_status(status) when is_binary(status), do: String.capitalize(status)
 
+  defp selection_disabled?(entry, load_error) do
+    not is_nil(load_error) or entry.validation_status != "valid"
+  end
+
+  defp selector_entry_classes(entry) do
+    if entry.validation_status == "valid" do
+      "rounded-md border border-border bg-surface-raised/20 p-2"
+    else
+      "rounded-md border border-status-red/30 bg-status-red/5 p-2"
+    end
+  end
+
   defp diagnostic_context(diagnostic) do
     [
       maybe_context("File", diagnostic.file),

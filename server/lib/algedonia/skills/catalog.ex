@@ -4,6 +4,7 @@ defmodule Algedonia.Skills.Catalog do
   """
 
   alias Algedonia.Skills.{Error, Registry, Skill}
+  @frontmatter_regex ~r/\A---\s*\n(?<frontmatter>[\s\S]*?)\n---(?:\n|\z)/
 
   @type validation_status :: String.t()
 
@@ -73,12 +74,13 @@ defmodule Algedonia.Skills.Catalog do
     |> Enum.group_by(& &1.file)
     |> Enum.reject(fn {file, _errors} -> is_nil(file) or MapSet.member?(valid_files, file) end)
     |> Enum.map(fn {file, errors} ->
+      {name, type} = infer_invalid_identity(file)
       diagnostics = Enum.map(errors, &Error.to_map/1)
 
       %{
         id: "invalid-" <> Integer.to_string(:erlang.phash2(file)),
-        name: infer_name(file),
-        type: "unknown",
+        name: name,
+        type: type,
         source_path: file,
         validation_status: "invalid",
         diagnostics: diagnostics
@@ -94,6 +96,70 @@ defmodule Algedonia.Skills.Catalog do
   end
 
   defp type_for(_), do: "unspecified"
+
+  defp infer_invalid_identity(file) do
+    metadata = parse_frontmatter_fields(file)
+
+    {
+      non_empty_or(Map.get(metadata, "name"), infer_name(file)),
+      non_empty_or(Map.get(metadata, "type"), "unknown")
+    }
+  end
+
+  defp parse_frontmatter_fields(file) do
+    with {:ok, content} <- File.read(file),
+         %{"frontmatter" => frontmatter} <- Regex.named_captures(@frontmatter_regex, content) do
+      frontmatter
+      |> String.split("\n", trim: true)
+      |> Enum.reduce(%{}, &parse_frontmatter_line/2)
+    else
+      _ -> %{}
+    end
+  end
+
+  defp parse_frontmatter_line(raw_line, metadata) do
+    case Regex.run(~r/^([A-Za-z0-9_]+):(.*)$/, String.trim(raw_line), capture: :all_but_first) do
+      [key, value] -> maybe_put_frontmatter_field(metadata, key, value)
+      _ -> metadata
+    end
+  end
+
+  defp maybe_put_frontmatter_field(metadata, key, value) do
+    value =
+      value
+      |> String.trim()
+      |> strip_wrapping_quotes()
+
+    if value == "" do
+      metadata
+    else
+      Map.put_new(metadata, key, value)
+    end
+  end
+
+  defp strip_wrapping_quotes(value) do
+    cond do
+      String.length(value) >= 2 and String.starts_with?(value, "\"") and
+          String.ends_with?(value, "\"") ->
+        String.slice(value, 1, String.length(value) - 2)
+
+      String.length(value) >= 2 and String.starts_with?(value, "'") and
+          String.ends_with?(value, "'") ->
+        String.slice(value, 1, String.length(value) - 2)
+
+      true ->
+        value
+    end
+  end
+
+  defp non_empty_or(value, fallback) when is_binary(value) do
+    case String.trim(value) do
+      "" -> fallback
+      trimmed -> trimmed
+    end
+  end
+
+  defp non_empty_or(_value, fallback), do: fallback
 
   defp infer_name(file) do
     file
