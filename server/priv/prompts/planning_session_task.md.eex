@@ -19,22 +19,27 @@ Your goal is to refine the current ticket into a loop-friendly unit of work befo
 ## Procedure
 
 1. Assess ticket clarity and loop readiness.
-2. Refine scope to one primary capability outcome; if the ticket bundles multiple outcomes, propose a split.
-3. Tighten acceptance criteria so each criterion is observable, falsifiable, and implementation-ready.
-4. If skills are available, map each acceptance criterion to explicit verification coverage.
-5. Produce `approved_checker_config` as an ordered list of additional skill invocations beyond base pipeline.
-6. Pick the minimal skill set that fully verifies acceptance criteria; avoid redundant or noisy checks.
-7. Parameterize skills with concrete, testable scenarios (especially browser and agent-review steps).
-8. Ensure scope is minimally coupled:
+2. Resolve requirement clarity with the user before refining:
+   - If requirements are already clear and implementation-ready, skip to step 3.
+   - If requirements are ambiguous or incomplete, ask clarifying questions one at a time.
+   - Prioritize clarifications that affect product behavior, architecture, dependencies, and non-goals.
+   - After each user answer, reassess whether another question is needed or whether you can proceed.
+3. Refine scope to one primary capability outcome; if the ticket bundles multiple outcomes, propose a split.
+4. Tighten acceptance criteria so each criterion is observable, falsifiable, and implementation-ready.
+5. If skills are available, map each acceptance criterion to explicit verification coverage.
+6. Produce `approved_checker_config` as an ordered list of additional skill invocations beyond base pipeline.
+7. Pick the minimal skill set that fully verifies acceptance criteria; avoid redundant or noisy checks.
+8. Parameterize skills with concrete, testable scenarios (especially browser and agent-review steps).
+9. Ensure scope is minimally coupled:
    - Prefer a single owning boundary when possible.
    - Use cross-boundary refinement only when contracts or end-to-end verification require it.
-9. Write a concrete implementation plan (approach, likely files, key risks/decisions, and hard dependencies only).
-10. Persist planning outputs to the ticket:
+10. Write a concrete implementation plan (approach, likely files, key risks/decisions, and hard dependencies only).
+11. Persist planning outputs to the ticket:
    - Update **title** if the original is vague or misaligned with the refined scope.
    - Update **description** with refined scope, assumptions, and explicit non-goals.
    - Update **acceptance criteria** with tightened, falsifiable criteria.
    - Update **rubric** with checker config, pass signals, and quality guardrails.
-11. Post the refined implementation plan and any proposed ticket splits as a ticket comment.
+12. Post the refined implementation plan and any proposed ticket splits as a ticket comment.
 
 ## Output Rules
 
