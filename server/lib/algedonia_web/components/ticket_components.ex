@@ -211,7 +211,7 @@ defmodule AlgedoniaWeb.TicketComponents do
           Start Work
         </button>
         <a
-          :if={@loop_id}
+          :if={@loop_id && @ticket.status != :planning}
           href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
           phx-stop-propagation
           data-phx-link="redirect"
@@ -296,7 +296,7 @@ defmodule AlgedoniaWeb.TicketComponents do
         Start Work
       </button>
       <a
-        :if={@loop_id}
+        :if={@loop_id && @ticket.status != :planning}
         href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
         phx-stop-propagation
         data-phx-link="redirect"

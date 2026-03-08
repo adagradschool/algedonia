@@ -62,7 +62,7 @@
                 <.icon name="hero-play-mini" class="size-3.5" /> Start Work
               </button>
               <.link
-                :if={@loop_id}
+                :if={@loop_id && @ticket.status != :planning}
                 navigate={
                   ~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{short_id(@loop_id)}"
                 }
