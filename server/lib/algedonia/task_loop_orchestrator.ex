@@ -2,7 +2,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
   @moduledoc "GenServer managing the task loop lifecycle: maker → checker → retry/pass."
   use GenServer
 
-  alias Algedonia.{Agents, CheckerHandoff, Daemons, Loops, PromptBuilder, TenantScope, Tickets}
+  alias Algedonia.{
+    Agents,
+    CheckerHandoff,
+    Daemons,
+    Loops,
+    PromptBuilder,
+    Skills,
+    TenantScope,
+    Tickets
+  }
 
   @max_handoff_repairs 2
 
@@ -357,30 +366,42 @@ defmodule Algedonia.TaskLoopOrchestrator do
       status: "completed"
     })
 
-    case ensure_daemon(loop, dn) do
-      {:ok, daemon} ->
-        case Loops.create_step(%{
-               loop_id: loop.id,
-               role: "checker",
-               attempt: att,
-               status: "running",
-               started_at: DateTime.utc_now()
-             }) do
-          {:ok, _step} ->
-            try do
-              {:ok, push(state, daemon.name, loop.id, p)}
-            rescue
-              error ->
-                {:ok, fail_checker_transition(loop, att, error, state)}
-            end
+    case validate_loop_checker_config(loop) do
+      :ok ->
+        case dispatch_checker_transition(loop, dn, att, p, state) do
+          {:ok, next_state} ->
+            {:ok, next_state}
 
           {:error, reason} ->
             {:ok, fail_checker_transition(loop, att, reason, state)}
         end
 
-      {:error, reason} ->
-        {:ok, fail_checker_transition(loop, att, reason, state)}
+      {:error, errors} ->
+        {:ok, fail_checker_transition(loop, att, {:invalid_checker_config, errors}, state)}
     end
+  end
+
+  defp dispatch_checker_transition(loop, daemon_name, attempt, payload, state) do
+    with {:ok, daemon} <- ensure_daemon(loop, daemon_name),
+         {:ok, _step} <- create_checker_step(loop.id, attempt) do
+      push_checker_payload(state, daemon.name, loop.id, payload)
+    end
+  end
+
+  defp create_checker_step(loop_id, attempt) do
+    Loops.create_step(%{
+      loop_id: loop_id,
+      role: "checker",
+      attempt: attempt,
+      status: "running",
+      started_at: DateTime.utc_now()
+    })
+  end
+
+  defp push_checker_payload(state, daemon_name, loop_id, payload) do
+    {:ok, push(state, daemon_name, loop_id, payload)}
+  rescue
+    error -> {:error, error}
   end
 
   defp checker_done(loop, payload, dn, sid, ec, state) do
@@ -620,8 +641,29 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp format_transition_reason(%{errors: _} = changeset), do: inspect(changeset.errors)
+
+  defp format_transition_reason({:invalid_checker_config, errors}),
+    do: format_checker_config_errors(errors)
+
   defp format_transition_reason(%_{} = error), do: Exception.message(error)
   defp format_transition_reason(reason), do: inspect(reason)
+
+  defp validate_loop_checker_config(loop) do
+    case Skills.validate_checker_config(loop.checker_config) do
+      {:ok, _invocations, _registry} -> :ok
+      {:error, errors, _registry} -> {:error, errors}
+    end
+  end
+
+  defp format_checker_config_errors(errors) when is_list(errors) do
+    "invalid checker_config: " <>
+      Enum.map_join(errors, "; ", fn error ->
+        path = Map.get(error, :path) || "checker_config"
+        code = Map.get(error, :code) || "validation_error"
+        message = Map.get(error, :message) || inspect(error)
+        "#{path} [#{code}] #{message}"
+      end)
+  end
 
   defp workspace_id_for_loop(state, loop_id, explicit_workspace_id) do
     if explicit_workspace_id,

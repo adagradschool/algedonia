@@ -323,6 +323,33 @@ defmodule Algedonia.TicketsTest do
       ticket = insert_ticket!(%{status: :in_progress})
       assert {:error, :invalid_status} = Tickets.start_work(ticket)
     end
+
+    test "accepts valid checker config and persists it on the task loop" do
+      insert_daemon!(%{status: :online})
+      ticket = insert_ticket!(%{status: :planning})
+      checker_config = [%{"skill" => "pull", "params" => %{"mode" => "rebase"}}]
+
+      assert {:ok, loop_id} = Tickets.start_work(ticket, checker_config: checker_config)
+
+      loop = Loops.get_loop!(loop_id)
+      assert loop.checker_config == %{"steps" => checker_config}
+      assert Tickets.get_ticket!(ticket.id).status == :in_progress
+    end
+
+    test "fails fast with structured errors when checker config is invalid" do
+      ticket = insert_ticket!(%{status: :planning})
+      checker_config = [%{"skill" => "missing-skill"}]
+
+      assert {:error, {:invalid_checker_config, errors}} =
+               Tickets.start_work(ticket, checker_config: checker_config)
+
+      assert Enum.any?(errors, fn error ->
+               error.code == "unknown_skill" and error.path == "$[0].skill" and error.index == 0
+             end)
+
+      assert Tickets.get_ticket!(ticket.id).status == :planning
+      assert Loops.list_loops_for_ticket(ticket.id) == []
+    end
   end
 
   describe "start_planning/1" do

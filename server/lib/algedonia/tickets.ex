@@ -8,6 +8,7 @@ defmodule Algedonia.Tickets do
 
   alias Algedonia.PubSub.Topics
   alias Algedonia.Repo
+  alias Algedonia.Skills.Error
   alias Algedonia.Tickets.{Comment, Ticket}
   alias Algedonia.Tickets.Planning
   alias Algedonia.Workspaces.Workspace
@@ -394,8 +395,9 @@ defmodule Algedonia.Tickets do
 
   # -- Planning workflow (delegated) --
 
-  @spec start_work(Ticket.t()) :: {:ok, Algedonia.Types.id()} | {:error, atom()}
-  defdelegate start_work(ticket), to: Algedonia.Tickets.Planning
+  @spec start_work(Ticket.t(), keyword()) ::
+          {:ok, Algedonia.Types.id()} | {:error, atom() | {:invalid_checker_config, [Error.t()]}}
+  def start_work(ticket, opts \\ []), do: Planning.start_work(ticket, opts)
   @spec start_planning(Ticket.t()) :: {:ok, Ticket.t()} | {:error, atom() | Ecto.Changeset.t()}
   defdelegate start_planning(ticket), to: Algedonia.Tickets.Planning
   defdelegate start_planning_work(ticket), to: Algedonia.Tickets.Planning
