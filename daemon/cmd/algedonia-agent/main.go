@@ -29,10 +29,12 @@ import (
 )
 
 func main() {
+	initCLIProfile()
+
 	var showVersion bool
 
 	rootCmd := &cobra.Command{
-		Use:   "ag",
+		Use:   commandName(),
 		Short: "Algedonia daemon agent",
 	}
 
@@ -194,7 +196,7 @@ func newLoginCmd() *cobra.Command {
 	cmd.Flags().IntVar(&capacity, "capacity", 3, "Max concurrent loops")
 	cmd.Flags().BoolVar(&installClaudeHooks, "install-claude-hooks", true, "Install/refresh Claude Stop hook for attempt completion markers")
 	cmd.Flags().BoolVar(&installCodexNotify, "install-codex-notify", true, "Install/refresh Codex notify hook for turn completion markers")
-	cmd.Flags().StringVar(&terminalWSListen, "terminal-ws-listen", "127.0.0.1:8765", "Terminal WebSocket listen address")
+	cmd.Flags().StringVar(&terminalWSListen, "terminal-ws-listen", defaultTerminalWSListen(), "Terminal WebSocket listen address")
 
 	return cmd
 }
@@ -555,12 +557,8 @@ func runDeviceFlow(serverURL string) (string, error) {
 	return token, nil
 }
 
-func defaultServerWebsocketURL() string {
-	return normalizeServerWebsocketURL(defaultServerURL)
-}
-
 func normalizeServerWebsocketURL(raw string) string {
-	const fallback = "ws://localhost:4000/daemon/websocket"
+	fallback := fallbackServerWebsocketURL()
 
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -595,8 +593,8 @@ func normalizeServerWebsocketURL(raw string) string {
 // httpBaseURL derives an HTTP base URL from the WebSocket server URL.
 func httpBaseURL(wsURL string) string {
 	u, err := url.Parse(wsURL)
-	if err != nil {
-		return "http://localhost:4000"
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		return profileDefaultHTTPBaseURL()
 	}
 
 	switch u.Scheme {

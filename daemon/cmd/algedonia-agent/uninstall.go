@@ -17,7 +17,7 @@ import (
 func newUninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove the ag daemon, service, and config",
+		Short: fmt.Sprintf("Remove the %s daemon, service, and config", commandName()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			reader := bufio.NewReader(os.Stdin)
@@ -82,7 +82,7 @@ func stopDaemonProcess() error {
 		return nil
 	}
 
-	cmd := exec.Command(pkillPath, "-f", "ag connect")
+	cmd := exec.Command(pkillPath, "-f", fmt.Sprintf("%s login", commandName()))
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -97,7 +97,7 @@ func stopDaemonProcess() error {
 func stopService(home string) (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
-		plist := filepath.Join(home, "Library", "LaunchAgents", "com.algedonia.ag.plist")
+		plist := filepath.Join(home, "Library", "LaunchAgents", launchdPlistFileName())
 		if _, err := os.Stat(plist); err != nil {
 			if os.IsNotExist(err) {
 				return "", nil
@@ -115,7 +115,7 @@ func stopService(home string) (string, error) {
 		}
 		return fmt.Sprintf("LaunchAgent unloaded (%s)", plist), nil
 	case "linux":
-		unit := filepath.Join(home, ".config", "systemd", "user", "ag.service")
+		unit := filepath.Join(home, ".config", "systemd", "user", systemdUnitFileName())
 		if _, err := os.Stat(unit); err != nil {
 			if os.IsNotExist(err) {
 				return "", nil
@@ -127,7 +127,7 @@ func stopService(home string) (string, error) {
 			return "", fmt.Errorf("systemctl not available")
 		}
 
-		cmd := exec.Command("systemctl", "--user", "disable", "--now", "ag")
+		cmd := exec.Command("systemctl", "--user", "disable", "--now", activeProfile.SystemdServiceName)
 		if err := cmd.Run(); err != nil {
 			return "", fmt.Errorf("stopping systemd service: %w", err)
 		}
@@ -140,7 +140,7 @@ func stopService(home string) (string, error) {
 func removeServiceFile(home string) (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
-		plist := filepath.Join(home, "Library", "LaunchAgents", "com.algedonia.ag.plist")
+		plist := filepath.Join(home, "Library", "LaunchAgents", launchdPlistFileName())
 		if err := os.Remove(plist); err != nil {
 			if os.IsNotExist(err) {
 				return "", nil
@@ -149,7 +149,7 @@ func removeServiceFile(home string) (string, error) {
 		}
 		return fmt.Sprintf("LaunchAgent removed (%s)", plist), nil
 	case "linux":
-		unit := filepath.Join(home, ".config", "systemd", "user", "ag.service")
+		unit := filepath.Join(home, ".config", "systemd", "user", systemdUnitFileName())
 		if err := os.Remove(unit); err != nil {
 			if os.IsNotExist(err) {
 				return "", nil
@@ -163,9 +163,11 @@ func removeServiceFile(home string) (string, error) {
 }
 
 func removeBinaries(home string) (string, error) {
+	binaryName := commandName()
 	paths := []string{
-		filepath.Join("/usr", "local", "bin", "ag"),
-		filepath.Join(home, ".local", "bin", "ag"),
+		filepath.Join("/usr", "local", "bin", binaryName),
+		filepath.Join(home, ".local", "bin", binaryName),
+		filepath.Join(home, "bin", binaryName),
 	}
 
 	var removed []string

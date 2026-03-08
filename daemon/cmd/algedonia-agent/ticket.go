@@ -44,7 +44,7 @@ func ticketClient() (*apiclient.Client, error) {
 		return nil, err
 	}
 	if client.Workspace == "" {
-		return nil, fmt.Errorf("no workspace set — use --workspace, set ALGEDONIA_WORKSPACE, or run `ag workspace use <slug>`")
+		return nil, fmt.Errorf("no workspace set — use --workspace, set ALGEDONIA_WORKSPACE, or run `%s workspace use <slug>`", commandName())
 	}
 	return client, nil
 }

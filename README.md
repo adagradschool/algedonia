@@ -73,7 +73,7 @@ cp .env.example .env
 # Install dependencies, create DB, run migrations and seeds
 cd server && mix setup && cd ..
 
-# Build/install the local daemon CLI (ag) into ~/bin
+# Build/install the local daemon CLIs (ag + agd) into ~/bin
 just build-cli
 
 # Run the app
@@ -88,8 +88,10 @@ Run `just --list` from the repository root to see all recipes.
 
 | Recipe | Description |
 |--------|-------------|
-| `just build-cli` | Build `daemon/cmd/algedonia-agent` as `ag` and install it to `~/bin/ag` |
+| `just build-cli` | Build `daemon/cmd/algedonia-agent` as `ag` and `agd`, install to `~/bin/{ag,agd}` |
+| `just db` | Create the configured dev DB if missing and migrate to the latest version |
 | `just server` | Start Phoenix dev server on port `4000` |
+| `just dev-server` | Start Phoenix dev server on port `4100` for local parallel-daemon development |
 | `just format` | Run all formatters (`format-server`, `format-daemon`) |
 | `just lint` | Run all linters (`lint-server`, `lint-daemon`) |
 | `just test` | Run all tests (`test-server`, `test-daemon`) |
@@ -100,6 +102,24 @@ Run `just --list` from the repository root to see all recipes.
 | `just test-server` | Run Elixir tests (`mix test`) |
 | `just test-daemon` | Run Go tests (`go test ./...`) |
 | `just github` | Open the GitHub repository in a browser |
+
+### Parallel Local Dev (`ag` + `agd`)
+
+Use `ag` for your normal profile and `agd` for local parallel verification.
+
+- `ag` config stays at `~/.config/ag/config.json`
+- `agd` config stays at `~/.config/agd/config.json`
+- `agd` defaults:
+  - server websocket: `ws://localhost:4100/daemon/websocket`
+  - terminal websocket listen: `127.0.0.1:8766`
+
+Typical local parallel flow:
+
+```bash
+just db
+just dev-server
+agd login
+```
 
 ## License
 
