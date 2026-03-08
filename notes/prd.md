@@ -52,13 +52,15 @@ The maker-checker loop is the atomic unit of work.
 
 - **Maker** generates code as a diff/patch.
 - **Checker** verifies the diff by running the ticket's checker config — a pipeline of skill invocations configured during planning. The checker has no access to the maker's reasoning. This forces independent judgment.
-- **Pass** — daemon pushes branch, creates PR, waits for CI. CI passes → merge (auto-land) or wait for human (review gate). CI fails → maker retries with CI output as feedback. **Fail** — maker retries with the checker's structured feedback. **Taper** — improvements across iterations fall below a threshold; halt and notify human with context. **Clarify** — checker halts because critical requirements are missing; escalates to human. **Max turns reached** — escalate to human.
+- **Pass** — daemon pushes branch, creates PR, waits for CI. CI passes → merge (auto-land) or wait for human (review gate). CI fails → maker retries with CI output as feedback. **Fail** — maker retries with the checker's structured feedback. **Taper-to-pass** — when hard checker gates are met and diff from the previous iteration is cosmetic-only, checker can pass with taper rationale. **Taper-stall** — improvements taper without meeting hard gates; halt and notify human with context. **Clarify** — checker halts because critical requirements are missing; escalates to human. **Max turns reached** — escalate to human.
 
 **Maker context:** Full history of attempts. Compressed summaries of older iterations. Full detail on the current iteration.
+**Maker persistence:** when a maker run completes successfully, daemon creates a commit snapshot for that attempt before checker execution.
 
 **Loop termination conditions:**
 - Checker pass (success).
-- Improvement taper detected (halt, notify human with iteration history).
+- Taper-to-pass (success with explicit taper rationale).
+- Improvement taper without hard-gate completion (halt, notify human with iteration history).
 - Max turns exceeded (failure, escalate to human).
 - Manual human gate (optional checkpoint).
 
@@ -150,7 +152,7 @@ In the kanban workflow, there is an explicit **Planning** state between Backlog 
 2. **Planning agent runs** — reads the ticket's acceptance criteria, looks at the repo's available skills (`.algedonia/skills/`), and decides what to do:
    - **Straightforward ticket** (clear acceptance criteria, obvious skills): composes the checker config and moves the ticket to Todo automatically. No human gate. "Fix typo in README" → `compile + test + lint`, done.
    - **Ambiguous ticket** (vague acceptance criteria, multiple possible approaches): interviews the user — asks clarifying questions in the tracker (as comments) or in Algedonia's UI. Once clarified, proposes a checker config for review.
-3. **Ticket moves to Todo** — now fully specified: what to build (acceptance criteria) AND how to verify it (checker steps with parameterized skills). Ready for the maker.
+3. **Ticket moves to Todo** — now fully specified: what to build (acceptance criteria) AND how to verify it (checker steps with parameterized skills). Planning also injects project-default acceptance criteria (for example, latest-rebase requirement). Ready for the maker.
 
 The planning agent's judgment about when to skip through vs. interview is the intelligence here, not a config toggle. Teams can tune this at the workspace level in Algedonia's settings — a spectrum from "always auto-approve" to "always require human review." The default is to let the agent decide.
 
@@ -222,7 +224,6 @@ Algedonia connects to a tracker project (e.g., a Linear project). Tickets flow t
 - Checker config per loop (skill invocations composed during planning).
 - Iteration history (maker output, checker feedback, per-step results).
 - Termination state and human feedback thread.
-- State transition hooks on loops (not tickets).
 
 ### What the Tracker Owns
 - Backlog management, prioritization, sprint planning.
@@ -243,11 +244,15 @@ Algedonia borrows from music players. The Linear project is the library. Not eve
 - **Play / Pause** — globally start or stop picking up new work. Pause doesn't kill running loops; it just stops new ones from starting. Useful for "let me catch up on reviews before more PRs pile up."
 - **Concurrency** — how many loops run in parallel. Turn it to 1 for sequential focus, crank it up for overnight batch runs. This is a ceiling — actual parallelism is bounded by daemon capacity. If you set concurrency to 10 but only have 3 daemon slots available, you get 3. The UI shows both the configured limit and the effective limit so the coordinator knows when they're daemon-constrained vs choice-constrained.
 
-**Per-ticket controls (set via Linear labels or Algedonia UI):**
+**Per-ticket controls (set in Algedonia Ticket Detail; tracker adapters can mirror when enabled):**
 - **Auto-land** — checker passes, daemon pushes branch, creates PR, waits for CI. If CI is green, daemon merges the PR. No human in the loop. For low-risk, well-tested changes (dependency bumps, typo fixes, refactors with good test coverage). If CI fails, the loop iterates — CI output becomes maker feedback.
 - **Review gate** — same flow, but after CI passes the PR waits for human approval before merging. The default for most feature work.
+- **Agent selection** — choose which coding agent runs maker/checker. The dropdown is filtered to agents reported as available by the assigned daemon; unavailable agents cannot be spawned.
 - **Queue position** — explicit ordering. Tickets are worked in priority order by default (from Linear's priority field), but the coordinator can drag to reorder in Algedonia's queue view.
 - **Skip** — move past a stuck ticket without cancelling it. It goes back to the library.
+- **Halt-at checkpoint** — select a ticket where autoplay should stop once that ticket reaches a terminal state.
+
+Landing mode defaults are configured at workspace settings level; each ticket can override mode in Ticket Detail.
 
 **Dependencies:**
 Tickets support `blocked_by` relations. When tracker sync is added, these will be synced from the tracker; in v1, they are set manually. Algedonia respects them during dispatch:
@@ -260,9 +265,11 @@ Dependencies are read-only from the queue's perspective. Teams manage them in th
 
 **The queue vs the library:**
 The ticket list is the library — everything that could be worked. The queue is the ordered subset that will be worked next. By default, all active-state tickets enter the queue sorted by priority. But the coordinator can:
-- Remove a ticket from the queue (back to library).
+- Remove a ticket from the queue (back to backlog).
 - Pin a ticket to the top of the queue.
 - Pause a specific ticket's loop without pausing everything.
+
+In Algedonia's Tickets view, the queue is rendered as a dedicated left sidebar so coordinators can manage dispatch without leaving ticket context.
 
 This gives teams a spectrum from full autopilot ("everything ready gets worked and auto-landed") to careful curation ("I pick what's next, I review every PR").
 
@@ -276,8 +283,10 @@ playback:
   default_land: review_gate # or auto_land
 defaults:
   base_pipeline: [compile, test, lint]  # skills that run on every ticket
-  max_iterations: 5
+  max_iterations: 5          # project-level iteration budget (not per-ticket)
 ```
+
+`max_iterations` is configured at project/workspace level and is not edited on individual tickets.
 
 > **Post-v1** — tracker sync adds `tracker` (kind, project_slug, states) and `polling` (interval_ms) sections, plus `auto_start` to playback for auto-queueing synced tickets.
 
@@ -313,7 +322,7 @@ List of loops for the current ticket. Each shows status, current iteration, skil
 - Escalation queue: one at a time, one-piece flow. Shows the stuck loop's context, iteration history, and checker feedback.
 - Circuit breaker status.
 - Active loops overview across all daemons.
-- Daemon health: each daemon shows its owner (user name + avatar), capacity, and status. Daemons are user-bound — one daemon serves all workspaces the user belongs to. The monitor filters to daemons whose users are members of the current workspace.
+- Daemon health: each daemon shows its owner (user name + avatar), capacity, status, and discovered available agents. Daemons are user-bound — one daemon serves all workspaces the user belongs to. The monitor filters to daemons whose users are members of the current workspace.
 
 ### What We Don't Build
 - Full project management (sprint planning, epics, roadmaps — use Linear once sync lands).
@@ -377,7 +386,7 @@ The daemon interface is the most important design boundary. It must be:
 - `step_result` — a checker step completed (skill name, pass/fail, summary, duration).
 - `land_result` — landing outcome (PR URL, CI status, merge SHA if auto-landed).
 - `terminal_output` — streaming PTY output.
-- `heartbeat` — capacity, running loops, available agents, bare repos, system metrics.
+- `heartbeat` — capacity, running loops, available agents (from setup discovery), bare repos, system metrics.
 - `error` — something went wrong.
 
 The daemon does not interpret results. It captures and forwards. The server decides what they mean.
@@ -391,9 +400,15 @@ Agents are pluggable adapters inside the daemon. The adapter interface:
 - `Kill(process)`
 - `SessionID(process) → string`
 
-**Supported agents (v1):** Claude Code, Codex, Aider.
+**Supported agents (v1):** Claude Code, Codex, pi.
 
 Each adapter knows how to construct the CLI invocation, pass the task, and collect results. The adapter does not interpret output.
+
+**Agent setup and availability contract:**
+- On daemon startup/reconnect, run an explicit setup phase that discovers which supported agent runtimes are actually installed.
+- Register only discovered adapters; do not run agent-specific setup for missing runtimes (for example, no Claude hook installation when Claude is absent).
+- Publish discovered availability in daemon heartbeats so the server and UI share one source of truth.
+- Server rejects dispatch if a ticket requests an agent not available on the selected daemon, with explicit setup guidance.
 
 ---
 
@@ -402,7 +417,7 @@ Each adapter knows how to construct the CLI invocation, pass the task, and colle
 Each loop runs in its own workspace — a directory with a full repo checkout. No file-level locking needed; workspaces are isolated by definition.
 
 - On loop start, the daemon ensures a bare clone exists and creates a worktree.
-- Workspace hooks (`before_run`) handle setup (fetch, rebase, dependency install).
+- Project-default acceptance criteria include latest-rebase requirements, and planning injects those defaults into each ticket.
 - On loop pass, the daemon pushes the branch, creates a PR, and waits for CI. Merge happens daemon-side (auto-land) or human-side (review gate).
 - Workspaces persist across iterations within a loop but are cleaned up after completion.
 
@@ -521,7 +536,7 @@ The orchestrator decides what to work on next, informed by signals beyond the ti
 - Telemetry data (error rate spike → auto-create ticket → spin up loop).
 - CI/CD signals (flaky test detected → create fix ticket).
 - Dependency alerts (security advisory → create upgrade ticket).
-State transition hooks on the ticket model enable these automations.
+- Event-driven orchestration policies enable these automations.
 
 ### Product Experimentation (V3)
 A layer for PMs where product work is treated as a loop of experiments with falsifiability:

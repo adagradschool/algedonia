@@ -290,7 +290,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
       sid = Map.get(payload, "session_id")
       ec = Map.get(payload, "exit_code", 0)
 
-      case Loops.current_phase(loop.id) do
+      case completion_phase(loop.id, payload) do
         "maker" -> maker_done(loop, daemon_name, sid, ec, state)
         "checker" -> checker_done(loop, payload, daemon_name, sid, ec, state)
         _ -> {:ok, state}
@@ -308,7 +308,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
       ec = Map.get(payload, "exit_code", 1)
       message = Map.get(payload, "message", "agent exited with code #{ec}")
 
-      case Loops.current_phase(loop.id) do
+      case completion_phase(loop.id, payload) do
         "maker" ->
           Loops.complete_last_running(loop.id, "maker", loop.current_attempt, %{
             session_id: sid,
@@ -341,37 +341,45 @@ defmodule Algedonia.TaskLoopOrchestrator do
   end
 
   defp maker_done(loop, dn, sid, ec, state) do
+    loop = Loops.preload_with_workspace(loop)
+    ct = PromptBuilder.checker_task(loop, loop.ticket, ws_slug_for(loop))
+    att = loop.current_attempt
+
+    p =
+      Map.merge(
+        %{"role" => "checker", "task" => ct, "attempt" => att},
+        scoped_run_context(state, loop)
+      )
+
+    Loops.complete_last_running(loop.id, "maker", att, %{
+      session_id: sid,
+      exit_code: ec,
+      status: "completed"
+    })
+
     case ensure_daemon(loop, dn) do
       {:ok, daemon} ->
-        loop = Loops.preload_with_workspace(loop)
-        ct = PromptBuilder.checker_task(loop, loop.ticket, ws_slug_for(loop))
-        att = loop.current_attempt
+        case Loops.create_step(%{
+               loop_id: loop.id,
+               role: "checker",
+               attempt: att,
+               status: "running",
+               started_at: DateTime.utc_now()
+             }) do
+          {:ok, _step} ->
+            try do
+              {:ok, push(state, daemon.name, loop.id, p)}
+            rescue
+              error ->
+                {:ok, fail_checker_transition(loop, att, error, state)}
+            end
 
-        p =
-          Map.merge(
-            %{"role" => "checker", "task" => ct, "attempt" => att},
-            scoped_run_context(state, loop)
-          )
+          {:error, reason} ->
+            {:ok, fail_checker_transition(loop, att, reason, state)}
+        end
 
-        Loops.complete_last_running(loop.id, "maker", att, %{
-          session_id: sid,
-          exit_code: ec,
-          status: "completed"
-        })
-
-        {:ok, _step} =
-          Loops.create_step(%{
-            loop_id: loop.id,
-            role: "checker",
-            attempt: att,
-            status: "running",
-            started_at: DateTime.utc_now()
-          })
-
-        {:ok, push(state, daemon.name, loop.id, p)}
-
-      _ ->
-        {:error, :transition_failed}
+      {:error, reason} ->
+        {:ok, fail_checker_transition(loop, att, reason, state)}
     end
   end
 
@@ -495,8 +503,12 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   defp ensure_daemon(_loop, dn) when is_binary(dn), do: fetch_daemon(dn)
 
-  defp ensure_daemon(%{assigned_daemon_id: id}, _) when not is_nil(id),
-    do: {:ok, Daemons.get_daemon!(id)}
+  defp ensure_daemon(%{assigned_daemon_id: id}, _) when not is_nil(id) do
+    case Daemons.get_daemon(id) do
+      nil -> {:error, :daemon_not_found}
+      daemon -> {:ok, daemon}
+    end
+  end
 
   defp ensure_daemon(_, _), do: Daemons.find_online()
 
@@ -557,6 +569,59 @@ defmodule Algedonia.TaskLoopOrchestrator do
       _ -> TenantScope.with_workspace(workspace_id, fun)
     end
   end
+
+  defp completion_phase(loop_id, payload) do
+    case Loops.current_running_step(loop_id) do
+      %{role: role} -> role
+      _ -> payload_step_role(payload) || Loops.current_phase(loop_id)
+    end
+  end
+
+  defp payload_step_role(payload) when is_map(payload) do
+    role = Map.get(payload, "role")
+    if role in ["maker", "checker"], do: role, else: nil
+  end
+
+  defp payload_step_role(_), do: nil
+
+  defp fail_checker_transition(loop, attempt, reason, state) do
+    error = "Checker transition error: #{format_transition_reason(reason)}"
+
+    case Loops.complete_last_running(loop.id, "checker", attempt, %{
+           status: "failed",
+           error: error
+         }) do
+      {:ok, _step} ->
+        :ok
+
+      :not_found ->
+        _ =
+          Loops.create_step(%{
+            loop_id: loop.id,
+            role: "checker",
+            attempt: attempt,
+            status: "failed",
+            error: error,
+            started_at: DateTime.utc_now(),
+            finished_at: DateTime.utc_now()
+          })
+
+        :ok
+
+      _ ->
+        :ok
+    end
+
+    _ = Loops.update_loop_status(loop, :failed)
+
+    state
+    |> clear_hr(loop.id)
+    |> clear_rc(loop.id)
+  end
+
+  defp format_transition_reason(%{errors: _} = changeset), do: inspect(changeset.errors)
+  defp format_transition_reason(%_{} = error), do: Exception.message(error)
+  defp format_transition_reason(reason), do: inspect(reason)
 
   defp workspace_id_for_loop(state, loop_id, explicit_workspace_id) do
     if explicit_workspace_id,

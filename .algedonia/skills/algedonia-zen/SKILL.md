@@ -1,8 +1,6 @@
 ---
 name: algedonia-zen
-description:
-  Engineering principles for durable fixes: eliminate root causes, prefer
-  simplification, and apply abstractions only when they reduce complexity.
+description: "Engineering principles for durable fixes: eliminate root causes, prefer simplification, and apply abstractions only when they reduce complexity."
 ---
 
 # Algedonia Zen

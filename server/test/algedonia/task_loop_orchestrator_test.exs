@@ -442,6 +442,137 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     end
   end
 
+  describe "task loop: maker → checker transition regression" do
+    test "existing running loop without step history transitions on first attempt", %{
+      orchestrator: pid
+    } do
+      ticket = insert_ticket!(%{status: :in_progress})
+      daemon = insert_daemon!(%{status: :online})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :running,
+          current_attempt: 1,
+          max_attempts: 3,
+          assigned_daemon_id: daemon.id
+        })
+
+      loop_id = loop.id
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"role" => "maker", "session_id" => "maker-existing-1", "exit_code" => 0},
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "checker", "attempt" => 1}}
+
+      history = get_history(pid, loop_id)
+      assert length(history) == 1
+
+      [checker] = history
+      assert checker.role == "checker"
+      assert checker.attempt == 1
+      assert checker.status == "running"
+    end
+
+    test "existing running loop without step history transitions on retry attempt", %{
+      orchestrator: pid
+    } do
+      ticket = insert_ticket!(%{status: :in_progress})
+      daemon = insert_daemon!(%{status: :online})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :running,
+          current_attempt: 2,
+          max_attempts: 3,
+          assigned_daemon_id: daemon.id
+        })
+
+      loop_id = loop.id
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"role" => "maker", "session_id" => "maker-existing-2", "exit_code" => 0},
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "checker", "attempt" => 2}}
+
+      history = get_history(pid, loop_id)
+      assert length(history) == 1
+
+      [checker] = history
+      assert checker.role == "checker"
+      assert checker.attempt == 2
+      assert checker.status == "running"
+    end
+
+    test "marks loop failed with transition error when checker dispatch cannot start", %{
+      orchestrator: pid
+    } do
+      ticket = insert_ticket!(%{status: :in_progress})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :running,
+          current_attempt: 1,
+          max_attempts: 3
+        })
+
+      loop_id = loop.id
+
+      {:ok, _maker_step} =
+        Loops.create_step(%{
+          loop_id: loop_id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"role" => "maker", "session_id" => "maker-1", "exit_code" => 0},
+                 "missing-daemon",
+                 loop.workspace_id
+               )
+
+      refute_receive {:push, _, ^loop_id, %{"role" => "checker"}}, 100
+
+      reloaded = Algedonia.Loops.get_loop!(loop_id)
+      assert reloaded.status == :failed
+
+      history = get_history(pid, loop_id)
+      assert length(history) == 2
+
+      [maker, checker] = history
+      assert maker.role == "maker"
+      assert maker.status == "completed"
+      assert checker.role == "checker"
+      assert checker.status == "failed"
+      assert checker.error =~ "Checker transition error"
+    end
+  end
+
   describe "task loop: maker error recovery" do
     test "maker error retries with next maker attempt", %{orchestrator: pid} do
       %{loop: loop, daemon: daemon} = setup_task_loop(pid)
