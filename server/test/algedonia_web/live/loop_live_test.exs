@@ -109,12 +109,12 @@ defmodule AlgedoniaWeb.LoopLiveTest do
           title: "Plan this"
         })
 
-      {:ok, loop_id} = Algedonia.Tickets.start_planning_work(ticket)
+      {:ok, planning_loop_id} = Algedonia.Tickets.start_planning_work(ticket)
 
       {:ok, view, _html} =
         live(
           conn,
-          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop_id, 0, 8)}?#{%{role: "planning"}}"
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(planning_loop_id, 0, 8)}?#{%{role: "planning"}}"
         )
 
       assert render(view) =~ "No online daemon available"
@@ -131,12 +131,12 @@ defmodule AlgedoniaWeb.LoopLiveTest do
           title: "Plan this"
         })
 
-      {:ok, loop_id} = Algedonia.Tickets.start_planning_work(ticket)
+      {:ok, persisted_loop_id} = Algedonia.Tickets.start_planning_work(ticket)
 
       {:ok, view, _html} =
         live(
           conn,
-          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop_id, 0, 8)}?#{%{role: "planning"}}"
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(persisted_loop_id, 0, 8)}?#{%{role: "planning"}}"
         )
 
       assert has_element?(view, "#loop-left-sidebar-panel")

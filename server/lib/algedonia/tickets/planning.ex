@@ -98,6 +98,7 @@ defmodule Algedonia.Tickets.Planning do
 
       [] ->
         attrs = %{
+          workspace_id: ticket.workspace_id,
           ticket_id: ticket.id,
           title: "Planning: #{ticket.title}",
           description: ticket.description || "",

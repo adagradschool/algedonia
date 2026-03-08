@@ -60,6 +60,7 @@ defmodule Algedonia.LoopsTest do
                Loops.create_loop(%{
                  title: "Planning loop",
                  ticket_id: ticket.id,
+                 workspace_id: ticket.workspace_id,
                  role: :planning
                })
 
