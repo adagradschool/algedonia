@@ -195,4 +195,22 @@ defmodule Algedonia.PromptBuilderTest do
       assert result =~ "REQUIRED HANDOFF FORMAT"
     end
   end
+
+  describe "planning_session_task/1" do
+    test "includes one-at-a-time requirement clarification guidance" do
+      ticket = %{
+        title: "Plan ticket",
+        description: "Current scope",
+        acceptance_criteria: "- behaves correctly",
+        rubric: "- verify with tests"
+      }
+
+      result = PromptBuilder.planning_session_task(ticket)
+
+      assert result =~ "Resolve requirement clarity with the user before refining"
+      assert result =~ "If requirements are already clear and implementation-ready, skip to step 3."
+      assert result =~ "ask clarifying questions one at a time"
+      assert result =~ "product behavior, architecture, dependencies, and non-goals"
+    end
+  end
 end
