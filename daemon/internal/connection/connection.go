@@ -53,6 +53,7 @@ type Client struct {
 	runningLoopIDFn   func() []string
 	availableAgentsFn func() []string
 	bareReposFn       func() []string
+	terminalWSURL     string
 	onJoin            JoinCallback
 }
 
@@ -95,6 +96,11 @@ func (c *Client) SetAvailableAgentsFn(fn func() []string) {
 // SetBareReposFn sets the function used to report bare repos in heartbeats.
 func (c *Client) SetBareReposFn(fn func() []string) {
 	c.bareReposFn = fn
+}
+
+// SetTerminalWSURL sets the terminal WebSocket URL that the daemon reports to the server.
+func (c *Client) SetTerminalWSURL(url string) {
+	c.terminalWSURL = url
 }
 
 // OnJoin registers a callback invoked after a successful channel join.
@@ -181,6 +187,9 @@ func (c *Client) run(ctx context.Context) error {
 		"display_name":     c.name,
 		"available_agents": availableAgents,
 		"bare_repos":       bareRepos,
+	}
+	if c.terminalWSURL != "" {
+		joinPayload["terminal_ws_url"] = c.terminalWSURL
 	}
 
 	if err := c.directWrite(ctx, conn, c.topic(), "phx_join", joinPayload, c.joinRef); err != nil {

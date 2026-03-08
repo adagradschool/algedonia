@@ -179,6 +179,7 @@ func newLoginCmd() *cobra.Command {
 			if err := terminalServer.Start(ctx); err != nil {
 				return fmt.Errorf("starting terminal websocket server: %w", err)
 			}
+			client.SetTerminalWSURL("ws://" + terminalWSListen + "/terminal/ws")
 			log.Printf("Terminal websocket verify endpoint: %s", verifyURL)
 
 			go func() {

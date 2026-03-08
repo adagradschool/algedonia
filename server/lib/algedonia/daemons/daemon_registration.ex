@@ -17,6 +17,7 @@ defmodule Algedonia.Daemons.DaemonRegistration do
     field :running_loops, :integer, default: 0
     field :available_agents, {:array, :string}, default: []
     field :bare_repos, {:array, :string}, default: []
+    field :terminal_ws_url, :string
     field :last_heartbeat_at, :utc_datetime_usec
     field :connected_at, :utc_datetime_usec
 
@@ -34,6 +35,7 @@ defmodule Algedonia.Daemons.DaemonRegistration do
           running_loops: integer(),
           available_agents: [String.t()],
           bare_repos: [String.t()],
+          terminal_ws_url: String.t() | nil,
           last_heartbeat_at: DateTime.t() | nil,
           connected_at: DateTime.t() | nil,
           user_id: Algedonia.Types.id(),
@@ -52,6 +54,7 @@ defmodule Algedonia.Daemons.DaemonRegistration do
       :running_loops,
       :available_agents,
       :bare_repos,
+      :terminal_ws_url,
       :last_heartbeat_at,
       :connected_at,
       :user_id

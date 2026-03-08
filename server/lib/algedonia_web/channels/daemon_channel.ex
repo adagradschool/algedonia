@@ -43,13 +43,15 @@ defmodule AlgedoniaWeb.DaemonChannel do
     display_name = Map.get(payload, "display_name")
     available_agents = string_list(Map.get(payload, "available_agents"))
     bare_repos = string_list(Map.get(payload, "bare_repos"))
+    terminal_ws_url = Map.get(payload, "terminal_ws_url")
 
     case Daemons.register_daemon(%{
            name: name,
            display_name: display_name,
            user_id: user_id,
            available_agents: available_agents,
-           bare_repos: bare_repos
+           bare_repos: bare_repos,
+           terminal_ws_url: terminal_ws_url
          }) do
       {:ok, daemon} ->
         socket =

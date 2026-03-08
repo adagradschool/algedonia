@@ -7,6 +7,7 @@ defmodule AlgedoniaWeb.LoopLive.TerminalHelper do
 
   import Phoenix.Component, only: [assign: 3]
 
+  alias Algedonia.Daemons
   alias AlgedoniaWeb.TerminalAccessToken
 
   @doc """
@@ -43,9 +44,11 @@ defmodule AlgedoniaWeb.LoopLive.TerminalHelper do
   """
   @spec assign_terminal_ws_access(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def assign_terminal_ws_access(socket) do
-    terminal_ws_url = Application.get_env(:algedonia, :terminal_ws_base_url)
-
     stream_loop_id = socket.assigns[:terminal_stream_loop_id]
+    loop_record = socket.assigns[:loop_record]
+    daemon_id = if loop_record, do: loop_record.assigned_daemon_id
+
+    terminal_ws_url = daemon_terminal_ws_url(daemon_id)
 
     token =
       case {socket.assigns[:current_user], stream_loop_id} do
@@ -60,6 +63,15 @@ defmodule AlgedoniaWeb.LoopLive.TerminalHelper do
     |> assign(:terminal_ws_url, terminal_ws_url)
     |> assign(:terminal_ws_token, token)
   end
+
+  defp daemon_terminal_ws_url(daemon_id) when is_binary(daemon_id) do
+    case Daemons.get_daemon(daemon_id) do
+      %{terminal_ws_url: url} when is_binary(url) and url != "" -> url
+      _ -> Application.get_env(:algedonia, :terminal_ws_base_url)
+    end
+  end
+
+  defp daemon_terminal_ws_url(_), do: Application.get_env(:algedonia, :terminal_ws_base_url)
 
   # -- Private --
 
