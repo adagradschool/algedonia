@@ -395,24 +395,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   end
 
   defp checker_pipeline_config do
-    %{
-      "base" => [
-        %{
-          "step_id" => "base-lint-test",
-          "skill" => "command",
-          "params" => "just lint && just test",
-          "required" => true
-        }
-      ],
-      "ticket_specific" => [
-        %{
-          "step_id" => "ticket-orchestrator-tests",
-          "skill" => "command",
-          "params" => "cd server && mix test test/algedonia/task_loop_orchestrator_test.exs",
-          "required" => true
-        }
-      ]
-    }
+    %{"steps" => [%{"skill" => "pull", "params" => %{"mode" => "rebase"}}]}
   end
 
   defp workspace_slug_for_loop(loop_id) do
@@ -726,7 +709,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  valid_checker_payload(loop.id, 1, "pass", "all checks passed", %{
                    "checker_step_receipts" => [
                      %{
-                       "step_id" => "base-lint-test",
+                       "step_id" => "base-just-lint-and-test",
                        "skill" => "command",
                        "order_index" => 0,
                        "required" => true,
@@ -755,7 +738,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert length(checker_receipts) == 2
       [base, ticket] = checker_receipts
 
-      assert base.step_id == "base-lint-test"
+      assert base.step_id == "base-just-lint-and-test"
       assert base.skill == "command"
       assert base.order_index == 0
       assert base.required == true
@@ -763,8 +746,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert base.summary == "Base pipeline passed."
       assert base.attempt == 1
 
-      assert ticket.step_id == "ticket-orchestrator-tests"
-      assert ticket.skill == "command"
+      assert ticket.step_id == "checker-step-1"
+      assert ticket.skill == "pull"
       assert ticket.order_index == 1
       assert ticket.required == true
       assert ticket.verdict == "pass"
@@ -797,7 +780,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  valid_checker_payload(loop.id, 1, "fail", "ticket checker failed", %{
                    "checker_step_receipts" => [
                      %{
-                       "step_id" => "base-lint-test",
+                       "step_id" => "base-just-lint-and-test",
                        "skill" => "command",
                        "order_index" => 0,
                        "required" => true,
@@ -805,8 +788,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                        "summary" => "Base pipeline passed."
                      },
                      %{
-                       "step_id" => "ticket-orchestrator-tests",
-                       "skill" => "command",
+                       "step_id" => "checker-step-1",
+                       "skill" => "pull",
                        "order_index" => 1,
                        "required" => true,
                        "verdict" => "fail",
@@ -819,12 +802,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                )
 
       assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task} = retry_payload}
-      assert task =~ "step_id: ticket-orchestrator-tests"
+      assert task =~ "step_id: checker-step-1"
       assert task =~ "summary: Task loop orchestrator tests failed."
 
       assert retry_payload["checker_failure"] == %{
-               "step_id" => "ticket-orchestrator-tests",
-               "skill" => "command",
+               "step_id" => "checker-step-1",
+               "skill" => "pull",
                "order_index" => 1,
                "required" => true,
                "verdict" => "fail",
@@ -858,7 +841,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                  valid_checker_payload(loop.id, 1, "fail", "ticket checker failed", %{
                    "checker_step_receipts" => [
                      %{
-                       "step_id" => "base-lint-test",
+                       "step_id" => "base-just-lint-and-test",
                        "skill" => "command",
                        "order_index" => 0,
                        "required" => true,
@@ -866,8 +849,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
                        "summary" => "Base pipeline passed."
                      },
                      %{
-                       "step_id" => "ticket-orchestrator-tests",
-                       "skill" => "command",
+                       "step_id" => "checker-step-1",
+                       "skill" => "pull",
                        "order_index" => 1,
                        "required" => true,
                        "verdict" => "fail",
@@ -893,8 +876,8 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         |> Enum.sort_by(& &1.order_index)
         |> Enum.find(&(&1.required && &1.verdict != "pass"))
 
-      assert last_failed_receipt.step_id == "ticket-orchestrator-tests"
-      assert last_failed_receipt.skill == "command"
+      assert last_failed_receipt.step_id == "checker-step-1"
+      assert last_failed_receipt.skill == "pull"
       assert last_failed_receipt.verdict == "fail"
       assert last_failed_receipt.summary == "Task loop orchestrator tests failed."
       assert last_failed_receipt.attempt == 1
