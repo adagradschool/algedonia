@@ -12,6 +12,7 @@ build-cli:
 # Install dependencies
 install:
     cd server && mix deps.get
+    cd server/assets && npm install
 
 # Start the Phoenix dev server (port from $PORT, default 4000)
 server:
