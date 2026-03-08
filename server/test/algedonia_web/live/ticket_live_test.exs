@@ -402,25 +402,25 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       ticket =
         insert_ticket!(%{title: "Plan done", status: :planning, workspace_id: workspace.id})
 
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :planning, status: :pending})
+
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
       assert has_element?(view, ~s{button[phx-click="open_planning_session"]})
       assert has_element?(view, ~s{button[phx-click="start_work"]})
       refute has_element?(view, ~s{button[phx-click="mark_planning_complete"]})
+      refute has_element?(view, ~s{a[href*="/loops/#{String.slice(loop.id, 0, 8)}"]}, "Inspect")
     end
 
-    test "board shows inspect when ticket has a loop id", %{
+    test "board hides inspect for planning tickets even when loop exists", %{
       conn: conn,
       workspace: workspace
     } do
       ticket = insert_ticket!(%{title: "Has loop", status: :planning, workspace_id: workspace.id})
-      loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :pending})
+      loop = insert_loop!(%{ticket_id: ticket.id, role: :planning, status: :pending})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert has_element?(
-               view,
-               ~s{a[href="/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(loop.id, 0, 8)}"]}
-             )
+      refute has_element?(view, ~s{a[href*="/loops/#{String.slice(loop.id, 0, 8)}"]}, "Inspect")
     end
 
     test "in-progress card shows clickable stage label", %{
