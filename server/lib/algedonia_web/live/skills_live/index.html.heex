@@ -73,7 +73,10 @@
                       class="text-xs text-fg-muted mb-1 last:mb-0"
                     >
                       <div class="text-fg-secondary">{diag.message}</div>
-                      <div :if={diagnostic_context(diag) != ""} class="text-fg-muted">
+                      <div
+                        :if={diagnostic_context(diag) != ""}
+                        class="text-fg-muted"
+                      >
                         {diagnostic_context(diag)}
                       </div>
                     </div>
@@ -141,7 +144,10 @@
                       class="text-xs text-fg-muted"
                     >
                       <div class="text-fg-secondary">{diag.message}</div>
-                      <div :if={diagnostic_context(diag) != ""} class="text-fg-muted">
+                      <div
+                        :if={diagnostic_context(diag) != ""}
+                        class="text-fg-muted"
+                      >
                         {diagnostic_context(diag)}
                       </div>
                     </div>
@@ -199,7 +205,10 @@
                       class="text-xs text-fg-muted"
                     >
                       <div class="text-fg-secondary">{diag.message}</div>
-                      <div :if={diagnostic_context(diag) != ""} class="text-fg-muted">
+                      <div
+                        :if={diagnostic_context(diag) != ""}
+                        class="text-fg-muted"
+                      >
                         {diagnostic_context(diag)}
                       </div>
                     </div>
