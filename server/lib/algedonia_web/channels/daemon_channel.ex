@@ -365,7 +365,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
     end
   end
 
-  defp route_attempt_complete("task", loop_id, payload, daemon_name, workspace_id) do
+  defp route_attempt_complete(role, loop_id, payload, daemon_name, workspace_id)
+       when role in ["maker", "checker"] do
     TaskLoopOrchestrator.handle_attempt_complete(loop_id, payload,
       daemon_name: daemon_name,
       workspace_id: workspace_id
@@ -390,7 +391,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
   defp route_attempt_complete(_, _, _, _, _), do: {:error, :invalid_role}
 
-  defp route_attempt_error("task", loop_id, payload, daemon_name, workspace_id) do
+  defp route_attempt_error(role, loop_id, payload, daemon_name, workspace_id)
+       when role in ["maker", "checker"] do
     TaskLoopOrchestrator.handle_attempt_error(loop_id, payload,
       daemon_name: daemon_name,
       workspace_id: workspace_id

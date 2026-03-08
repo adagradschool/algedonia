@@ -404,7 +404,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       {:ok, socket: socket, user: user}
     end
 
-    test "routes unknown loop errors to TaskLoopOrchestrator", %{
+    test "routes unknown maker/checker loop errors to TaskLoopOrchestrator", %{
       socket: socket,
       user: user,
       workspace: workspace
@@ -414,7 +414,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       ref =
         push(socket, "error", %{
           "loop_id" => "22222222-2222-4222-8222-222222222222",
-          "role" => "task",
+          "role" => "maker",
           "workspace_slug" => workspace.slug,
           "ticket_id" => "88888888-8888-4888-8888-888888888888",
           "message" => "something went wrong"
@@ -423,7 +423,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       refute_reply ref, _
     end
 
-    test "routes task loop errors to TaskLoopOrchestrator", %{
+    test "routes maker loop errors to TaskLoopOrchestrator", %{
       socket: socket,
       user: user,
       workspace: workspace
@@ -471,7 +471,7 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       ref =
         push(socket, "error", %{
           "loop_id" => loop.id,
-          "role" => "task",
+          "role" => "maker",
           "workspace_slug" => workspace.slug,
           "ticket_id" => ticket.id,
           "message" => "agent exited with code 2",
