@@ -453,7 +453,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       history = get_history(pid, loop.id)
       assert length(history) == 2
@@ -636,7 +636,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       assert :ok =
                handle_attempt_complete(
@@ -662,7 +662,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       handle_attempt_complete(
         pid,
@@ -689,7 +689,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       handle_attempt_complete(
         pid,
@@ -717,7 +717,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       assert :ok =
                handle_attempt_complete(
@@ -788,7 +788,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       assert :ok =
                handle_attempt_complete(
@@ -849,7 +849,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       assert :ok =
                handle_attempt_complete(
@@ -913,7 +913,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
         loop.workspace_id
       )
 
-      assert_receive {:push, _, _, %{"role" => "checker"}}
+      assert_receive {:push, _, _, %{"role" => "checker"}}, 1_000
 
       assert :ok =
                handle_attempt_complete(
