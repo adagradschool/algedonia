@@ -89,6 +89,7 @@ defmodule AlgedoniaWeb.PresenceHook do
       case view do
         AlgedoniaWeb.TicketLive.Index -> "presence:tickets"
         AlgedoniaWeb.MonitorLive.Index -> "presence:monitor"
+        AlgedoniaWeb.SkillsLive.Index -> "presence:skills"
         _ -> "presence:#{inspect(view)}"
       end
 
@@ -97,6 +98,7 @@ defmodule AlgedoniaWeb.PresenceHook do
 
   defp nav_section_for(AlgedoniaWeb.TicketLive.Index), do: :issues
   defp nav_section_for(AlgedoniaWeb.MonitorLive.Index), do: :monitor
+  defp nav_section_for(AlgedoniaWeb.SkillsLive.Index), do: :skills
   defp nav_section_for(AlgedoniaWeb.LoopLive.Show), do: :issues
   defp nav_section_for(AlgedoniaWeb.SettingsLive.Index), do: :settings
   defp nav_section_for(_), do: nil

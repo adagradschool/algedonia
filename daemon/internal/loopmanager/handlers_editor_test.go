@@ -1,11 +1,14 @@
 package loopmanager
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/algedonia/daemon/internal/repo"
 )
 
 func TestResolveEditorCommandPrefersVisualOverEditor(t *testing.T) {
@@ -92,5 +95,81 @@ func makeExecutable(t *testing.T, dir, name string) {
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write executable %s: %v", name, err)
+	}
+}
+
+func TestResolveOpenEditorTargetWorkspaceRelativePath(t *testing.T) {
+	repoRoot := t.TempDir()
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, repoRoot)
+
+	baseDir := t.TempDir()
+	mgr.SetWorkspaceBaseDir(baseDir)
+	workspaceSlug := "skills-workspace"
+
+	workspaceDir := filepath.Join(baseDir, workspaceSlug)
+	if err := os.MkdirAll(filepath.Join(workspaceDir, ".algedonia", "skills", "command"), 0o755); err != nil {
+		t.Fatalf("mkdir workspace tree: %v", err)
+	}
+
+	target, err := mgr.resolveOpenEditorTarget(
+		context.Background(),
+		workspaceSlug,
+		"",
+		filepath.Join(".algedonia", "skills", "command", "SKILL.md"),
+	)
+	if err != nil {
+		t.Fatalf("resolveOpenEditorTarget: %v", err)
+	}
+
+	want := filepath.Join(workspaceDir, ".algedonia", "skills", "command", "SKILL.md")
+	if target != want {
+		t.Fatalf("target = %q, want %q", target, want)
+	}
+}
+
+func TestResolveOpenEditorTargetRejectsPathEscape(t *testing.T) {
+	repoRoot := t.TempDir()
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, repoRoot)
+
+	baseDir := t.TempDir()
+	mgr.SetWorkspaceBaseDir(baseDir)
+
+	workspaceSlug := "skills-workspace"
+	if err := os.MkdirAll(filepath.Join(baseDir, workspaceSlug), 0o755); err != nil {
+		t.Fatalf("mkdir workspace dir: %v", err)
+	}
+
+	if _, err := mgr.resolveOpenEditorTarget(
+		context.Background(),
+		workspaceSlug,
+		"",
+		filepath.Join("..", "outside.txt"),
+	); err == nil {
+		t.Fatal("expected path escape error")
+	}
+}
+
+func TestResolveOpenEditorTargetWithinTicketWorktree(t *testing.T) {
+	repoRoot := t.TempDir()
+	mgr := NewManager(func(string, map[string]interface{}) error { return nil }, nil, repoRoot)
+
+	workspaceSlug := "editor-workspace"
+	configureScopedWorktree(t, mgr, workspaceSlug)
+
+	ticketID := "77777777-7777-4777-8777-777777777777"
+	target, err := mgr.resolveOpenEditorTarget(
+		context.Background(),
+		workspaceSlug,
+		ticketID,
+		"README.md",
+	)
+	if err != nil {
+		t.Fatalf("resolveOpenEditorTarget: %v", err)
+	}
+
+	workspaceDir := mgr.workdirForWorkspace(workspaceSlug)
+	want := filepath.Join(workspaceDir, "worktrees", repo.TicketPrefix(ticketID), "README.md")
+	if target != want {
+		t.Fatalf("target = %q, want %q", target, want)
 	}
 }

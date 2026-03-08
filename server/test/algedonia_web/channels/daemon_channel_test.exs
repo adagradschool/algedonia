@@ -616,5 +616,18 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         "workspace_slug" => "editor-workspace"
       }
     end
+
+    test "forwards open_editor broadcast with source_path payload", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_open_editor(
+        @daemon_id,
+        "editor-workspace",
+        %{"source_path" => ".algedonia/skills/checkpoint/SKILL.md"}
+      )
+
+      assert_push "open_editor", %{
+        "source_path" => ".algedonia/skills/checkpoint/SKILL.md",
+        "workspace_slug" => "editor-workspace"
+      }
+    end
   end
 end

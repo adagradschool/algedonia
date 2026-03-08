@@ -319,17 +319,49 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   @doc """
-  Pushes an open_editor command to the daemon to open the ticket worktree in an editor.
+  Pushes an open_editor command to the daemon to open either a ticket worktree
+  or a specific file path within a workspace.
   """
   @spec push_open_editor(String.t(), Algedonia.Types.id(), String.t()) :: :ok
-  def push_open_editor(daemon_name, ticket_id, workspace_slug) do
-    require_non_empty_string!(ticket_id, "ticket_id", "open_editor")
+  def push_open_editor(daemon_name, ticket_id, workspace_slug)
+      when is_binary(ticket_id) and is_binary(workspace_slug) do
+    push_open_editor(daemon_name, workspace_slug, %{"ticket_id" => ticket_id})
+  end
+
+  @spec push_open_editor(String.t(), String.t(), map()) :: :ok
+  def push_open_editor(daemon_name, workspace_slug, opts) when is_map(opts) do
     require_non_empty_string!(workspace_slug, "workspace_slug", "open_editor")
 
-    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "open_editor", %{
-      "ticket_id" => ticket_id,
-      "workspace_slug" => workspace_slug
-    })
+    payload =
+      opts
+      |> open_editor_payload()
+      |> Map.put("workspace_slug", workspace_slug)
+
+    if Map.get(payload, "ticket_id") in [nil, ""] and Map.get(payload, "source_path") in [nil, ""] do
+      raise ArgumentError, "open_editor requires ticket_id or source_path"
+    end
+
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "open_editor", payload)
+  end
+
+  defp open_editor_payload(opts) do
+    opts
+    |> Enum.reduce(%{}, fn
+      {"ticket_id", value}, acc when is_binary(value) and value != "" ->
+        Map.put(acc, "ticket_id", value)
+
+      {:ticket_id, value}, acc when is_binary(value) and value != "" ->
+        Map.put(acc, "ticket_id", value)
+
+      {"source_path", value}, acc when is_binary(value) and value != "" ->
+        Map.put(acc, "source_path", value)
+
+      {:source_path, value}, acc when is_binary(value) and value != "" ->
+        Map.put(acc, "source_path", value)
+
+      _, acc ->
+        acc
+    end)
   end
 
   @impl true
