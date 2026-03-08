@@ -273,17 +273,68 @@ func (m *Manager) HandleCleanupWorktree(ctx context.Context, payload map[string]
 func (m *Manager) HandleOpenEditor(ctx context.Context, payload map[string]interface{}) error {
 	workspaceSlug := payloadStr(payload, "workspace_slug")
 	ticketID := payloadStr(payload, "ticket_id")
-	if workspaceSlug == "" || ticketID == "" {
-		return fmt.Errorf("missing ticket_id or workspace_slug in open_editor payload")
+	sourcePath := payloadStr(payload, "source_path")
+
+	if workspaceSlug == "" {
+		return fmt.Errorf("missing workspace_slug in open_editor payload")
+	}
+	if ticketID == "" && sourcePath == "" {
+		return fmt.Errorf("missing ticket_id or source_path in open_editor payload")
 	}
 
-	workdir, _, err := m.resolveScopedTicketWorkdir(ctx, workspaceSlug, ticketID)
+	targetPath, err := m.resolveOpenEditorTarget(ctx, workspaceSlug, ticketID, sourcePath)
 	if err != nil {
 		return fmt.Errorf("invalid open_editor scope: %w", err)
 	}
 
-	cmd := openEditorCommand(ctx, workdir)
+	cmd := openEditorCommand(ctx, targetPath)
 	return cmd.Start()
+}
+
+func (m *Manager) resolveOpenEditorTarget(
+	ctx context.Context,
+	workspaceSlug, ticketID, sourcePath string,
+) (string, error) {
+	var baseDir string
+
+	if ticketID != "" {
+		workdir, _, err := m.resolveScopedTicketWorkdir(ctx, workspaceSlug, ticketID)
+		if err != nil {
+			return "", err
+		}
+		baseDir = workdir
+	} else {
+		baseDir = m.workdirForWorkspace(workspaceSlug)
+	}
+
+	baseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve base path: %w", err)
+	}
+
+	if sourcePath == "" {
+		return baseDir, nil
+	}
+
+	candidate := sourcePath
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(baseDir, candidate)
+	}
+
+	targetPath, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve source path: %w", err)
+	}
+
+	rel, err := filepath.Rel(baseDir, targetPath)
+	if err != nil {
+		return "", fmt.Errorf("relative source path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("source_path escapes workspace scope")
+	}
+
+	return targetPath, nil
 }
 
 func openEditorCommand(ctx context.Context, workdir string) *exec.Cmd {

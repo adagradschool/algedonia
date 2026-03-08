@@ -6,6 +6,8 @@ defmodule AlgedoniaWeb.SkillsLive.Index do
   use AlgedoniaWeb.WorkspaceLive.NewWorkspaceModal
 
   alias Algedonia.Skills
+  alias AlgedoniaWeb.DaemonChannel
+  alias AlgedoniaWeb.Helpers
 
   @impl true
   def mount(_params, _session, socket) do
@@ -30,6 +32,23 @@ defmodule AlgedoniaWeb.SkillsLive.Index do
     {:noreply, update_selection(socket, :checker_selected_skills, skill_name)}
   end
 
+  def handle_event("open_skill_source", %{"entry_id" => entry_id}, socket) do
+    with {:ok, source_path} <- source_path_for_entry(socket.assigns.catalog_entries, entry_id),
+         {:ok, daemon} <- Helpers.resolve_daemon(socket) do
+      DaemonChannel.push_open_editor(daemon.name, socket.assigns.workspace_slug, %{
+        "source_path" => source_path
+      })
+
+      {:noreply, socket}
+    else
+      {:error, :entry_not_found} ->
+        {:noreply, socket}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "No online daemon available")}
+    end
+  end
+
   defp load_catalog(socket) do
     payload = Skills.catalog()
     entries = Map.fetch!(payload, :entries)
@@ -42,6 +61,7 @@ defmodule AlgedoniaWeb.SkillsLive.Index do
 
     socket
     |> assign(:catalog_entries, entries)
+    |> assign(:catalog_root, payload.root)
     |> assign(:catalog_load_error, payload.load_error)
     |> assign(:catalog_selectable_names, selectable_skill_names)
     |> assign(
@@ -100,9 +120,19 @@ defmodule AlgedoniaWeb.SkillsLive.Index do
     end
   end
 
-  defp diagnostic_context(diagnostic) do
+  defp catalog_relative_path(path, root) when is_binary(path) and is_binary(root) do
+    case Path.relative_to(path, root) do
+      relative when relative == path -> Path.basename(path)
+      relative -> relative
+    end
+  end
+
+  defp catalog_relative_path(path, _root) when is_binary(path), do: Path.basename(path)
+  defp catalog_relative_path(_path, _root), do: nil
+
+  defp diagnostic_context(diagnostic, root) do
     [
-      maybe_context("File", diagnostic.file),
+      maybe_context("File", catalog_relative_path(diagnostic.file, root)),
       maybe_context("Field", diagnostic.field),
       maybe_context("Path", diagnostic.path),
       maybe_context("Index", diagnostic.index && Integer.to_string(diagnostic.index))
@@ -114,4 +144,11 @@ defmodule AlgedoniaWeb.SkillsLive.Index do
   defp maybe_context(_label, nil), do: nil
   defp maybe_context(_label, ""), do: nil
   defp maybe_context(label, value), do: "#{label}: #{value}"
+
+  defp source_path_for_entry(entries, entry_id) do
+    case Enum.find(entries, &(&1.id == entry_id)) do
+      nil -> {:error, :entry_not_found}
+      entry -> {:ok, entry.source_path}
+    end
+  end
 end

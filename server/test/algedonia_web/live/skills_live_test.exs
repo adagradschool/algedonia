@@ -6,7 +6,7 @@ defmodule AlgedoniaWeb.SkillsLiveTest do
   alias Algedonia.Skills
 
   describe "skills catalog" do
-    test "renders seeded valid+invalid entries with required metadata columns", %{
+    test "renders seeded valid+invalid entries with status and open-editor actions", %{
       conn: conn,
       workspace: workspace
     } do
@@ -44,15 +44,13 @@ defmodule AlgedoniaWeb.SkillsLiveTest do
         {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/skills")
 
         assert html =~ "Name"
-        assert html =~ "Type"
-        assert html =~ "Source Path"
         assert html =~ "Validation Status"
+        assert html =~ "Actions"
 
         Enum.each(payload.entries, fn entry ->
           assert html =~ entry.name
-          assert html =~ entry.type
-          assert html =~ entry.source_path
           assert html =~ String.capitalize(entry.validation_status)
+          assert html =~ "Open in editor"
         end)
       end)
     end
@@ -77,7 +75,7 @@ defmodule AlgedoniaWeb.SkillsLiveTest do
           """
         )
 
-      broken_path =
+      _broken_path =
         write_skill!(
           root,
           "missing-description",
@@ -98,7 +96,8 @@ defmodule AlgedoniaWeb.SkillsLiveTest do
         assert html =~ "Diagnostics"
         assert html =~ "Missing required field description"
         assert html =~ "Field: description"
-        assert html =~ "File: #{broken_path}"
+        assert html =~ "File: missing-description/SKILL.md"
+        refute html =~ root
         assert html =~ "(checker)"
 
         assert has_element?(

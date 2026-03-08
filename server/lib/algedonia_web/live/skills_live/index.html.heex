@@ -47,13 +47,10 @@
                   Name
                 </th>
                 <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
-                  Type
-                </th>
-                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
-                  Source Path
-                </th>
-                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
                   Validation Status
+                </th>
+                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -74,26 +71,32 @@
                     >
                       <div class="text-fg-secondary">{diag.message}</div>
                       <div
-                        :if={diagnostic_context(diag) != ""}
+                        :if={diagnostic_context(diag, @catalog_root) != ""}
                         class="text-fg-muted"
                       >
-                        {diagnostic_context(diag)}
+                        {diagnostic_context(diag, @catalog_root)}
                       </div>
                     </div>
                   </div>
-                </td>
-                <td class="px-4 py-3 text-xs text-fg-muted align-top">{entry.type}</td>
-                <td class="px-4 py-3 text-xs text-fg-muted font-mono break-all align-top">
-                  {entry.source_path}
                 </td>
                 <td class="px-4 py-3 align-top">
                   <span class={"inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium #{status_badge_classes(entry.validation_status)}"}>
                     {format_status(entry.validation_status)}
                   </span>
                 </td>
+                <td class="px-4 py-3 align-top">
+                  <button
+                    type="button"
+                    phx-click="open_skill_source"
+                    phx-value-entry_id={entry.id}
+                    class="px-2.5 py-1 text-xs border border-border rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
+                  >
+                    Open in editor
+                  </button>
+                </td>
               </tr>
               <tr :if={@catalog_entries == []}>
-                <td colspan="4" class="px-4 py-6 text-xs text-fg-muted text-center">
+                <td colspan="3" class="px-4 py-6 text-xs text-fg-muted text-center">
                   No catalog entries found.
                 </td>
               </tr>
@@ -145,10 +148,10 @@
                     >
                       <div class="text-fg-secondary">{diag.message}</div>
                       <div
-                        :if={diagnostic_context(diag) != ""}
+                        :if={diagnostic_context(diag, @catalog_root) != ""}
                         class="text-fg-muted"
                       >
-                        {diagnostic_context(diag)}
+                        {diagnostic_context(diag, @catalog_root)}
                       </div>
                     </div>
                   </div>
@@ -206,10 +209,10 @@
                     >
                       <div class="text-fg-secondary">{diag.message}</div>
                       <div
-                        :if={diagnostic_context(diag) != ""}
+                        :if={diagnostic_context(diag, @catalog_root) != ""}
                         class="text-fg-muted"
                       >
-                        {diagnostic_context(diag)}
+                        {diagnostic_context(diag, @catalog_root)}
                       </div>
                     </div>
                   </div>
