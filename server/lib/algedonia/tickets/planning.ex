@@ -44,6 +44,26 @@ defmodule Algedonia.Tickets.Planning do
   @spec ensure_work_loop(Ticket.t()) :: {:ok, binary()} | {:error, atom()}
   def ensure_work_loop(%Ticket{} = ticket), do: resolve_work_loop(ticket)
 
+  @doc """
+  Resolves the persisted planning loop for a ticket and ensures single-step history exists.
+
+  Only tickets in `:planning` or `:halted` status are eligible.
+  """
+  @spec start_planning_work(Ticket.t()) :: {:ok, binary()} | {:error, atom()}
+  def start_planning_work(%Ticket{status: status}) when status not in [:planning, :halted] do
+    {:error, :invalid_status}
+  end
+
+  def start_planning_work(%Ticket{} = ticket) do
+    with {:ok, loop} <- resolve_planning_loop(ticket),
+         {:ok, _step} <- ensure_planning_step(loop) do
+      {:ok, loop.id}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :loop_create_failed}
+    end
+  end
+
   defp resolve_work_loop(%Ticket{} = ticket) do
     case Loops.list_task_loops_for_ticket(ticket.id) do
       [] ->
@@ -68,6 +88,44 @@ defmodule Algedonia.Tickets.Planning do
     case Loops.create_loop(attrs) do
       {:ok, loop} -> {:ok, loop.id}
       {:error, _changeset} -> {:error, :loop_create_failed}
+    end
+  end
+
+  defp resolve_planning_loop(%Ticket{} = ticket) do
+    case Loops.list_planning_loops_for_ticket(ticket.id) do
+      [loop | _] ->
+        {:ok, loop}
+
+      [] ->
+        attrs = %{
+          ticket_id: ticket.id,
+          title: "Planning: #{ticket.title}",
+          description: ticket.description || "",
+          role: :planning,
+          max_attempts: 1,
+          rubric: ticket.rubric || ""
+        }
+
+        case Loops.create_loop(attrs) do
+          {:ok, loop} -> {:ok, loop}
+          {:error, _changeset} -> {:error, :loop_create_failed}
+        end
+    end
+  end
+
+  defp ensure_planning_step(loop) do
+    case Loops.list_steps_for_loop(loop.id) do
+      [] ->
+        Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      [step | _] ->
+        {:ok, step}
     end
   end
 

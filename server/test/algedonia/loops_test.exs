@@ -53,6 +53,53 @@ defmodule Algedonia.LoopsTest do
       assert loop.role == :task
     end
 
+    test "accepts planning as a valid loop role" do
+      ticket = insert_ticket!()
+
+      assert {:ok, loop} =
+               Loops.create_loop(%{
+                 title: "Planning loop",
+                 ticket_id: ticket.id,
+                 role: :planning
+               })
+
+      assert loop.role == :planning
+    end
+
+    test "rejects invalid loop role in changeset" do
+      ticket = insert_ticket!()
+
+      assert {:error, changeset} =
+               Loops.create_loop(%{
+                 title: "Invalid role",
+                 ticket_id: ticket.id,
+                 role: :invalid
+               })
+
+      assert errors_on(changeset).role
+    end
+
+    test "database rejects invalid role values outside schema enum" do
+      ticket = insert_ticket!()
+      now = DateTime.utc_now()
+
+      assert_raise Postgrex.Error, ~r/loops_role_check/, fn ->
+        Algedonia.Repo.query!(
+          """
+          INSERT INTO loops (id, workspace_id, ticket_id, title, role, inserted_at, updated_at)
+          VALUES ($1, $2, $3, $4, 'invalid_role', $5, $5)
+          """,
+          [
+            Ecto.UUID.generate() |> Ecto.UUID.dump!(),
+            ticket.workspace_id |> Ecto.UUID.dump!(),
+            ticket.id |> Ecto.UUID.dump!(),
+            "raw invalid",
+            now
+          ]
+        )
+      end
+    end
+
     test "fails without required fields" do
       assert {:error, changeset} = Loops.create_loop(%{})
       assert errors_on(changeset).title

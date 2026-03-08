@@ -19,7 +19,10 @@
    - reports `available_agents` in heartbeat/registration payload
 1. Ticket starts in `backlog`.
 2. `start_planning` moves ticket to `planning`.
-3. Planning uses a persisted planning loop to refine title/description/acceptance criteria/rubric/checker config, and injects project-default acceptance criteria.
+3. `start_planning_work` resolves a persisted planning loop for the ticket:
+   - Reuses the first existing planning loop when present.
+   - Otherwise creates a planning loop (`role: planning`) with exactly one persisted planning step.
+   - The planning step remains active until the user presses Done in the planning session.
 4. `start_work` resolves the first task loop for the ticket:
    - Reuses existing task loop when present.
    - Otherwise creates a single task loop with ticket title/description/rubric.

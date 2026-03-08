@@ -151,7 +151,13 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
     case Tickets.start_planning(ticket) do
       {:ok, planned} ->
-        {:noreply, push_navigate(socket, to: planning_path(socket, planned))}
+        case Tickets.start_planning_work(planned) do
+          {:ok, loop_id} ->
+            {:noreply, push_navigate(socket, to: planning_path(socket, planned, loop_id))}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Unable to start planning session")}
+        end
 
       {:error, :invalid_status} ->
         {:noreply, put_flash(socket, :error, "Only backlog tickets can start planning")}
@@ -165,7 +171,13 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     ticket = Tickets.get_ticket!(ticket_id)
 
     if ticket.status == :planning do
-      {:noreply, push_navigate(socket, to: planning_path(socket, ticket))}
+      case Tickets.start_planning_work(ticket) do
+        {:ok, loop_id} ->
+          {:noreply, push_navigate(socket, to: planning_path(socket, ticket, loop_id))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Unable to start planning session")}
+      end
     else
       {:noreply,
        put_flash(socket, :error, "Planning session is only available in planning stage")}
@@ -298,14 +310,8 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{short_id(loop_id)}?#{%{agent_type: Agents.ticket_agent_type(ticket)}}"
   end
 
-  defp planning_path(socket, ticket) do
+  defp planning_path(socket, ticket, loop_id) do
     slug = socket.assigns.workspace_slug
-
-    loop_id =
-      case Loops.find_or_create_planning_loop(ticket) do
-        {:ok, loop} -> loop.id
-        {:error, _} -> Ecto.UUID.generate()
-      end
 
     ~p"/w/#{slug}/tickets/#{ticket_ref(ticket)}/loops/#{short_id(loop_id)}?#{%{role: "planning", agent_type: Agents.ticket_agent_type(ticket)}}"
   end

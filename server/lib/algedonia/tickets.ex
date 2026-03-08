@@ -398,6 +398,7 @@ defmodule Algedonia.Tickets do
   defdelegate start_work(ticket), to: Algedonia.Tickets.Planning
   @spec start_planning(Ticket.t()) :: {:ok, Ticket.t()} | {:error, atom() | Ecto.Changeset.t()}
   defdelegate start_planning(ticket), to: Algedonia.Tickets.Planning
+  defdelegate start_planning_work(ticket), to: Algedonia.Tickets.Planning
 
   # -- Search (delegated) --
 
