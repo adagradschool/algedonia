@@ -280,12 +280,12 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> element(~s{button[phx-click="plan_ticket"][phx-value-id="#{ticket.id}"]})
       |> render_click()
 
-      {redirect_to, _flash} = assert_redirect(view)
+      planning_loop = Loops.list_planning_loops_for_ticket(ticket.id) |> List.first()
 
-      prefix = "/w/#{workspace.slug}/tickets/#{ticket.number}/loops/"
-      assert String.starts_with?(redirect_to, prefix)
-      rest = String.replace_leading(redirect_to, prefix, "")
-      assert rest =~ ~r/^[0-9a-f]{8}\?.*role=planning/
+      assert_redirect(
+        view,
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(planning_loop.id, 0, 8)}?#{%{role: "planning", agent_type: "claude_code"}}"
+      )
 
       assert Tickets.get_ticket!(ticket.id).status == :planning
 

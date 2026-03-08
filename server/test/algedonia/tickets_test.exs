@@ -338,6 +338,55 @@ defmodule Algedonia.TicketsTest do
     end
   end
 
+  describe "start_planning_work/1" do
+    test "creates a persisted planning loop and single-step history for planning ticket" do
+      ticket = insert_ticket!(%{status: :planning, title: "Plan this"})
+
+      assert {:ok, loop_id} = Tickets.start_planning_work(ticket)
+      loop = Algedonia.Loops.get_loop!(loop_id)
+      steps = Algedonia.Loops.list_steps_for_loop(loop_id)
+
+      assert loop.role == :planning
+      assert loop.ticket_id == ticket.id
+      assert length(steps) == 1
+      assert hd(steps).role == "maker"
+      assert hd(steps).attempt == 1
+      assert hd(steps).status == "running"
+    end
+
+    test "reuses the first persisted planning loop deterministically" do
+      ticket = insert_ticket!(%{status: :planning})
+
+      first =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :planning,
+          title: "Planning A"
+        })
+
+      _second =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :planning,
+          title: "Planning B"
+        })
+
+      assert {:ok, first_loop_id} = Tickets.start_planning_work(ticket)
+      assert first_loop_id == first.id
+    end
+
+    test "works for halted tickets" do
+      halted_ticket = insert_ticket!(%{status: :halted})
+      assert {:ok, halted_loop_id} = Tickets.start_planning_work(halted_ticket)
+      assert Algedonia.Loops.get_loop!(halted_loop_id).role == :planning
+    end
+
+    test "rejects invalid status" do
+      ticket = insert_ticket!(%{status: :backlog})
+      assert {:error, :invalid_status} = Tickets.start_planning_work(ticket)
+    end
+  end
+
   describe "export_markdown/1" do
     test "renders full ticket with all sections and comments" do
       ticket =

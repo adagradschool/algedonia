@@ -1,8 +1,8 @@
 defmodule AlgedoniaWeb.LoopLive.ContextHelper do
   @moduledoc """
   Startup and routing helper for LoopLive.Show. Handles loop context
-  resolution, page title building, subscriptions, and ad-hoc task
-  construction for planning sessions.
+  resolution, page title building, subscriptions, and planning-task
+  construction for persisted planning loops.
   """
 
   import Phoenix.Component, only: [assign: 3]
@@ -104,7 +104,7 @@ defmodule AlgedoniaWeb.LoopLive.ContextHelper do
   end
 
   @doc """
-  Builds the ad-hoc task prompt for a planning session, or returns `nil`.
+  Builds the planning task prompt for a planning session, or returns `nil`.
   """
   @spec ad_hoc_task(Phoenix.LiveView.Socket.t()) :: String.t() | nil
   def ad_hoc_task(%{assigns: %{role: "planning", ticket: ticket}}) when not is_nil(ticket) do

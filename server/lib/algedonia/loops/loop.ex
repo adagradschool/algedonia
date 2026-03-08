@@ -85,5 +85,7 @@ defmodule Algedonia.Loops.Loop do
       :assigned_daemon_id
     ])
     |> validate_required([:title, :ticket_id, :workspace_id])
+    |> validate_inclusion(:role, @roles)
+    |> check_constraint(:role, name: :loops_role_check)
   end
 end
