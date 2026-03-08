@@ -208,7 +208,10 @@ defmodule Algedonia.PromptBuilderTest do
       result = PromptBuilder.planning_session_task(ticket)
 
       assert result =~ "Resolve requirement clarity with the user before refining"
-      assert result =~ "If requirements are already clear and implementation-ready, skip to step 3."
+
+      assert result =~
+               "If requirements are already clear and implementation-ready, skip to step 3."
+
       assert result =~ "ask clarifying questions one at a time"
       assert result =~ "product behavior, architecture, dependencies, and non-goals"
     end
