@@ -142,6 +142,93 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     end
   end
 
+  describe "checker config validation before checker dispatch" do
+    test "allows checker dispatch when checker config validates", %{orchestrator: pid} do
+      ticket = insert_ticket!(%{status: :in_progress})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3,
+          checker_config: %{"steps" => [%{"skill" => "pull", "params" => %{"mode" => "rebase"}}]}
+        })
+
+      loop_id = loop.id
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"session_id" => "maker-1", "exit_code" => 0},
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "checker", "attempt" => 1}}
+    end
+
+    test "fails transition before checker execution when checker config is invalid", %{
+      orchestrator: pid
+    } do
+      ticket = insert_ticket!(%{status: :in_progress})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3,
+          checker_config: %{"steps" => [%{"skill" => "missing-skill"}]}
+        })
+
+      loop_id = loop.id
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"session_id" => "maker-1", "exit_code" => 0},
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      refute_receive {:push, _, ^loop_id, %{"role" => "checker"}}, 100
+
+      failed_loop = Loops.get_loop!(loop_id)
+      assert failed_loop.status == :failed
+
+      history = get_history(pid, loop_id, loop.workspace_id)
+      checker_entry = Enum.find(history, &(&1.role == "checker"))
+
+      assert checker_entry.status == "failed"
+      assert checker_entry.error =~ "invalid checker_config"
+      assert checker_entry.error =~ "$.steps[0].skill"
+      assert checker_entry.error =~ "unknown_skill"
+    end
+  end
+
   describe "start_task_loop agent selection" do
     test "defaults to ticket coding_agent when options do not provide agent_type", %{
       orchestrator: pid
