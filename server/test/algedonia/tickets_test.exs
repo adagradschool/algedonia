@@ -371,14 +371,14 @@ defmodule Algedonia.TicketsTest do
           title: "Planning B"
         })
 
-      assert {:ok, loop_id} = Tickets.start_planning_work(ticket)
-      assert loop_id == first.id
+      assert {:ok, first_loop_id} = Tickets.start_planning_work(ticket)
+      assert first_loop_id == first.id
     end
 
     test "works for halted tickets" do
-      ticket = insert_ticket!(%{status: :halted})
-      assert {:ok, loop_id} = Tickets.start_planning_work(ticket)
-      assert Algedonia.Loops.get_loop!(loop_id).role == :planning
+      halted_ticket = insert_ticket!(%{status: :halted})
+      assert {:ok, halted_loop_id} = Tickets.start_planning_work(halted_ticket)
+      assert Algedonia.Loops.get_loop!(halted_loop_id).role == :planning
     end
 
     test "rejects invalid status" do

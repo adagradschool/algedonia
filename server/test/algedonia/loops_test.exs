@@ -54,13 +54,13 @@ defmodule Algedonia.LoopsTest do
     end
 
     test "accepts planning as a valid loop role" do
-      ticket = insert_ticket!()
+      planning_ticket = insert_ticket!()
 
       assert {:ok, loop} =
                Loops.create_loop(%{
                  title: "Planning loop",
-                 ticket_id: ticket.id,
-                 workspace_id: ticket.workspace_id,
+                 ticket_id: planning_ticket.id,
+                 workspace_id: planning_ticket.workspace_id,
                  role: :planning
                })
 
@@ -68,12 +68,12 @@ defmodule Algedonia.LoopsTest do
     end
 
     test "rejects invalid loop role in changeset" do
-      ticket = insert_ticket!()
+      invalid_role_ticket = insert_ticket!()
 
       assert {:error, changeset} =
                Loops.create_loop(%{
                  title: "Invalid role",
-                 ticket_id: ticket.id,
+                 ticket_id: invalid_role_ticket.id,
                  role: :invalid
                })
 
@@ -81,7 +81,7 @@ defmodule Algedonia.LoopsTest do
     end
 
     test "database rejects invalid role values outside schema enum" do
-      ticket = insert_ticket!()
+      db_ticket = insert_ticket!()
       now = DateTime.utc_now()
 
       assert_raise Postgrex.Error, ~r/loops_role_check/, fn ->
@@ -92,8 +92,8 @@ defmodule Algedonia.LoopsTest do
           """,
           [
             Ecto.UUID.generate() |> Ecto.UUID.dump!(),
-            ticket.workspace_id |> Ecto.UUID.dump!(),
-            ticket.id |> Ecto.UUID.dump!(),
+            db_ticket.workspace_id |> Ecto.UUID.dump!(),
+            db_ticket.id |> Ecto.UUID.dump!(),
             "raw invalid",
             now
           ]
