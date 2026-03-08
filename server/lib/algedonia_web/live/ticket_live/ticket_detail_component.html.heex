@@ -233,6 +233,23 @@
               />
             </div>
             <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-link-mini" class="size-3.5" /> Depends On
+              </div>
+              <div :if={@blocker_tickets == []} class="text-[11px] text-fg-muted">
+                None
+              </div>
+              <div :if={@blocker_tickets != []} class="space-y-1">
+                <.link
+                  :for={blocker <- @blocker_tickets}
+                  patch={~p"/w/#{@workspace_slug}/tickets/#{blocker.number}"}
+                  class="block text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors"
+                >
+                  #{blocker.number} {blocker.title}
+                </.link>
+              </div>
+            </div>
+            <div class="space-y-2">
               <button
                 type="button"
                 phx-click="open_editor"

@@ -200,7 +200,23 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   def handle_info({:ticket_updated, ticket}, socket) do
-    {:noreply, stream_update_ticket(socket, ticket)}
+    socket = stream_update_ticket(socket, ticket)
+
+    # Refresh blocker data when the detail view is showing this ticket
+    socket =
+      if socket.assigns[:ticket] && socket.assigns.ticket.id == ticket.id do
+        blocker_tickets = Tickets.get_tickets_by_ids(ticket.blocked_by || [])
+
+        assign(socket,
+          ticket: ticket,
+          ticket_form: to_form(Tickets.change_ticket(ticket)),
+          blocker_tickets: blocker_tickets
+        )
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_info({:ticket_deleted, ticket}, socket) do

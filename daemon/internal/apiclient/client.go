@@ -34,19 +34,21 @@ func New(baseURL, token, workspace string) *Client {
 
 // Ticket represents a ticket from the API.
 type Ticket struct {
-	ID                 string  `json:"id"`
-	Number             int     `json:"number"`
-	Title              string  `json:"title"`
-	Description        *string `json:"description"`
-	Status             string  `json:"status"`
-	Type               string  `json:"type"`
-	Priority           int     `json:"priority"`
-	Assignee           *string `json:"assignee"`
-	CodingAgent        *string `json:"coding_agent"`
-	AcceptanceCriteria *string `json:"acceptance_criteria"`
-	Rubric             *string `json:"rubric"`
-	InsertedAt         string  `json:"inserted_at"`
-	UpdatedAt          string  `json:"updated_at"`
+	ID                 string   `json:"id"`
+	Number             int      `json:"number"`
+	Title              string   `json:"title"`
+	Description        *string  `json:"description"`
+	Status             string   `json:"status"`
+	Type               string   `json:"type"`
+	Priority           int      `json:"priority"`
+	Assignee           *string  `json:"assignee"`
+	CodingAgent        *string  `json:"coding_agent"`
+	AcceptanceCriteria *string  `json:"acceptance_criteria"`
+	Rubric             *string  `json:"rubric"`
+	BlockedBy          []string `json:"blocked_by"`
+	Dispatchable       bool     `json:"dispatchable"`
+	InsertedAt         string   `json:"inserted_at"`
+	UpdatedAt          string   `json:"updated_at"`
 }
 
 // Comment represents a comment from the API.

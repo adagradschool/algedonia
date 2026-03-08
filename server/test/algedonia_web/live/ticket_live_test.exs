@@ -757,4 +757,130 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert render(view) =~ "Hook: backlog"
     end
   end
+
+  describe "Blocked-by / Depends On" do
+    test "create form shows Depends On field with workspace tickets", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      insert_ticket!(%{title: "Blocker ticket", workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
+
+      html = render(view)
+      assert html =~ "Depends On"
+      assert html =~ "Blocker ticket"
+    end
+
+    test "create form persists blocked_by on submit", %{conn: conn, workspace: workspace} do
+      blocker = insert_ticket!(%{title: "Must finish first", workspace_id: workspace.id})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
+
+      view
+      |> form("#ticket-form",
+        ticket: %{
+          title: "Dependent ticket",
+          type: :feature,
+          priority: 3,
+          blocked_by: [blocker.id]
+        }
+      )
+      |> render_submit()
+
+      dependent =
+        Tickets.list_tickets(workspace_id: workspace.id)
+        |> Enum.find(&(&1.title == "Dependent ticket"))
+
+      assert dependent
+      assert dependent.blocked_by == [blocker.id]
+    end
+
+    test "edit form shows Depends On with current blockers selected", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      blocker = insert_ticket!(%{title: "Blocker A", workspace_id: workspace.id})
+
+      ticket =
+        insert_ticket!(%{
+          title: "Blocked ticket",
+          workspace_id: workspace.id,
+          blocked_by: [blocker.id]
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}/edit")
+
+      assert html =~ "Depends On"
+      assert html =~ "Blocker A"
+    end
+
+    test "detail sidebar shows Depends On section with blocker links", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      blocker = insert_ticket!(%{title: "Setup CI", workspace_id: workspace.id})
+
+      ticket =
+        insert_ticket!(%{
+          title: "Needs CI",
+          workspace_id: workspace.id,
+          blocked_by: [blocker.id]
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "Depends On"
+      assert html =~ "Setup CI"
+      assert html =~ "/w/#{workspace.slug}/tickets/#{blocker.number}"
+    end
+
+    test "detail sidebar shows None when no blockers", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{title: "Free ticket", workspace_id: workspace.id})
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "Depends On"
+      assert html =~ "None"
+    end
+
+    test "detail sidebar updates when blocked_by changes via autosave", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      blocker = insert_ticket!(%{title: "New blocker", workspace_id: workspace.id})
+      ticket = insert_ticket!(%{title: "Will be blocked", workspace_id: workspace.id})
+      {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "None"
+
+      Tickets.update_ticket(ticket, %{blocked_by: [blocker.id]})
+
+      # Simulate PubSub update
+      updated = Tickets.get_ticket!(ticket.id)
+      send(view.pid, {:ticket_updated, updated})
+
+      html = render(view)
+      assert html =~ "New blocker"
+    end
+
+    test "form shows validation error for cycle", %{conn: conn, workspace: workspace} do
+      ticket_a =
+        insert_ticket!(%{title: "Ticket A", workspace_id: workspace.id})
+
+      ticket_b =
+        insert_ticket!(%{
+          title: "Ticket B",
+          workspace_id: workspace.id,
+          blocked_by: [ticket_a.id]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket_a}/edit")
+
+      html =
+        view
+        |> form("#ticket-form", ticket: %{blocked_by: [ticket_b.id]})
+        |> render_submit()
+
+      assert html =~ "cycle"
+    end
+  end
 end
