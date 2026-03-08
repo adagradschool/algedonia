@@ -6,6 +6,7 @@ defmodule AlgedoniaWeb.LoopLive.TerminalHelper do
   """
 
   import Phoenix.Component, only: [assign: 3]
+  import Phoenix.LiveView, only: [connected?: 1, push_event: 3]
 
   alias Algedonia.Daemons
   alias AlgedoniaWeb.TerminalAccessToken
@@ -59,9 +60,18 @@ defmodule AlgedoniaWeb.LoopLive.TerminalHelper do
           nil
       end
 
-    socket
-    |> assign(:terminal_ws_url, terminal_ws_url)
-    |> assign(:terminal_ws_token, token)
+    socket =
+      socket |> assign(:terminal_ws_url, terminal_ws_url) |> assign(:terminal_ws_token, token)
+
+    if connected?(socket) && terminal_ws_url && token && stream_loop_id do
+      push_event(socket, "terminal_ws_updated", %{
+        url: terminal_ws_url,
+        token: token,
+        loop_id: stream_loop_id
+      })
+    else
+      socket
+    end
   end
 
   defp daemon_terminal_ws_url(daemon_id) when is_binary(daemon_id) do

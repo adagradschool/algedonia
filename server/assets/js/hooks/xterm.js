@@ -128,6 +128,27 @@ const XTerm = {
       this.flushPendingCarriageReturn()
       this.term.write(`\r\n\x1b[1;33m--- Process exited with code ${exit_code} ---\x1b[0m\r\n`)
     })
+
+    this.handleEvent("terminal_ws_updated", ({ url, token, loop_id }) => {
+      if (url === this.terminalWsUrl && token === this.terminalWsToken && loop_id === this.loopId) {
+        return
+      }
+      this.loopId = loop_id || this.loopId
+      this.terminalWsUrl = url || ""
+      this.terminalWsToken = token || ""
+      this.liveStreamEnabled = Boolean(this.loopId && this.terminalWsUrl && this.terminalWsToken)
+
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer)
+        this.reconnectTimer = null
+      }
+      if (this.ws) {
+        try { this.ws.close() } catch (_) {}
+        this.ws = null
+      }
+      this.wsConnected = false
+      this.connectTerminalSocket()
+    })
   },
 
   connectTerminalSocket() {
