@@ -113,6 +113,27 @@ defmodule Algedonia.DaemonsTest do
       assert is_nil(updated_loop.assigned_daemon_id)
       assert updated_loop.current_attempt == 2
     end
+
+    test "fails running planning loops instead of requeuing" do
+      daemon = Factory.insert_daemon!(%{status: :online})
+      ticket = Factory.insert_ticket!()
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :planning,
+          status: :running,
+          current_attempt: 1,
+          max_attempts: 1,
+          assigned_daemon_id: daemon.id
+        })
+
+      assert {:ok, _updated_daemon} = Daemons.mark_unhealthy(daemon)
+
+      updated_loop = Algedonia.Loops.get_loop!(loop.id)
+      assert updated_loop.status == :failed
+      assert is_nil(updated_loop.assigned_daemon_id)
+    end
   end
 
   describe "mark_offline/1" do

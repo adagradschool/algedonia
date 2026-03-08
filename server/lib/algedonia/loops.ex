@@ -211,24 +211,22 @@ defmodule Algedonia.Loops do
   @spec requeue_running_task_loops_for_daemon(Algedonia.Types.id()) :: [Loop.t()]
   def requeue_running_task_loops_for_daemon(daemon_id) when is_binary(daemon_id) do
     daemon_id
-    |> running_task_loop_workspace_ids_for_daemon()
+    |> running_loop_workspace_ids_for_daemon()
     |> Enum.flat_map(fn workspace_id ->
       TenantScope.with_workspace(workspace_id, fn ->
         Loop
-        |> where(
-          [l],
-          l.assigned_daemon_id == ^daemon_id and l.role == :task and
-            l.status == :running
-        )
+        |> where([l], l.assigned_daemon_id == ^daemon_id and l.status == :running)
         |> Repo.all()
       end)
     end)
     |> Enum.map(fn loop ->
       interrupt_running_steps(loop.id)
 
+      new_status = if loop.role == :task, do: :pending, else: :failed
+
       {:ok, updated} =
         update_loop(loop, %{
-          status: :pending,
+          status: new_status,
           assigned_daemon_id: nil
         })
 
@@ -621,19 +619,6 @@ defmodule Algedonia.Loops do
     latest
     |> Repo.all()
     |> Map.new()
-  end
-
-  defp running_task_loop_workspace_ids_for_daemon(daemon_id) do
-    daemon_id = Ecto.UUID.dump!(daemon_id)
-
-    workspace_ids_for_query(
-      """
-      SELECT DISTINCT workspace_id::text
-      FROM loops
-      WHERE assigned_daemon_id = $1 AND role = 'task' AND status = 'running'
-      """,
-      [daemon_id]
-    )
   end
 
   defp running_loop_workspace_ids_for_daemon(daemon_id) do
