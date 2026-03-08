@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -264,6 +265,62 @@ func TestEnsureWorktreeIdempotent(t *testing.T) {
 	assertSharedSkillLinks(t, path2)
 }
 
+func TestEnsureWorktreeUsesLatestOriginDefaultBranch(t *testing.T) {
+	wsDir := setupBareInWorkspaceDir(t)
+	bareRepo := filepath.Join(wsDir, "root")
+	wm := NewWorktreeManager("")
+
+	branch, err := wm.defaultBranch(context.Background(), bareRepo)
+	if err != nil {
+		t.Fatalf("detecting default branch: %v", err)
+	}
+
+	originURLCmd := exec.Command("git", "-C", bareRepo, "remote", "get-url", "origin")
+	originURLOut, err := originURLCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("getting origin URL: %v\n%s", err, originURLOut)
+	}
+	originWorktree := strings.TrimSpace(string(originURLOut))
+
+	commitCmd := exec.Command("git", "-C", originWorktree, "commit", "--allow-empty", "-m", "advance origin")
+	commitCmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com",
+	)
+	if out, err := commitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("committing in origin worktree: %v\n%s", err, out)
+	}
+
+	path, err := wm.EnsureWorktree(context.Background(), wsDir, "latest01")
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+
+	worktreeHead, err := revParse(t, path, "HEAD")
+	if err != nil {
+		t.Fatalf("reading worktree HEAD: %v", err)
+	}
+
+	localRef := fmt.Sprintf("refs/heads/%s", branch)
+	localHead, err := revParse(t, bareRepo, localRef)
+	if err != nil {
+		t.Fatalf("reading local bare ref: %v", err)
+	}
+
+	remoteRef := fmt.Sprintf("refs/remotes/origin/%s", branch)
+	remoteHead, err := revParse(t, bareRepo, remoteRef)
+	if err != nil {
+		t.Fatalf("reading remote tracking ref: %v", err)
+	}
+
+	if localHead == remoteHead {
+		t.Fatalf("test precondition failed: expected stale local ref, got equal SHAs %s", localHead)
+	}
+	if worktreeHead != remoteHead {
+		t.Fatalf("worktree HEAD = %s, want latest %s from %s", worktreeHead, remoteHead, remoteRef)
+	}
+}
+
 func TestEnsureRepoReturnsWorkspaceDir(t *testing.T) {
 	originRepo := initBareRepo(t)
 	baseDir := t.TempDir()
@@ -321,4 +378,15 @@ func assertSharedSkillLinks(t *testing.T, worktreePath string) {
 
 	assertSkillLink(filepath.Join(worktreePath, ".codex", "skills"))
 	assertSkillLink(filepath.Join(worktreePath, ".claude", "skills"))
+}
+
+func revParse(t *testing.T, repoPath, ref string) (string, error) {
+	t.Helper()
+
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", ref)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse %s: %v: %s", ref, err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
 }

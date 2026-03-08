@@ -53,14 +53,23 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 		_ = os.RemoveAll(wtPath)
 	}
 
-	// Fetch latest from origin before detecting default branch, so that
-	// local refs are up-to-date and we can validate the branch exists.
+	// Refresh remote metadata before detecting default branch.
 	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "fetch", "origin")
 
-	// Detect default branch (validates ref exists after fetch)
+	// Detect default branch (validates either local or remote refs exist)
 	branch, err := wm.defaultBranch(ctx, bareRepo)
 	if err != nil {
 		return "", fmt.Errorf("detecting default branch: %w", err)
+	}
+	remoteRef := fmt.Sprintf("refs/remotes/origin/%s", branch)
+	remoteRefspec := fmt.Sprintf("refs/heads/%s:%s", branch, remoteRef)
+	// Force-update the remote-tracking ref for this branch so new worktrees
+	// are based on the latest origin tip even when local bare heads are stale.
+	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "fetch", "origin", remoteRefspec)
+
+	baseRef, err := wm.worktreeBaseRef(ctx, bareRepo, branch)
+	if err != nil {
+		return "", fmt.Errorf("resolving worktree base ref: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
@@ -70,7 +79,7 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 	// Prune stale worktree entries before adding
 	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "worktree", "prune")
 
-	_, _, err = runGitCmd(ctx, wm.GitBin, bareRepo, "worktree", "add", "--detach", wtPath, branch)
+	_, _, err = runGitCmd(ctx, wm.GitBin, bareRepo, "worktree", "add", "--detach", wtPath, baseRef)
 	if err != nil {
 		return "", fmt.Errorf("creating worktree: %w", err)
 	}
@@ -114,8 +123,10 @@ func (wm *GitWorktreeManager) defaultBranch(ctx context.Context, bareRepo string
 	}
 	branch := strings.TrimPrefix(strings.TrimSpace(stdout), "refs/heads/")
 
-	// Verify the branch ref actually exists (it may not if HEAD was set by
-	// init.defaultBranch but the remote uses a different default).
+	// Verify the branch ref actually exists either locally or in origin.
+	if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/remotes/origin/"+branch); err == nil {
+		return branch, nil
+	}
 	if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/heads/"+branch); err == nil {
 		return branch, nil
 	}
@@ -128,6 +139,9 @@ func (wm *GitWorktreeManager) defaultBranch(ctx context.Context, bareRepo string
 				fields := strings.Fields(line)
 				if len(fields) >= 2 {
 					remote := strings.TrimPrefix(fields[1], "refs/heads/")
+					if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/remotes/origin/"+remote); err == nil {
+						return remote, nil
+					}
 					if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/heads/"+remote); err == nil {
 						return remote, nil
 					}
@@ -138,12 +152,31 @@ func (wm *GitWorktreeManager) defaultBranch(ctx context.Context, bareRepo string
 
 	// Last resort: try common defaults.
 	for _, fallback := range []string{"main", "master"} {
+		if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/remotes/origin/"+fallback); err == nil {
+			return fallback, nil
+		}
 		if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", "refs/heads/"+fallback); err == nil {
 			return fallback, nil
 		}
 	}
 
 	return "", fmt.Errorf("no valid default branch found in %s", bareRepo)
+}
+
+// worktreeBaseRef chooses the git ref used to seed a new worktree.
+// Prefer the fetched remote-tracking branch so worktrees start from the latest origin tip.
+func (wm *GitWorktreeManager) worktreeBaseRef(ctx context.Context, bareRepo, branch string) (string, error) {
+	remoteRef := "refs/remotes/origin/" + branch
+	if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", remoteRef); err == nil {
+		return remoteRef, nil
+	}
+
+	localRef := "refs/heads/" + branch
+	if _, _, err := runGitCmd(ctx, wm.GitBin, bareRepo, "rev-parse", "--verify", localRef); err == nil {
+		return localRef, nil
+	}
+
+	return "", fmt.Errorf("missing both %s and %s", remoteRef, localRef)
 }
 
 // TicketPrefix returns the first 8 hex characters of a UUID (hyphens stripped).
