@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/algedonia/daemon/internal/adapter"
 )
@@ -126,7 +127,24 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 	lp.mu.Lock()
 	lpAttempt := lp.attempt
 	lpWorkspaceDir := lp.workspaceDir
+	lpWorkdir := lp.workdir
 	lp.mu.Unlock()
+
+	snapshotCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	snapshotSHA, snapshotCreated, snapshotErr := snapshotCheckerCompletion(snapshotCtx, lpWorkdir, loopID, lpAttempt)
+	if snapshotErr != nil {
+		payload := map[string]interface{}{
+			"loop_id":     loopID,
+			"message":     fmt.Sprintf("checker snapshot commit failed: %v", snapshotErr),
+			"recoverable": false,
+			"attempt":     lpAttempt,
+		}
+		mergeScopePayload(payload, scope)
+		m.sendEvent("error", payload)
+		return
+	}
 
 	expectedJSON, expectedFeedback := expectedCheckerHandoffPaths(loopID, lpAttempt, lpWorkspaceDir)
 	payload := map[string]interface{}{
@@ -136,16 +154,23 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 		"expected_handoff_json_path":     expectedJSON,
 		"expected_handoff_feedback_path": expectedFeedback,
 		"attempt":                        lpAttempt,
+		"snapshot_commit_created":        snapshotCreated,
+	}
+	if snapshotCreated {
+		payload["snapshot_commit_sha"] = snapshotSHA
+		payload["snapshot_commit_message"] = checkerSnapshotCommitMessage(loopID, lpAttempt)
 	}
 	mergeScopePayload(payload, scope)
 
 	verdict, feedbackPath, feedback, parseErr := loadCheckerHandoff(loopID, lpAttempt, lpWorkspaceDir)
 	if parseErr != nil {
-		m.sendEvent("error", map[string]interface{}{
+		parseErrPayload := map[string]interface{}{
 			"loop_id":     loopID,
 			"message":     fmt.Sprintf("checker handoff parse error: %v", parseErr),
 			"recoverable": true,
-		})
+		}
+		mergeScopePayload(parseErrPayload, scope)
+		m.sendEvent("error", parseErrPayload)
 		payload["handoff_valid"] = false
 		payload["handoff_error"] = parseErr.Error()
 		payload["verdict"] = "fail"
