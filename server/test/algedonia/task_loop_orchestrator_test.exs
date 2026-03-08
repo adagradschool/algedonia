@@ -1055,6 +1055,36 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       reloaded = Algedonia.Loops.get_loop!(loop.id)
       assert reloaded.status == :failed
     end
+
+    test "requeued loop past max_attempts fails on start instead of retrying", %{
+      orchestrator: pid
+    } do
+      # Simulate a loop that was requeued after being killed mid-run,
+      # with current_attempt already at max_attempts
+      ticket = insert_ticket!(%{status: :in_progress})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3,
+          current_attempt: 3
+        })
+
+      daemon = insert_daemon!(%{status: :online})
+
+      assert {:error, :attempts_exhausted} =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
+      refute_receive {:push, _, _, %{"role" => "maker"}}, 100
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :failed
+    end
   end
 
   describe "task loop: checker handoff repair cascade" do

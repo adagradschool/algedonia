@@ -295,8 +295,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
        |> put_rc(loop.id, run)
        |> push(daemon.name, loop.id, Map.merge(%{"role" => "maker", "task" => task}, run))}
     else
-      %{role: _} -> {:error, :not_task_loop}
-      {:error, r} -> {:error, r}
+      %{role: _} ->
+        {:error, :not_task_loop}
+
+      {:error, :attempts_exhausted} = err ->
+        loop = Loops.get_loop(loop_id)
+        if loop, do: Loops.update_loop_status(loop, :failed)
+        err
+
+      {:error, r} ->
+        {:error, r}
     end
   end
 
@@ -1034,6 +1042,10 @@ defmodule Algedonia.TaskLoopOrchestrator do
     |> Loops.list_loops_for_ticket()
     |> Enum.filter(&(&1.status in [:passed, :failed]))
   end
+
+  defp guard_startable(%{status: :pending, current_attempt: ca, max_attempts: ma})
+       when ca >= ma,
+       do: {:error, :attempts_exhausted}
 
   defp guard_startable(%{status: :pending}), do: :ok
   defp guard_startable(_), do: {:error, :already_running}
