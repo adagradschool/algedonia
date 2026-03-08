@@ -15,12 +15,17 @@ defmodule AlgedoniaWeb.Api.TicketController do
       |> maybe_put(:sort_order, parse_sort_order(params["sort_order"]))
 
     tickets = Tickets.list_tickets(opts)
-    json(conn, %{tickets: Enum.map(tickets, &serialize_ticket/1)})
+
+    queue_state =
+      Tickets.queue_state_for_tickets(conn.assigns.workspace.id, Enum.map(tickets, & &1.id))
+
+    json(conn, %{tickets: Enum.map(tickets, &serialize_ticket(&1, queue_state))})
   end
 
   def show(conn, %{"id" => id}) do
     ticket = resolve_ticket(conn, id)
-    json(conn, %{ticket: serialize_ticket(ticket)})
+    queue_state = Tickets.queue_state_for_tickets(conn.assigns.workspace.id, [ticket.id])
+    json(conn, %{ticket: serialize_ticket(ticket, queue_state)})
   rescue
     Ecto.NoResultsError ->
       conn |> put_status(:not_found) |> json(%{error: "ticket not found"})
@@ -31,7 +36,8 @@ defmodule AlgedoniaWeb.Api.TicketController do
 
     case Tickets.create_ticket_for_workspace(workspace, attrs) do
       {:ok, ticket} ->
-        conn |> put_status(:created) |> json(%{ticket: serialize_ticket(ticket)})
+        queue_state = Tickets.queue_state_for_tickets(workspace.id, [ticket.id])
+        conn |> put_status(:created) |> json(%{ticket: serialize_ticket(ticket, queue_state)})
 
       {:error, changeset} ->
         conn |> put_status(:unprocessable_entity) |> json(%{errors: format_errors(changeset)})
@@ -48,7 +54,8 @@ defmodule AlgedoniaWeb.Api.TicketController do
 
     case Tickets.update_ticket(ticket, attrs) do
       {:ok, ticket} ->
-        json(conn, %{ticket: serialize_ticket(ticket)})
+        queue_state = Tickets.queue_state_for_tickets(conn.assigns.workspace.id, [ticket.id])
+        json(conn, %{ticket: serialize_ticket(ticket, queue_state)})
 
       {:error, changeset} ->
         conn |> put_status(:unprocessable_entity) |> json(%{errors: format_errors(changeset)})
@@ -90,6 +97,22 @@ defmodule AlgedoniaWeb.Api.TicketController do
       conn |> put_status(:not_found) |> json(%{error: "ticket not found"})
   end
 
+  def reorder(conn, %{"ticket_ids" => ticket_ids}) when is_list(ticket_ids) do
+    workspace = conn.assigns.workspace
+
+    case Tickets.reorder_queue(workspace.id, ticket_ids) do
+      {:ok, queue_entries} ->
+        json(conn, %{queue: queue_entries})
+
+      {:error, changeset} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{errors: format_errors(changeset)})
+    end
+  end
+
+  def reorder(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing ticket_ids"})
+  end
+
   defp resolve_ticket(conn, id) do
     workspace = conn.assigns.workspace
 
@@ -104,7 +127,10 @@ defmodule AlgedoniaWeb.Api.TicketController do
     end
   end
 
-  defp serialize_ticket(%Ticket{} = t) do
+  defp serialize_ticket(%Ticket{} = t, queue_state) do
+    queue =
+      Map.get(queue_state, t.id, %{queue_position: nil, queue_status: nil, dispatchable: false})
+
     %{
       id: t.id,
       number: t.number,
@@ -115,6 +141,10 @@ defmodule AlgedoniaWeb.Api.TicketController do
       priority: t.priority,
       assignee: t.assignee,
       coding_agent: t.coding_agent,
+      blocked_by: t.blocked_by || [],
+      queue_position: queue.queue_position,
+      queue_status: queue.queue_status,
+      dispatchable: queue.dispatchable,
       acceptance_criteria: t.acceptance_criteria,
       rubric: t.rubric,
       inserted_at: t.inserted_at,

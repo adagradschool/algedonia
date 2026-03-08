@@ -29,6 +29,7 @@ defmodule Algedonia.Tickets.Ticket do
     field :rubric, :string
     field :max_attempts, :integer, default: 10
     field :overview, :string
+    field :blocked_by, {:array, :binary_id}, default: []
 
     has_many :comments, Algedonia.Tickets.Comment
 
@@ -51,6 +52,7 @@ defmodule Algedonia.Tickets.Ticket do
           rubric: String.t() | nil,
           max_attempts: integer(),
           overview: String.t() | nil,
+          blocked_by: [Algedonia.Types.id()],
           comments: [Comment.t()] | Ecto.Association.NotLoaded.t(),
           inserted_at: DateTime.t(),
           updated_at: DateTime.t()
@@ -75,13 +77,25 @@ defmodule Algedonia.Tickets.Ticket do
       :acceptance_criteria,
       :rubric,
       :max_attempts,
-      :overview
+      :overview,
+      :blocked_by
     ])
     |> maybe_put_default_coding_agent()
     |> validate_required([:workspace_id, :title, :type, :priority])
     |> validate_inclusion(:priority, 1..5)
     |> validate_number(:max_attempts, greater_than: 0, less_than_or_equal_to: 50)
+    |> validate_blocked_by()
     |> unique_constraint([:workspace_id, :number])
+  end
+
+  defp validate_blocked_by(changeset) do
+    blocked_by = get_field(changeset, :blocked_by) || []
+
+    if Enum.uniq(blocked_by) == blocked_by do
+      changeset
+    else
+      add_error(changeset, :blocked_by, "contains duplicate blocker references")
+    end
   end
 
   defp maybe_put_default_coding_agent(changeset) do
