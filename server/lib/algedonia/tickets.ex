@@ -88,6 +88,17 @@ defmodule Algedonia.Tickets do
   end
 
   @doc """
+  Gets tickets by a list of IDs. Returns them in the order found.
+  """
+  @spec get_tickets_by_ids([Algedonia.Types.id()]) :: [Ticket.t()]
+  def get_tickets_by_ids([]), do: []
+
+  def get_tickets_by_ids(ids) when is_list(ids) do
+    import Ecto.Query
+    Ticket |> where([t], t.id in ^ids) |> Repo.all()
+  end
+
+  @doc """
   Creates a ticket.
   """
   @spec create_ticket(map()) :: {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}

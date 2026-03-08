@@ -9,11 +9,23 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   @impl true
   def update(%{ticket: ticket, action: action} = assigns, socket) do
     changeset = Tickets.change_ticket(ticket)
+    workspace = Map.get(assigns, :workspace)
+
+    blocked_by_options =
+      if workspace do
+        Tickets.list_tickets(workspace_id: workspace.id)
+        |> Enum.reject(&(&1.id == ticket.id))
+        |> Enum.map(&{"##{&1.number} #{&1.title}", &1.id})
+      else
+        []
+      end
 
     {:ok,
      socket
      |> assign(assigns)
      |> assign(:action_label, if(action == :new, do: "Save issue", else: "Update issue"))
+     |> assign(:blocked_by_options, blocked_by_options)
+     |> assign(:blocked_by_search, "")
      |> assign_new(:return_to, fn ->
        workspace_slug = Map.get(assigns, :workspace_slug)
        if workspace_slug, do: ~p"/w/#{workspace_slug}/tickets", else: "/tickets"
@@ -30,6 +42,10 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
       |> Map.put(:action, :validate)
 
     {:noreply, assign_form(socket, changeset)}
+  end
+
+  def handle_event("filter_blocked_by", %{"value" => query}, socket) do
+    {:noreply, assign(socket, :blocked_by_search, query)}
   end
 
   def handle_event("save", %{"ticket" => ticket_params}, socket) do
@@ -93,6 +109,15 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
   def coding_agent_options do
     [Codex: :codex, Claude: :claude_code]
+  end
+
+  def filtered_blocked_by_options(options, search) do
+    if search == "" do
+      options
+    else
+      q = String.downcase(search)
+      Enum.filter(options, fn {label, _id} -> String.contains?(String.downcase(label), q) end)
+    end
   end
 
   defp status_label(:in_progress), do: "In Progress"

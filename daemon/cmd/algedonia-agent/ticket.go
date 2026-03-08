@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -92,8 +93,12 @@ func newTicketListCmd() *cobra.Command {
 				if assignee == "" {
 					assignee = "-"
 				}
-				fmt.Fprintf(w, "#%d\t[P%d][%s]\t%s\t%s\t%s\n",
-					t.Number, t.Priority, t.Status, t.Type, assignee, t.Title)
+				blocked := ""
+				if len(t.BlockedBy) > 0 && !t.Dispatchable {
+					blocked = "[blocked]"
+				}
+				fmt.Fprintf(w, "#%d\t[P%d][%s]\t%s\t%s\t%s\t%s\n",
+					t.Number, t.Priority, t.Status, t.Type, assignee, t.Title, blocked)
 			}
 			return w.Flush()
 		},
@@ -134,7 +139,8 @@ func newTicketShowCmd() *cobra.Command {
 				return printJSON(ticket)
 			}
 
-			printTicketDetail(ticket)
+			blockerTickets := fetchBlockerTickets(client, ticket.BlockedBy)
+			printTicketDetail(ticket, blockerTickets)
 			return nil
 		},
 	}
@@ -155,6 +161,7 @@ func newTicketCreateCmd() *cobra.Command {
 		acceptanceCriteria string
 		rubric             string
 		codingAgent        string
+		blockedBy          string
 		jsonOutput         bool
 	)
 
@@ -188,6 +195,13 @@ func newTicketCreateCmd() *cobra.Command {
 			if codingAgent != "" {
 				attrs["coding_agent"] = codingAgent
 			}
+			if cmd.Flags().Changed("blocked-by") {
+				ids, err := resolveBlockedBy(client, blockedBy)
+				if err != nil {
+					return err
+				}
+				attrs["blocked_by"] = ids
+			}
 
 			ticket, err := client.CreateTicket(attrs)
 			if err != nil {
@@ -212,6 +226,7 @@ func newTicketCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&acceptanceCriteria, "acceptance-criteria", "", "Acceptance criteria (markdown)")
 	cmd.Flags().StringVar(&rubric, "rubric", "", "Quality rubric")
 	cmd.Flags().StringVar(&codingAgent, "coding-agent", "", "Coding agent (codex, claude_code)")
+	cmd.Flags().StringVar(&blockedBy, "blocked-by", "", "Comma-separated ticket numbers this ticket depends on (e.g. 12,15)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 
 	_ = cmd.MarkFlagRequired("title")
@@ -232,6 +247,7 @@ func newTicketUpdateCmd() *cobra.Command {
 		acceptanceCriteria string
 		rubric             string
 		codingAgent        string
+		blockedBy          string
 		jsonOutput         bool
 	)
 
@@ -273,6 +289,13 @@ func newTicketUpdateCmd() *cobra.Command {
 			if cmd.Flags().Changed("coding-agent") {
 				attrs["coding_agent"] = codingAgent
 			}
+			if cmd.Flags().Changed("blocked-by") {
+				ids, err := resolveBlockedBy(client, blockedBy)
+				if err != nil {
+					return err
+				}
+				attrs["blocked_by"] = ids
+			}
 
 			if len(attrs) == 0 {
 				return fmt.Errorf("no fields to update — specify at least one flag")
@@ -301,6 +324,7 @@ func newTicketUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&acceptanceCriteria, "acceptance-criteria", "", "New acceptance criteria")
 	cmd.Flags().StringVar(&rubric, "rubric", "", "New rubric")
 	cmd.Flags().StringVar(&codingAgent, "coding-agent", "", "New coding agent")
+	cmd.Flags().StringVar(&blockedBy, "blocked-by", "", "Comma-separated ticket numbers (e.g. 12,15); empty string clears")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 
 	return cmd
@@ -550,7 +574,7 @@ func newTicketExportCmd() *cobra.Command {
 
 // --- helpers ---
 
-func printTicketDetail(t *apiclient.Ticket) {
+func printTicketDetail(t *apiclient.Ticket, blockerTickets map[string]*apiclient.Ticket) {
 	fmt.Printf("#%d %s\n", t.Number, t.Title)
 	fmt.Printf("Status: %s  Type: %s  Priority: P%d\n", t.Status, t.Type, t.Priority)
 
@@ -560,6 +584,8 @@ func printTicketDetail(t *apiclient.Ticket) {
 	if a := deref(t.CodingAgent); a != "" {
 		fmt.Printf("Agent: %s\n", a)
 	}
+
+	fmt.Printf("Depends On: %s\n", formatBlockers(t.BlockedBy, blockerTickets))
 
 	fmt.Println()
 
@@ -582,6 +608,109 @@ func printTicketDetail(t *apiclient.Ticket) {
 
 	fmt.Printf("Created: %s  Updated: %s\n", t.InsertedAt, t.UpdatedAt)
 	fmt.Printf("ID: %s\n", t.ID)
+}
+
+// parseBlockedByNumbers parses a comma-separated string of ticket numbers.
+func parseBlockedByNumbers(raw string) ([]int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	numbers := make([]int, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ticket number %q: %w", p, err)
+		}
+		numbers = append(numbers, n)
+	}
+
+	return numbers, nil
+}
+
+// resolveBlockedBy parses a comma-separated list of ticket numbers and resolves
+// them to UUIDs by fetching the workspace ticket list.
+func resolveBlockedBy(client *apiclient.Client, raw string) ([]string, error) {
+	numbers, err := parseBlockedByNumbers(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(numbers) == 0 {
+		return []string{}, nil
+	}
+
+	tickets, err := client.ListTickets(apiclient.ListTicketsOpts{})
+	if err != nil {
+		return nil, fmt.Errorf("fetching tickets for number resolution: %w", err)
+	}
+
+	byNumber := make(map[int]string, len(tickets))
+	for _, t := range tickets {
+		byNumber[t.Number] = t.ID
+	}
+
+	ids := make([]string, 0, len(numbers))
+	for _, n := range numbers {
+		id, ok := byNumber[n]
+		if !ok {
+			return nil, fmt.Errorf("ticket #%d not found in workspace", n)
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, nil
+}
+
+// formatBlockers renders blocker ticket IDs as "#<number> <title>" using the
+// provided lookup map. Returns "None" when there are no blockers.
+func formatBlockers(blockedBy []string, tickets map[string]*apiclient.Ticket) string {
+	if len(blockedBy) == 0 {
+		return "None"
+	}
+
+	parts := make([]string, 0, len(blockedBy))
+	for _, id := range blockedBy {
+		if t, ok := tickets[id]; ok {
+			parts = append(parts, fmt.Sprintf("#%d %s", t.Number, t.Title))
+		} else {
+			parts = append(parts, id)
+		}
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// fetchBlockerTickets fetches all workspace tickets and builds a lookup map
+// for the given blocker IDs.
+func fetchBlockerTickets(client *apiclient.Client, blockerIDs []string) map[string]*apiclient.Ticket {
+	if len(blockerIDs) == 0 {
+		return nil
+	}
+
+	tickets, err := client.ListTickets(apiclient.ListTicketsOpts{})
+	if err != nil {
+		return nil
+	}
+
+	wanted := make(map[string]bool, len(blockerIDs))
+	for _, id := range blockerIDs {
+		wanted[id] = true
+	}
+
+	result := make(map[string]*apiclient.Ticket, len(blockerIDs))
+	for i := range tickets {
+		if wanted[tickets[i].ID] {
+			result[tickets[i].ID] = &tickets[i]
+		}
+	}
+	return result
 }
 
 func printComment(c *apiclient.Comment, indent int) {

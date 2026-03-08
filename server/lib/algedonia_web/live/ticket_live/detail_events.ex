@@ -27,6 +27,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       page_title: ticket.title,
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
+      blocker_tickets: resolve_blocker_tickets(ticket),
       comments: Tickets.list_comments(ticket.id),
       comment_form: to_form(Tickets.change_comment(%Comment{ticket_id: ticket.id})),
       comment_form_id: "new_comment_0",
@@ -295,6 +296,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     assign(socket,
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
+      blocker_tickets: resolve_blocker_tickets(ticket),
       save_state: :saved
     )
   end
@@ -329,4 +331,10 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   end
 
   defp parse_detail_field(_), do: :error
+
+  defp resolve_blocker_tickets(%{blocked_by: ids}) when is_list(ids) and ids != [] do
+    Tickets.get_tickets_by_ids(ids)
+  end
+
+  defp resolve_blocker_tickets(_), do: []
 end

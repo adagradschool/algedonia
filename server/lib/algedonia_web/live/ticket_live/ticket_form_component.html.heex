@@ -85,6 +85,42 @@
       />
     </div>
 
+    <div :if={@blocked_by_options != []} class="pt-2">
+      <div class="fieldset mb-2">
+        <label>
+          <span class="label mb-1">Depends On</span>
+          <input
+            type="text"
+            placeholder="Search tickets..."
+            value={@blocked_by_search}
+            phx-keyup="filter_blocked_by"
+            phx-target={@myself}
+            class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo mb-1"
+          />
+          <select
+            id="ticket-form-blocked-by"
+            name="ticket[blocked_by][]"
+            multiple
+            size={
+              min(length(filtered_blocked_by_options(@blocked_by_options, @blocked_by_search)), 6)
+            }
+            class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg px-2.5 py-2 focus:outline-none focus:border-accent-indigo"
+          >
+            {Phoenix.HTML.Form.options_for_select(
+              filtered_blocked_by_options(@blocked_by_options, @blocked_by_search),
+              @form[:blocked_by].value || []
+            )}
+          </select>
+        </label>
+        <p
+          :for={msg <- Enum.map(@form[:blocked_by].errors || [], &translate_error(&1))}
+          class="mt-1.5 flex gap-2 items-center text-sm text-error"
+        >
+          {msg}
+        </p>
+      </div>
+    </div>
+
     <div class="flex justify-end pt-2">
       <button
         type="submit"
