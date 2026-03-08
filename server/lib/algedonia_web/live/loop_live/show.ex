@@ -307,7 +307,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     previous_terminal_id = socket.assigns.selected_terminal_id
 
     socket =
-      socket
+      case Loops.get_loop(socket.assigns.loop_id) do
+        nil -> socket
+        loop -> assign(socket, :loop_record, loop)
+      end
       |> HistoryHelper.prepare_history_update()
       |> HistoryHelper.assign_history(history)
       |> TerminalHelper.assign_terminal_run()
@@ -471,6 +474,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     socket
     |> assign(:active, true)
     |> assign(:loop_record, loop)
+    |> TerminalHelper.assign_terminal_ws_access()
     |> OverviewHelper.maybe_start_overview_generation()
   end
 
