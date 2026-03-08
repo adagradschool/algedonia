@@ -5,9 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/algedonia/daemon/internal/config"
 )
 
 func TestNormalizeServerWebsocketURL(t *testing.T) {
+	prevProfile := activeProfile
+	activeProfile = agProfile
+	t.Cleanup(func() {
+		activeProfile = prevProfile
+	})
+
 	tests := []struct {
 		name string
 		in   string
@@ -45,6 +53,12 @@ func TestNormalizeServerWebsocketURL(t *testing.T) {
 }
 
 func TestDefaultServerWebsocketURLUsesBuildValue(t *testing.T) {
+	prevProfile := activeProfile
+	activeProfile = agProfile
+	t.Cleanup(func() {
+		activeProfile = prevProfile
+	})
+
 	orig := defaultServerURL
 	defaultServerURL = "https://prod.algedonia.com"
 	t.Cleanup(func() {
@@ -53,6 +67,51 @@ func TestDefaultServerWebsocketURLUsesBuildValue(t *testing.T) {
 
 	if got := defaultServerWebsocketURL(); got != "wss://prod.algedonia.com/daemon/websocket" {
 		t.Fatalf("defaultServerWebsocketURL()=%q", got)
+	}
+}
+
+func TestAGDProfileDefaults(t *testing.T) {
+	prevProfile := activeProfile
+	activeProfile = agdProfile
+	t.Cleanup(func() {
+		activeProfile = prevProfile
+	})
+
+	if got := defaultServerWebsocketURL(); got != "ws://localhost:4100/daemon/websocket" {
+		t.Fatalf("defaultServerWebsocketURL()=%q, want ws://localhost:4100/daemon/websocket", got)
+	}
+	if got := normalizeServerWebsocketURL("not a url"); got != "ws://localhost:4100/daemon/websocket" {
+		t.Fatalf("normalizeServerWebsocketURL fallback=%q, want ws://localhost:4100/daemon/websocket", got)
+	}
+	if got := defaultTerminalWSListen(); got != "127.0.0.1:8766" {
+		t.Fatalf("defaultTerminalWSListen()=%q, want 127.0.0.1:8766", got)
+	}
+}
+
+func TestInitCLIProfileSetsConfigNamespace(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	prevArgs := os.Args
+	prevProfile := activeProfile
+	config.SetProfile("ag")
+	t.Cleanup(func() {
+		os.Args = prevArgs
+		activeProfile = prevProfile
+		config.SetProfile("ag")
+	})
+
+	os.Args = []string{"/tmp/agd"}
+	initCLIProfile()
+
+	p, err := config.Path()
+	if err != nil {
+		t.Fatalf("config.Path: %v", err)
+	}
+
+	want := filepath.Join(tmp, ".config", "agd", "config.json")
+	if p != want {
+		t.Fatalf("config.Path()=%q, want %q", p, want)
 	}
 }
 

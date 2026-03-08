@@ -1,4 +1,4 @@
-// Package config handles persistent CLI configuration stored at ~/.config/ag/config.json.
+// Package config handles persistent CLI configuration stored under ~/.config/<profile>/config.json.
 package config
 
 import (
@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 )
 
 // Config holds persistent daemon configuration.
@@ -16,13 +18,43 @@ type Config struct {
 	Workspace string `json:"workspace,omitempty"`
 }
 
-// Path returns the config file path (~/.config/ag/config.json).
+const defaultProfile = "ag"
+
+var (
+	profileMu sync.RWMutex
+	profile   = defaultProfile
+)
+
+// SetProfile sets the config namespace profile (e.g. "ag", "agd").
+func SetProfile(name string) {
+	profileMu.Lock()
+	defer profileMu.Unlock()
+	profile = normalizeProfile(name)
+}
+
+func currentProfile() string {
+	profileMu.RLock()
+	defer profileMu.RUnlock()
+	return profile
+}
+
+func normalizeProfile(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	switch name {
+	case "ag", "agd":
+		return name
+	default:
+		return defaultProfile
+	}
+}
+
+// Path returns the config file path (~/.config/<profile>/config.json).
 func Path() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("getting home dir: %w", err)
 	}
-	return filepath.Join(home, ".config", "ag", "config.json"), nil
+	return filepath.Join(home, ".config", currentProfile(), "config.json"), nil
 }
 
 // Load reads the config file. Returns a zero Config if the file does not exist.

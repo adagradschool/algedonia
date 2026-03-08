@@ -88,12 +88,12 @@ func newAPIClient(workspaceOverride string) (*apiclient.Client, *config.Config, 
 	}
 
 	if cfg.Token == "" {
-		return nil, nil, fmt.Errorf("not logged in — run `ag login` first")
+		return nil, nil, fmt.Errorf("not logged in — run `%s login` first", commandName())
 	}
 
 	baseURL := httpBaseURL(cfg.ServerURL)
 	if baseURL == "" {
-		baseURL = "http://localhost:4000"
+		baseURL = profileDefaultHTTPBaseURL()
 	}
 
 	workspace := strings.TrimSpace(workspaceOverride)

@@ -3,11 +3,11 @@ set dotenv-load
 # Algedonia monorepo recipes
 # Run `just --list` to see all available recipes
 
-# Build the daemon CLI as "ag" and install to PATH
+# Build daemon CLIs ("ag" and "agd") and install to PATH
 build-cli:
-    cd daemon && go build -o ag ./cmd/algedonia-agent
     mkdir -p ~/bin
-    mv daemon/ag ~/bin/ag
+    cd daemon && go build -o ~/bin/ag ./cmd/algedonia-agent
+    cd daemon && go build -o ~/bin/agd ./cmd/algedonia-agent
 
 # Install dependencies
 install:
@@ -17,6 +17,37 @@ install:
 # Start the Phoenix dev server (port from $PORT, default 4000)
 server:
     cd server && mix phx.server
+
+# Start the Phoenix dev server on 4100 for local parallel daemon development
+dev-server:
+    cd server && PORT=4100 mix phx.server
+
+# Ensure the dev DB exists (from env/config) and migrate to head
+db: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd server
+    mix run -e '
+      Mix.Task.run("app.config")
+      repo_config = Application.fetch_env!(:algedonia, Algedonia.Repo)
+      db_name = Keyword.fetch!(repo_config, :database)
+      IO.puts("Using dev database: #{db_name}")
+      escaped_db_name = String.replace(db_name, "\"", "\"\"")
+      opts = [
+        hostname: Keyword.get(repo_config, :hostname, "localhost"),
+        username: Keyword.get(repo_config, :username, "postgres"),
+        password: Keyword.get(repo_config, :password, "postgres"),
+        port: Keyword.get(repo_config, :port, 5432),
+        database: "postgres"
+      ]
+      {:ok, pid} = Postgrex.start_link(opts)
+      result = Postgrex.query!(pid, "SELECT 1 FROM pg_database WHERE datname = $1", [db_name])
+      if result.num_rows == 0 do
+        Postgrex.query!(pid, "CREATE DATABASE \"#{escaped_db_name}\"", [])
+      end
+      GenServer.stop(pid)
+    '
+    mix ecto.migrate
 
 # Run all formatters
 format: format-server format-daemon

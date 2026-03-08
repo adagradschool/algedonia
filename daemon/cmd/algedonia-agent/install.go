@@ -18,7 +18,7 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.algedonia.ag</string>
+	<string>{{.LaunchdLabel}}</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>{{.ExePath}}</string>
@@ -38,9 +38,9 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>ThrottleInterval</key>
 	<integer>5</integer>
 	<key>StandardOutPath</key>
-	<string>{{.LogDir}}/ag.out.log</string>
+	<string>{{.LogDir}}/{{.LogPrefix}}.out.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{.LogDir}}/ag.err.log</string>
+	<string>{{.LogDir}}/{{.LogPrefix}}.err.log</string>
 </dict>
 </plist>
 `
@@ -66,6 +66,9 @@ type serviceTemplateData struct {
 	ServerURL string
 	Name      string
 	LogDir    string
+	LogPrefix string
+
+	LaunchdLabel string
 }
 
 func newInstallCmd() *cobra.Command {
@@ -79,10 +82,10 @@ func newInstallCmd() *cobra.Command {
 			}
 
 			if cfg.Token == "" {
-				return fmt.Errorf("not logged in — run `ag login` first")
+				return fmt.Errorf("not logged in — run `%s login` first", commandName())
 			}
 			if cfg.ServerURL == "" {
-				return fmt.Errorf("no server URL configured — run `ag login --server-url <url>` first")
+				return fmt.Errorf("no server URL configured — run `%s login --server-url <url>` first", commandName())
 			}
 
 			exePath, err := os.Executable()
@@ -127,13 +130,15 @@ func installLaunchd(cmd *cobra.Command, exePath, serverURL, name string) error {
 		return fmt.Errorf("creating log dir: %w", err)
 	}
 
-	plistPath := filepath.Join(agentsDir, "com.algedonia.ag.plist")
+	plistPath := filepath.Join(agentsDir, launchdPlistFileName())
 
 	data := serviceTemplateData{
-		ExePath:   exePath,
-		ServerURL: serverURL,
-		Name:      name,
-		LogDir:    logDir,
+		ExePath:      exePath,
+		ServerURL:    serverURL,
+		Name:         name,
+		LogDir:       logDir,
+		LogPrefix:    activeProfile.LogPrefix,
+		LaunchdLabel: activeProfile.LaunchdLabel,
 	}
 
 	tmpl, err := template.New("plist").Parse(launchdPlistTemplate)
@@ -162,7 +167,7 @@ func installLaunchd(cmd *cobra.Command, exePath, serverURL, name string) error {
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Installed LaunchAgent: %s\n", plistPath)
-	fmt.Fprintf(out, "Logs: %s/ag.{out,err}.log\n", logDir)
+	fmt.Fprintf(out, "Logs: %s/%s.{out,err}.log\n", logDir, activeProfile.LogPrefix)
 	fmt.Fprintln(out, "The daemon will now start on login and restart on failure.")
 	return nil
 }
@@ -178,7 +183,7 @@ func installSystemd(cmd *cobra.Command, exePath, serverURL, name string) error {
 		return fmt.Errorf("creating systemd user dir: %w", err)
 	}
 
-	unitPath := filepath.Join(unitDir, "ag.service")
+	unitPath := filepath.Join(unitDir, systemdUnitFileName())
 
 	data := serviceTemplateData{
 		ExePath:   exePath,
@@ -204,13 +209,13 @@ func installSystemd(cmd *cobra.Command, exePath, serverURL, name string) error {
 		return fmt.Errorf("daemon-reload: %w", err)
 	}
 
-	if err := exec.Command("systemctl", "--user", "enable", "--now", "ag").Run(); err != nil {
+	if err := exec.Command("systemctl", "--user", "enable", "--now", activeProfile.SystemdServiceName).Run(); err != nil {
 		return fmt.Errorf("enabling service: %w", err)
 	}
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Installed systemd user service: %s\n", unitPath)
 	fmt.Fprintln(out, "The daemon will now start on login and restart on failure.")
-	fmt.Fprintln(out, "Use `systemctl --user status ag` to check status.")
+	fmt.Fprintf(out, "Use `systemctl --user status %s` to check status.\n", activeProfile.SystemdServiceName)
 	return nil
 }
