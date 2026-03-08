@@ -18,7 +18,7 @@ defmodule Algedonia.Tickets.Ticket do
     field :number, :integer
 
     field :status, Ecto.Enum,
-      values: [:backlog, :planning, :halted, :in_progress, :completed, :archived],
+      values: [:backlog, :planning, :halted, :in_progress, :in_review, :completed, :archived],
       default: :backlog
 
     field :type, Ecto.Enum, values: [:feature, :bug, :chore, :spike]
@@ -29,6 +29,10 @@ defmodule Algedonia.Tickets.Ticket do
     field :rubric, :string
     field :overview, :string
     field :blocked_by, {:array, :binary_id}, default: []
+    field :review_pr_number, :integer
+    field :review_pr_url, :string
+    field :review_last_activity_at, :utc_datetime_usec
+    field :review_paused, :boolean, default: false
 
     has_many :comments, Algedonia.Tickets.Comment
 
@@ -42,7 +46,8 @@ defmodule Algedonia.Tickets.Ticket do
           title: String.t(),
           description: String.t() | nil,
           number: integer() | nil,
-          status: :backlog | :planning | :halted | :in_progress | :completed | :archived,
+          status:
+            :backlog | :planning | :halted | :in_progress | :in_review | :completed | :archived,
           type: :feature | :bug | :chore | :spike,
           coding_agent: :codex | :claude_code,
           priority: integer(),
@@ -51,6 +56,10 @@ defmodule Algedonia.Tickets.Ticket do
           rubric: String.t() | nil,
           overview: String.t() | nil,
           blocked_by: [Algedonia.Types.id()],
+          review_pr_number: integer() | nil,
+          review_pr_url: String.t() | nil,
+          review_last_activity_at: DateTime.t() | nil,
+          review_paused: boolean(),
           comments: [Comment.t()] | Ecto.Association.NotLoaded.t(),
           inserted_at: DateTime.t(),
           updated_at: DateTime.t()
@@ -75,7 +84,11 @@ defmodule Algedonia.Tickets.Ticket do
       :acceptance_criteria,
       :rubric,
       :overview,
-      :blocked_by
+      :blocked_by,
+      :review_pr_number,
+      :review_pr_url,
+      :review_last_activity_at,
+      :review_paused
     ])
     |> maybe_put_default_coding_agent()
     |> validate_required([:workspace_id, :title, :type, :priority])

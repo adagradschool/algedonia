@@ -143,6 +143,42 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :stage, :string, default: nil
   attr :attempt, :integer, default: nil
 
+  defp ticket_card_bottom_row(%{ticket: %{status: :in_review}} = assigns) do
+    ~H"""
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2 min-w-0">
+        <.priority_icon priority={@ticket.priority} />
+        <span class="font-mono text-[10px] text-fg-muted whitespace-nowrap">
+          {ticket_code(@ticket, @prefix)}
+        </span>
+        <.type_badge type={@ticket.type} />
+      </div>
+      <div class="flex items-center gap-2 justify-end">
+        <button
+          phx-click="pull_comments"
+          phx-value-id={@ticket.id}
+          phx-stop-propagation
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-cyan/40 bg-status-cyan/10 text-status-cyan text-[11px] font-medium hover:bg-status-cyan/20 transition-colors"
+          type="button"
+        >
+          Pull Comments
+        </button>
+        <a
+          :if={@loop_id}
+          href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
+          phx-stop-propagation
+          data-phx-link="redirect"
+          data-phx-link-state="push"
+          data-role="loop-stage-link"
+          class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
+        >
+          {stage_label(@stage || "review", @attempt || 1)}
+        </a>
+      </div>
+    </div>
+    """
+  end
+
   defp ticket_card_bottom_row(%{ticket: %{status: :in_progress}} = assigns) do
     ~H"""
     <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -295,6 +331,16 @@ defmodule AlgedoniaWeb.TicketComponents do
       >
         Start Work
       </button>
+      <button
+        :if={@ticket.status == :in_review}
+        phx-click="pull_comments"
+        phx-value-id={@ticket.id}
+        phx-stop-propagation
+        class="inline-flex items-center px-2 py-1 rounded-md border border-status-cyan/40 bg-status-cyan/10 text-status-cyan text-[11px] font-medium hover:bg-status-cyan/20 transition-colors shrink-0"
+        type="button"
+      >
+        Pull Comments
+      </button>
       <a
         :if={@loop_id}
         href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
@@ -428,6 +474,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   def status_label(:planning), do: "Planning"
   def status_label(:halted), do: "Halted"
   def status_label(:in_progress), do: "In Progress"
+  def status_label(:in_review), do: "In Review"
   def status_label(:completed), do: "Completed"
   def status_label(:archived), do: "Archived"
   def status_label(status), do: status |> to_string() |> String.capitalize()
@@ -436,6 +483,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   defp status_label_color(:planning), do: "text-status-yellow"
   defp status_label_color(:halted), do: "text-status-red"
   defp status_label_color(:in_progress), do: "text-status-blue"
+  defp status_label_color(:in_review), do: "text-status-cyan"
   defp status_label_color(:completed), do: "text-status-green"
   defp status_label_color(:archived), do: "text-fg-muted"
   defp status_label_color(_), do: "text-fg-secondary"
@@ -444,6 +492,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   defp status_color(:planning), do: "bg-status-yellow"
   defp status_color(:halted), do: "bg-status-red"
   defp status_color(:in_progress), do: "bg-status-blue"
+  defp status_color(:in_review), do: "bg-status-cyan"
   defp status_color(:completed), do: "bg-status-green"
   defp status_color(:archived), do: "bg-fg-muted/50"
   defp status_color(_), do: "bg-fg-muted"

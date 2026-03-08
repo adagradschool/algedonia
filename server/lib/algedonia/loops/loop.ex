@@ -14,7 +14,7 @@ defmodule Algedonia.Loops.Loop do
 
   @statuses [:pending, :running, :passed, :failed]
 
-  @roles [:task, :hook, :planning]
+  @roles [:task, :hook, :planning, :review]
 
   schema "loops" do
     belongs_to :workspace, Algedonia.Workspaces.Workspace
@@ -46,7 +46,7 @@ defmodule Algedonia.Loops.Loop do
           title: String.t(),
           description: String.t() | nil,
           status: :pending | :running | :passed | :failed,
-          role: :task | :hook,
+          role: :task | :hook | :planning | :review,
           manual_gate: boolean(),
           current_attempt: integer(),
           max_attempts: integer(),

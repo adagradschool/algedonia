@@ -20,7 +20,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     submit_comment submit_reply start_reply edit_comment update_comment
     cancel_edit delete_comment start_work plan_ticket open_planning_session
     open_editor export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now
-    confirm_reset cancel_reset confirm_reset_now)
+    confirm_reset cancel_reset confirm_reset_now pull_comments)
 
   @impl true
   def mount(params, session, socket) do
@@ -307,7 +307,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   defp update_ticket_count(socket, status, delta) do
-    countable = [:planning, :in_progress, :backlog, :halted]
+    countable = [:planning, :in_progress, :in_review, :backlog, :halted]
 
     if status in countable do
       update(socket, :ticket_count, &max(&1 + delta, 0))

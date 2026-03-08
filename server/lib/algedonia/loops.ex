@@ -307,6 +307,17 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Returns all review loops for a ticket, ordered by insertion time.
+  """
+  @spec list_review_loops_for_ticket(Algedonia.Types.id()) :: [Loop.t()]
+  def list_review_loops_for_ticket(ticket_id) do
+    Loop
+    |> where([l], l.ticket_id == ^ticket_id and l.role == :review)
+    |> order_by([l], asc: l.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
   Returns all planning loops for a ticket, ordered by insertion time.
   """
   @spec list_planning_loops_for_ticket(Algedonia.Types.id()) :: [Loop.t()]

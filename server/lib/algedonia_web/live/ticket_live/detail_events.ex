@@ -258,6 +258,18 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
      |> push_patch(to: ~p"/w/#{slug}/tickets")}
   end
 
+  def handle("pull_comments", %{"id" => ticket_id}, socket) do
+    ticket = Tickets.get_ticket!(ticket_id)
+
+    if ticket.status == :in_review do
+      Algedonia.ReviewLoop.pull_comments(ticket)
+      {:noreply, put_flash(socket, :info, "Fetching latest review comments...")}
+    else
+      {:noreply,
+       put_flash(socket, :error, "Pull Comments is only available in the In Review phase")}
+    end
+  end
+
   def handle("confirm_reset", _params, socket) do
     {:noreply, assign(socket, confirm_reset: true)}
   end

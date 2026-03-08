@@ -203,6 +203,8 @@ defmodule Algedonia.TaskLoopOrchestrator do
      end)}
   end
 
+  def handle_info({:ticket_updated, %{status: :in_review}}, state), do: {:noreply, state}
+
   def handle_info({:ticket_updated, %{status: :archived} = ticket}, state) do
     run_with_workspace(ticket.workspace_id, :ok, fn -> cleanup_ticket_worktree(ticket) end)
     {:noreply, state}
