@@ -1,0 +1,191 @@
+<Layouts.app
+  flash={@flash}
+  current_scope={@current_scope}
+  current_workspace={@current_workspace}
+  current_user={@current_user}
+  user_workspaces={@user_workspaces}
+  nav_section={@nav_section}
+  current_path={@current_path}
+>
+  <div class="flex flex-col h-full">
+    <header class="h-12 border-b border-border flex items-center justify-between px-6 bg-surface flex-shrink-0">
+      <h1 class="text-sm font-semibold text-fg">Skills Catalog</h1>
+      <button
+        type="button"
+        phx-click="retry_catalog"
+        class="px-2.5 py-1 text-xs border border-border rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
+      >
+        Retry
+      </button>
+    </header>
+
+    <div class="flex-1 overflow-y-auto p-6 space-y-6">
+      <div
+        :if={@catalog_load_error}
+        id="skills-catalog-load-error"
+        class="rounded-md border border-status-red/50 bg-status-red/10 px-3 py-2"
+      >
+        <div class="text-sm font-medium text-status-red">Skills catalog unavailable</div>
+        <p class="text-xs text-fg-muted mt-1">
+          {@catalog_load_error.message}
+        </p>
+      </div>
+
+      <section class="rounded-lg border border-border bg-surface-panel overflow-hidden">
+        <div class="px-4 py-3 border-b border-border">
+          <h2 class="text-sm font-semibold text-fg">Catalog</h2>
+          <p class="text-xs text-fg-muted mt-1">
+            Read-only registry from `.algedonia/skills`.
+          </p>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full">
+            <thead class="bg-surface-raised border-b border-border">
+              <tr>
+                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
+                  Name
+                </th>
+                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
+                  Type
+                </th>
+                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
+                  Source Path
+                </th>
+                <th class="px-4 py-2 text-left text-[11px] font-medium text-fg-muted uppercase tracking-wider">
+                  Validation Status
+                </th>
+              </tr>
+            </thead>
+            <tbody id="skills-catalog-rows" class="divide-y divide-border">
+              <tr :for={entry <- @catalog_entries} id={"catalog-entry-#{entry.id}"}>
+                <td class="px-4 py-3 text-sm text-fg align-top">
+                  {entry.name}
+                  <div
+                    :if={entry.validation_status == "invalid"}
+                    class="mt-2 rounded-md border border-status-red/30 bg-status-red/5 p-2"
+                  >
+                    <div class="text-[11px] uppercase tracking-wide text-status-red mb-1">
+                      Diagnostics
+                    </div>
+                    <div
+                      :for={diag <- entry.diagnostics}
+                      class="text-xs text-fg-muted mb-1 last:mb-0"
+                    >
+                      <div class="text-fg-secondary">{diag.message}</div>
+                      <div :if={diagnostic_context(diag) != ""} class="text-fg-muted">
+                        {diagnostic_context(diag)}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-4 py-3 text-xs text-fg-muted align-top">{entry.type}</td>
+                <td class="px-4 py-3 text-xs text-fg-muted font-mono break-all align-top">
+                  {entry.source_path}
+                </td>
+                <td class="px-4 py-3 align-top">
+                  <span class={"inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium #{status_badge_classes(entry.validation_status)}"}>
+                    {format_status(entry.validation_status)}
+                  </span>
+                </td>
+              </tr>
+              <tr :if={@catalog_entries == []}>
+                <td colspan="4" class="px-4 py-6 text-xs text-fg-muted text-center">
+                  No catalog entries found.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section class="rounded-lg border border-border bg-surface-panel">
+          <div class="px-4 py-3 border-b border-border">
+            <h2 class="text-sm font-semibold text-fg">Planning Skill Selector</h2>
+            <p class="text-xs text-fg-muted mt-1">Uses catalog entries as the source of truth.</p>
+          </div>
+
+          <fieldset
+            id="planning-skill-selector"
+            class="p-4 space-y-2"
+            disabled={not is_nil(@catalog_load_error)}
+          >
+            <label
+              :for={entry <- Enum.filter(@catalog_entries, &(&1.validation_status == "valid"))}
+              class="flex items-center gap-2 text-sm text-fg-muted"
+            >
+              <input
+                type="checkbox"
+                checked={entry.name in @planning_selected_skills}
+                phx-click="toggle_planning_skill"
+                phx-value-skill={entry.name}
+              />
+              <span>{entry.name}</span>
+              <span class="text-[11px] text-fg-muted">({entry.type})</span>
+            </label>
+            <div
+              :if={@catalog_load_error}
+              class="text-xs text-status-red"
+            >
+              Unable to load catalog. Retry to enable planning selection.
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="rounded-lg border border-border bg-surface-panel">
+          <div class="px-4 py-3 border-b border-border">
+            <h2 class="text-sm font-semibold text-fg">Checker Skill Selector</h2>
+            <p class="text-xs text-fg-muted mt-1">Uses the same catalog source as planning.</p>
+          </div>
+
+          <fieldset
+            id="checker-skill-selector"
+            class="p-4 space-y-2"
+            disabled={not is_nil(@catalog_load_error)}
+          >
+            <label
+              :for={entry <- Enum.filter(@catalog_entries, &(&1.validation_status == "valid"))}
+              class="flex items-center gap-2 text-sm text-fg-muted"
+            >
+              <input
+                type="checkbox"
+                checked={entry.name in @checker_selected_skills}
+                phx-click="toggle_checker_skill"
+                phx-value-skill={entry.name}
+              />
+              <span>{entry.name}</span>
+              <span class="text-[11px] text-fg-muted">({entry.type})</span>
+            </label>
+            <div
+              :if={@catalog_load_error}
+              class="text-xs text-status-red"
+            >
+              Unable to load catalog. Retry to enable checker selection.
+            </div>
+          </fieldset>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <.modal
+    :if={@show_new_workspace_modal}
+    id="new-workspace-modal"
+    show
+    on_cancel={JS.push("close_new_workspace_modal")}
+  >
+    <h2 class="text-lg font-semibold text-fg mb-4">New workspace</h2>
+    <.live_component
+      module={AlgedoniaWeb.WorkspaceLive.NewWorkspaceFormComponent}
+      id="new-workspace-form"
+      form={@new_workspace_form}
+      repos={@new_ws_repos}
+      repo_search={@new_ws_repo_search}
+      repo_dropdown_open={@new_ws_repo_dropdown_open}
+      github_repo_url={@new_ws_github_repo_url}
+      workspace_name={@new_ws_workspace_name}
+      show_url_input={@new_ws_show_url_input}
+    />
+  </.modal>
+</Layouts.app>

@@ -21,7 +21,7 @@ defmodule AlgedoniaWeb.Layouts do
 
   attr :nav_section, :atom,
     default: nil,
-    doc: "active navigation section (:inbox, :issues, :monitor, :settings)"
+    doc: "active navigation section (:inbox, :issues, :skills, :monitor, :settings)"
 
   attr :current_path, :string, default: nil, doc: "current request path for nav fallback"
 
@@ -55,6 +55,7 @@ defmodule AlgedoniaWeb.Layouts do
             user_workspaces={@user_workspaces}
             inbox_active={nav_active?(assigns, :inbox, "/")}
             issues_active={nav_active?(assigns, :issues, "/tickets")}
+            skills_active={nav_active?(assigns, :skills, "/skills")}
             monitor_active={nav_active?(assigns, :monitor, "/monitor")}
             settings_active={nav_active?(assigns, :settings, "/settings")}
             class="!w-full h-full border-r-0"
@@ -103,6 +104,7 @@ defmodule AlgedoniaWeb.Layouts do
   attr :user_workspaces, :list, default: []
   attr :inbox_active, :boolean, default: false
   attr :issues_active, :boolean, default: false
+  attr :skills_active, :boolean, default: false
   attr :monitor_active, :boolean, default: false
   attr :settings_active, :boolean, default: false
   attr :class, :any, default: nil
@@ -211,6 +213,12 @@ defmodule AlgedoniaWeb.Layouts do
           icon="hero-cog-6-tooth"
           label="Settings"
           active={@settings_active}
+        />
+        <.sidebar_link
+          href={workspace_path(@current_workspace, "/skills")}
+          icon="hero-wrench-screwdriver"
+          label="Skills"
+          active={@skills_active}
         />
         <.sidebar_link
           href={workspace_path(@current_workspace, "/monitor")}

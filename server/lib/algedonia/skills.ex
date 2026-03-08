@@ -3,9 +3,10 @@ defmodule Algedonia.Skills do
   Shared skill registry and checker-config validation boundary.
   """
 
-  alias Algedonia.Skills.{CheckerConfigValidator, Error, Registry, Skill}
+  alias Algedonia.Skills.{Catalog, CheckerConfigValidator, Error, Registry, Skill}
 
   @type checker_invocation :: CheckerConfigValidator.invocation()
+  @type catalog_payload :: Catalog.t()
 
   @spec load_registry(keyword()) :: Registry.t()
   def load_registry(opts \\ []), do: Registry.load(opts)
@@ -16,6 +17,9 @@ defmodule Algedonia.Skills do
     |> load_registry()
     |> Registry.list()
   end
+
+  @spec catalog(keyword()) :: catalog_payload()
+  def catalog(opts \\ []), do: Catalog.load(opts)
 
   @spec validate_checker_config(term(), keyword()) ::
           {:ok, [checker_invocation()], Registry.t()} | {:error, [Error.t()], Registry.t()}
