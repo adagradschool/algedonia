@@ -14,6 +14,7 @@ defmodule AlgedoniaWeb.Api.WorkspaceControllerTest do
           tracker_config: %{"planning_states" => ["planning", "ready"]},
           playback_config: %{"concurrency" => 2},
           defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
+          max_iterations: 7,
           planning_mode: :always_approve
         })
 
@@ -35,6 +36,7 @@ defmodule AlgedoniaWeb.Api.WorkspaceControllerTest do
       assert ws["tracker_config"] == workspace.tracker_config
       assert ws["playback_config"] == workspace.playback_config
       assert ws["defaults"] == workspace.defaults
+      assert ws["max_iterations"] == workspace.max_iterations
       assert ws["planning_mode"] == "always_approve"
     end
 

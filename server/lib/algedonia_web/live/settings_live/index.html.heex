@@ -24,6 +24,13 @@
             label="GitHub repo URL"
             placeholder="https://github.com/org/repo"
           />
+          <.input
+            field={@form[:max_iterations]}
+            type="number"
+            label="Default iteration budget"
+            min="1"
+            max="50"
+          />
 
           <div class="flex justify-end">
             <button

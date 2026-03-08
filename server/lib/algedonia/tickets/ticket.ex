@@ -27,7 +27,6 @@ defmodule Algedonia.Tickets.Ticket do
     field :assignee, :string
     field :acceptance_criteria, :string
     field :rubric, :string
-    field :max_attempts, :integer, default: 10
     field :overview, :string
     field :blocked_by, {:array, :binary_id}, default: []
 
@@ -50,7 +49,6 @@ defmodule Algedonia.Tickets.Ticket do
           assignee: String.t() | nil,
           acceptance_criteria: String.t() | nil,
           rubric: String.t() | nil,
-          max_attempts: integer(),
           overview: String.t() | nil,
           blocked_by: [Algedonia.Types.id()],
           comments: [Comment.t()] | Ecto.Association.NotLoaded.t(),
@@ -76,14 +74,12 @@ defmodule Algedonia.Tickets.Ticket do
       :assignee,
       :acceptance_criteria,
       :rubric,
-      :max_attempts,
       :overview,
       :blocked_by
     ])
     |> maybe_put_default_coding_agent()
     |> validate_required([:workspace_id, :title, :type, :priority])
     |> validate_inclusion(:priority, 1..5)
-    |> validate_number(:max_attempts, greater_than: 0, less_than_or_equal_to: 50)
     |> validate_blocked_by()
     |> unique_constraint([:workspace_id, :number])
   end

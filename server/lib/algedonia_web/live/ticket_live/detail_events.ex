@@ -225,8 +225,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       "priority" => ticket.priority,
       "assignee" => ticket.assignee,
       "acceptance_criteria" => ticket.acceptance_criteria,
-      "rubric" => ticket.rubric,
-      "max_attempts" => ticket.max_attempts
+      "rubric" => ticket.rubric
     }
 
     case Tickets.create_ticket_for_workspace(workspace, attrs) do

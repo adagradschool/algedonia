@@ -17,6 +17,7 @@ defmodule Algedonia.Workspaces.Workspace do
           tracker_config: map(),
           playback_config: map(),
           defaults: map(),
+          max_iterations: integer(),
           planning_mode: :auto | :always_approve | :always_review,
           next_ticket_number: integer(),
           tickets: [Ticket.t()] | Ecto.Association.NotLoaded.t(),
@@ -39,6 +40,7 @@ defmodule Algedonia.Workspaces.Workspace do
     field :tracker_config, :map, default: %{}
     field :playback_config, :map, default: %{}
     field :defaults, :map, default: %{}
+    field :max_iterations, :integer, default: 10
 
     field :planning_mode, Ecto.Enum,
       values: @planning_modes,
@@ -69,10 +71,13 @@ defmodule Algedonia.Workspaces.Workspace do
       :tracker_config,
       :playback_config,
       :defaults,
+      :max_iterations,
       :planning_mode
     ])
     |> validate_required([:name, :slug, :prefix])
+    |> validate_number(:max_iterations, greater_than: 0, less_than_or_equal_to: 50)
     |> validate_inclusion(:planning_mode, @planning_modes)
+    |> check_constraint(:max_iterations, name: :workspaces_max_iterations_check)
     |> check_constraint(:planning_mode, name: :workspaces_planning_mode_check)
     |> unique_constraint(:slug)
     |> validate_format(:github_repo_url, ~r{^https?://},

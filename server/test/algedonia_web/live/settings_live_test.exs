@@ -8,6 +8,7 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
       assert html =~ "Settings"
       assert html =~ workspace.name
+      assert html =~ "Default iteration budget"
     end
   end
 
@@ -45,11 +46,16 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       html =
         view
         |> form("form[phx-submit=save]",
-          workspace: %{name: workspace.name, github_repo_url: "https://github.com/org/repo"}
+          workspace: %{
+            name: workspace.name,
+            github_repo_url: "https://github.com/org/repo",
+            max_iterations: 9
+          }
         )
         |> render_submit()
 
       assert html =~ "https://github.com/org/repo"
+      assert Algedonia.Workspaces.get_workspace!(workspace.id).max_iterations == 9
     end
   end
 

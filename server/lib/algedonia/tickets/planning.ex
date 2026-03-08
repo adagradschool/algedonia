@@ -92,7 +92,7 @@ defmodule Algedonia.Tickets.Planning do
       title: ticket.title,
       description: ticket.description || "",
       role: :task,
-      max_attempts: ticket.max_attempts,
+      max_attempts: Workspaces.iteration_budget(ticket.workspace_id),
       rubric: ticket.rubric || "",
       checker_config: checker_config
     }

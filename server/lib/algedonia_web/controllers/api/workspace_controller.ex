@@ -19,6 +19,7 @@ defmodule AlgedoniaWeb.Api.WorkspaceController do
             tracker_config: w.tracker_config,
             playback_config: w.playback_config,
             defaults: w.defaults,
+            max_iterations: w.max_iterations,
             planning_mode: w.planning_mode
           }
         end)
