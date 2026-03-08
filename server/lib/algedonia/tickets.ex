@@ -2,6 +2,7 @@ defmodule Algedonia.Tickets do
   @moduledoc """
   Context for ticket management — CRUD, filtering, sorting, and PubSub broadcasts.
   """
+  import Ecto.Changeset
   import Ecto.Query
 
   require Logger
@@ -9,7 +10,7 @@ defmodule Algedonia.Tickets do
   alias Algedonia.PubSub.Topics
   alias Algedonia.Repo
   alias Algedonia.Skills.Error
-  alias Algedonia.Tickets.{Comment, Ticket}
+  alias Algedonia.Tickets.{Comment, QueueEntry, Ticket}
   alias Algedonia.Tickets.Planning
   alias Algedonia.Workspaces.Workspace
 
@@ -91,9 +92,9 @@ defmodule Algedonia.Tickets do
   """
   @spec create_ticket(map()) :: {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
   def create_ticket(attrs) do
-    %Ticket{}
-    |> Ticket.changeset(attrs)
-    |> Repo.insert()
+    attrs
+    |> ticket_create_changeset()
+    |> insert_ticket_with_queue()
     |> broadcast(:ticket_created)
   end
 
@@ -103,13 +104,11 @@ defmodule Algedonia.Tickets do
     number = Algedonia.Workspaces.next_ticket_number!(workspace)
 
     result =
-      %Ticket{}
-      |> Ticket.changeset(
-        attrs
-        |> Map.put("workspace_id", workspace.id)
-        |> Map.put("number", number)
-      )
-      |> Repo.insert()
+      attrs
+      |> Map.put("workspace_id", workspace.id)
+      |> Map.put("number", number)
+      |> ticket_create_changeset()
+      |> insert_ticket_with_queue()
       |> broadcast(:ticket_created)
 
     with {:ok, ticket} <- result do
@@ -130,8 +129,9 @@ defmodule Algedonia.Tickets do
           {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
   def update_ticket(%Ticket{} = ticket, attrs, opts \\ []) do
     old_status = ticket.status
+    changeset = ticket |> Ticket.changeset(attrs) |> validate_blocked_by_constraints(ticket.id)
 
-    case ticket |> Ticket.changeset(attrs) |> Repo.update() do
+    case Repo.update(changeset) do
       {:ok, updated} ->
         maybe_apply_status_loop_lifecycle(old_status, updated)
         result = broadcast({:ok, updated}, :ticket_updated)
@@ -145,6 +145,126 @@ defmodule Algedonia.Tickets do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  @doc """
+  Returns persisted queue state for the given workspace.
+  """
+  @spec list_queue(Algedonia.Types.id()) :: [
+          %{
+            ticket_id: Algedonia.Types.id(),
+            position: integer(),
+            status: String.t(),
+            dispatchable: boolean()
+          }
+        ]
+  def list_queue(workspace_id) when is_binary(workspace_id) do
+    queue_entries =
+      Repo.all(
+        from q in QueueEntry,
+          where: q.workspace_id == ^workspace_id and not is_nil(q.ticket_id),
+          order_by: [asc: q.position, asc: q.inserted_at],
+          select: %{ticket_id: q.ticket_id, position: q.position, status: q.status}
+      )
+
+    ticket_ids = Enum.map(queue_entries, & &1.ticket_id)
+    queue_state = queue_state_for_tickets(workspace_id, ticket_ids)
+
+    Enum.map(queue_entries, fn entry ->
+      state = Map.get(queue_state, entry.ticket_id, %{dispatchable: false})
+      Map.put(entry, :dispatchable, state.dispatchable)
+    end)
+  end
+
+  @doc """
+  Reorders queue positions for all ticket queue entries in a workspace.
+  """
+  @spec reorder_queue(Algedonia.Types.id(), [Algedonia.Types.id()]) ::
+          {:ok,
+           [
+             %{
+               ticket_id: Algedonia.Types.id(),
+               position: integer(),
+               status: String.t(),
+               dispatchable: boolean()
+             }
+           ]}
+          | {:error, Ecto.Changeset.t()}
+  def reorder_queue(workspace_id, ordered_ticket_ids)
+      when is_binary(workspace_id) and is_list(ordered_ticket_ids) do
+    ordered_ticket_ids = Enum.map(ordered_ticket_ids, &to_string/1)
+
+    queue_entries =
+      Repo.all(
+        from q in QueueEntry,
+          where: q.workspace_id == ^workspace_id and not is_nil(q.ticket_id),
+          select: q,
+          order_by: [asc: q.position, asc: q.inserted_at]
+      )
+
+    queued_ticket_ids = Enum.map(queue_entries, & &1.ticket_id)
+
+    with :ok <- validate_reorder_ticket_ids(ordered_ticket_ids, queued_ticket_ids),
+         {:ok, _} <- persist_reorder(queue_entries, ordered_ticket_ids) do
+      {:ok, list_queue(workspace_id)}
+    end
+  end
+
+  @doc """
+  Returns queue metadata keyed by ticket ID for the given ticket IDs.
+  """
+  @spec queue_state_for_tickets(Algedonia.Types.id(), [Algedonia.Types.id()]) ::
+          %{
+            optional(Algedonia.Types.id()) => %{
+              queue_position: integer() | nil,
+              queue_status: String.t() | nil,
+              dispatchable: boolean()
+            }
+          }
+  def queue_state_for_tickets(workspace_id, ticket_ids)
+      when is_binary(workspace_id) and is_list(ticket_ids) do
+    ticket_ids =
+      ticket_ids
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if ticket_ids == [] do
+      %{}
+    else
+      queue_map =
+        Repo.all(
+          from q in QueueEntry,
+            where: q.workspace_id == ^workspace_id and q.ticket_id in ^ticket_ids,
+            select: {q.ticket_id, %{queue_position: q.position, queue_status: q.status}}
+        )
+        |> Map.new()
+
+      blocker_map =
+        Repo.all(
+          from t in Ticket,
+            where: t.workspace_id == ^workspace_id and t.id in ^ticket_ids,
+            select: {t.id, t.blocked_by}
+        )
+        |> Map.new()
+
+      blocker_status_map =
+        blocker_map
+        |> Map.values()
+        |> List.flatten()
+        |> Enum.uniq()
+        |> blocker_statuses(workspace_id)
+
+      Enum.reduce(ticket_ids, %{}, fn ticket_id, acc ->
+        blockers = Map.get(blocker_map, ticket_id, [])
+        queue_state = Map.get(queue_map, ticket_id, %{queue_position: nil, queue_status: nil})
+
+        Map.put(
+          acc,
+          ticket_id,
+          Map.put(queue_state, :dispatchable, blockers_completed?(blockers, blocker_status_map))
+        )
+      end)
     end
   end
 
@@ -412,5 +532,202 @@ defmodule Algedonia.Tickets do
     |> where([t], t.id == ^ticket_id)
     |> select([t], t.workspace_id)
     |> Repo.one()
+  end
+
+  defp ticket_create_changeset(attrs) do
+    %Ticket{}
+    |> Ticket.changeset(attrs)
+    |> validate_blocked_by_constraints(nil)
+  end
+
+  defp insert_ticket_with_queue(changeset) do
+    case Repo.transaction(fn -> insert_ticket_and_queue(changeset) end) do
+      {:ok, ticket} ->
+        {:ok, ticket}
+
+      {:error, {:ticket, ticket_changeset}} ->
+        {:error, ticket_changeset}
+
+      {:error, {:queue_entry, _reason}} ->
+        {:error, add_error(changeset, :base, "queue entry persistence failed")}
+    end
+  end
+
+  defp insert_ticket_and_queue(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, ticket} ->
+        insert_queue_entry_or_rollback(ticket)
+
+      {:error, ticket_changeset} ->
+        Repo.rollback({:ticket, ticket_changeset})
+    end
+  end
+
+  defp insert_queue_entry_or_rollback(ticket) do
+    case insert_queue_entry(Repo, ticket) do
+      {:ok, _queue_entry} -> ticket
+      {:error, reason} -> Repo.rollback({:queue_entry, reason})
+    end
+  end
+
+  defp insert_queue_entry(repo, %Ticket{} = ticket) do
+    max_position =
+      repo.one(
+        from q in QueueEntry,
+          where: q.workspace_id == ^ticket.workspace_id,
+          select: fragment("COALESCE(MAX(?), -1)", q.position)
+      ) || -1
+
+    attrs = %{
+      workspace_id: ticket.workspace_id,
+      ticket_id: ticket.id,
+      status: "queued",
+      position: max_position + 1
+    }
+
+    %QueueEntry{}
+    |> QueueEntry.changeset(attrs)
+    |> repo.insert()
+  end
+
+  defp validate_reorder_ticket_ids(ordered_ticket_ids, queued_ticket_ids) do
+    cond do
+      Enum.uniq(ordered_ticket_ids) != ordered_ticket_ids ->
+        {:error, add_error(change(%Ticket{}), :ticket_ids, "contains duplicate ticket ids")}
+
+      MapSet.new(ordered_ticket_ids) != MapSet.new(queued_ticket_ids) ->
+        {:error,
+         add_error(
+           change(%Ticket{}),
+           :ticket_ids,
+           "must include each queued ticket id exactly once"
+         )}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp persist_reorder(queue_entries, ordered_ticket_ids) do
+    by_ticket_id = Map.new(queue_entries, &{&1.ticket_id, &1})
+
+    Repo.transaction(fn ->
+      Enum.with_index(ordered_ticket_ids)
+      |> Enum.each(&update_queue_position(by_ticket_id, &1))
+    end)
+    |> case do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset}
+
+      {:error, reason} ->
+        {:error,
+         add_error(
+           change(%Ticket{}),
+           :ticket_ids,
+           "failed to persist queue order: #{inspect(reason)}"
+         )}
+    end
+  end
+
+  defp update_queue_position(by_ticket_id, {ticket_id, position}) do
+    queue_entry = Map.fetch!(by_ticket_id, ticket_id)
+
+    case queue_entry |> QueueEntry.changeset(%{position: position}) |> Repo.update() do
+      {:ok, _updated} -> :ok
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp blocker_statuses([], _workspace_id), do: %{}
+
+  defp blocker_statuses(blocker_ids, workspace_id) do
+    Repo.all(
+      from t in Ticket,
+        where: t.workspace_id == ^workspace_id and t.id in ^blocker_ids,
+        select: {t.id, t.status}
+    )
+    |> Map.new()
+  end
+
+  defp blockers_completed?(blocker_ids, blocker_status_map) do
+    Enum.all?(blocker_ids, fn blocker_id ->
+      Map.get(blocker_status_map, blocker_id) == :completed
+    end)
+  end
+
+  defp validate_blocked_by_constraints(changeset, ticket_id) do
+    blocked_by = get_field(changeset, :blocked_by) || []
+    workspace_id = get_field(changeset, :workspace_id)
+
+    changeset
+    |> maybe_validate_blocker_references(workspace_id, blocked_by)
+    |> maybe_validate_blocker_cycle(workspace_id, ticket_id, blocked_by)
+  end
+
+  defp maybe_validate_blocker_references(changeset, workspace_id, blocked_by)
+       when not is_binary(workspace_id) or blocked_by == [] do
+    changeset
+  end
+
+  defp maybe_validate_blocker_references(changeset, _workspace_id, _blocked_by)
+       when not changeset.valid? do
+    changeset
+  end
+
+  defp maybe_validate_blocker_references(changeset, workspace_id, blocked_by) do
+    existing_blockers =
+      Repo.all(
+        from t in Ticket,
+          where: t.workspace_id == ^workspace_id and t.id in ^blocked_by,
+          select: t.id
+      )
+
+    if blocked_by -- existing_blockers == [] do
+      changeset
+    else
+      add_error(changeset, :blocked_by, "contains invalid blocker references")
+    end
+  end
+
+  defp maybe_validate_blocker_cycle(changeset, workspace_id, ticket_id, blocked_by) do
+    if changeset.valid? and is_binary(workspace_id) and is_binary(ticket_id) and blocked_by != [] and
+         creates_dependency_cycle?(workspace_id, ticket_id, blocked_by) do
+      add_error(changeset, :blocked_by, "creates a dependency cycle")
+    else
+      changeset
+    end
+  end
+
+  defp creates_dependency_cycle?(workspace_id, ticket_id, blocked_by) do
+    dependency_graph =
+      Repo.all(
+        from t in Ticket,
+          where: t.workspace_id == ^workspace_id,
+          select: {t.id, t.blocked_by}
+      )
+      |> Map.new()
+      |> Map.put(ticket_id, blocked_by)
+
+    Enum.any?(blocked_by, fn blocker_id ->
+      blocker_id == ticket_id or reachable?(blocker_id, ticket_id, dependency_graph, MapSet.new())
+    end)
+  end
+
+  defp reachable?(current, target, graph, visited) do
+    cond do
+      current == target ->
+        true
+
+      MapSet.member?(visited, current) ->
+        false
+
+      true ->
+        visited = MapSet.put(visited, current)
+        blockers = Map.get(graph, current, [])
+        Enum.any?(blockers, &reachable?(&1, target, graph, visited))
+    end
   end
 end

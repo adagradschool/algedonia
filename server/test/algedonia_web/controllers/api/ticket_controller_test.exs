@@ -134,6 +134,44 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
       assert %{"errors" => %{"title" => ["Can't be blank"]}} = json_response(conn, 422)
     end
 
+    test "creates a ticket with blocked_by and dispatchability fields", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      blocker = insert_ticket!(%{workspace_id: workspace.id, status: :backlog})
+
+      conn =
+        post(conn, "/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{
+            "title" => "Dependent ticket",
+            "type" => "bug",
+            "blocked_by" => [blocker.id]
+          }
+        })
+
+      %{"ticket" => t} = json_response(conn, 201)
+      assert t["blocked_by"] == [blocker.id]
+      assert t["dispatchable"] == false
+      assert is_integer(t["queue_position"])
+    end
+
+    test "returns explicit blocked_by validation errors for invalid blocker refs", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      conn =
+        post(conn, "/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{
+            "title" => "Dependent ticket",
+            "type" => "bug",
+            "blocked_by" => [Ecto.UUID.generate()]
+          }
+        })
+
+      assert %{"errors" => %{"blocked_by" => [message]}} = json_response(conn, 422)
+      assert String.contains?(String.downcase(message), "invalid blocker references")
+    end
+
     test "returns 400 when ticket key is missing", %{conn: conn, workspace: workspace} do
       conn = post(conn, "/api/w/#{workspace.slug}/tickets", %{})
       assert json_response(conn, 400)
@@ -172,6 +210,95 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
         })
 
       assert json_response(conn, 404)
+    end
+
+    test "rejects dependency cycles with explicit validation errors", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      a = insert_ticket!(%{workspace_id: workspace.id, title: "A"})
+      b = insert_ticket!(%{workspace_id: workspace.id, title: "B"})
+
+      _ =
+        patch(conn, "/api/w/#{workspace.slug}/tickets/#{a.id}", %{
+          "ticket" => %{"blocked_by" => [b.id]}
+        })
+
+      conn =
+        patch(conn, "/api/w/#{workspace.slug}/tickets/#{b.id}", %{
+          "ticket" => %{"blocked_by" => [a.id]}
+        })
+
+      assert %{"errors" => %{"blocked_by" => [message]}} = json_response(conn, 422)
+      assert String.contains?(String.downcase(message), "dependency cycle")
+    end
+  end
+
+  describe "POST /api/w/:workspace/tickets/reorder" do
+    test "reorders queue positions without mutating ticket identity", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      %{"ticket" => first} =
+        conn
+        |> post("/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{"title" => "First", "type" => "bug"}
+        })
+        |> json_response(201)
+
+      %{"ticket" => second} =
+        conn
+        |> post("/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{"title" => "Second", "type" => "bug"}
+        })
+        |> json_response(201)
+
+      %{"ticket" => third} =
+        conn
+        |> post("/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{"title" => "Third", "type" => "bug"}
+        })
+        |> json_response(201)
+
+      conn =
+        post(conn, "/api/w/#{workspace.slug}/tickets/reorder", %{
+          "ticket_ids" => [third["id"], first["id"], second["id"]]
+        })
+
+      %{"queue" => queue} = json_response(conn, 200)
+      assert Enum.map(queue, & &1["ticket_id"]) == [third["id"], first["id"], second["id"]]
+      assert Enum.map(queue, & &1["position"]) == [0, 1, 2]
+
+      conn = get(conn, "/api/w/#{workspace.slug}/tickets/#{first["id"]}")
+      %{"ticket" => updated_first} = json_response(conn, 200)
+      assert updated_first["number"] == first["number"]
+    end
+
+    test "returns validation errors when reorder payload is incomplete", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      %{"ticket" => first} =
+        conn
+        |> post("/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{"title" => "First", "type" => "bug"}
+        })
+        |> json_response(201)
+
+      _ =
+        conn
+        |> post("/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{"title" => "Second", "type" => "bug"}
+        })
+        |> json_response(201)
+
+      conn =
+        post(conn, "/api/w/#{workspace.slug}/tickets/reorder", %{
+          "ticket_ids" => [first["id"]]
+        })
+
+      assert %{"errors" => %{"ticket_ids" => [message]}} = json_response(conn, 422)
+      assert String.contains?(String.downcase(message), "queued ticket id exactly once")
     end
   end
 
