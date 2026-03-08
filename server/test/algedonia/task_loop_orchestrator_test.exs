@@ -2,7 +2,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   use Algedonia.DataCase, async: true
 
   alias Algedonia.CheckerHandoff
-  alias Algedonia.{Loops, Repo, TaskLoopOrchestrator, TenantScope, Tickets}
+  alias Algedonia.{Loops, Repo, TaskLoopOrchestrator, TenantScope, Tickets, Workspaces}
   alias Ecto.Adapters.SQL.Sandbox
   import Algedonia.Factory
 
@@ -22,6 +22,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     Sandbox.allow(Repo, self(), pid)
 
     workspace = default_workspace!()
+    {:ok, workspace} = Workspaces.update_workspace(workspace, %{max_iterations: 3})
     previous_scope = put_workspace_scope(workspace)
     on_exit(fn -> restore_workspace_scope(previous_scope) end)
 
@@ -439,6 +440,14 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   defp setup_task_loop(pid, opts \\ []) do
     ticket_attrs = Keyword.get(opts, :ticket, %{})
     loop_attrs = Keyword.get(opts, :loop, %{})
+    max_iterations = Keyword.get(opts, :max_iterations)
+
+    if is_integer(max_iterations) do
+      workspace = default_workspace!()
+
+      {:ok, _workspace} =
+        Workspaces.update_workspace(workspace, %{max_iterations: max_iterations})
+    end
 
     ticket =
       insert_ticket!(Map.merge(%{status: :in_progress}, ticket_attrs))
@@ -909,7 +918,10 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
     test "checker exhaustion halts ticket and retains last failed receipt", %{orchestrator: pid} do
       %{loop: loop, daemon: daemon, ticket: ticket} =
-        setup_task_loop(pid, loop: %{checker_config: checker_pipeline_config(), max_attempts: 1})
+        setup_task_loop(pid,
+          max_iterations: 1,
+          loop: %{checker_config: checker_pipeline_config()}
+        )
 
       handle_attempt_complete(
         pid,
@@ -1007,7 +1019,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
   describe "task loop: max attempts exhaustion" do
     test "loop fails after all attempts exhausted", %{orchestrator: pid} do
       %{loop: loop, daemon: daemon} =
-        setup_task_loop(pid, loop: %{max_attempts: 2})
+        setup_task_loop(pid, max_iterations: 2)
 
       # Attempt 1: maker → checker → fail
       handle_attempt_complete(
@@ -1054,6 +1066,39 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
       reloaded = Algedonia.Loops.get_loop!(loop.id)
       assert reloaded.status == :failed
+    end
+
+    test "uses workspace budget instead of persisted loop max_attempts", %{
+      orchestrator: pid,
+      workspace: workspace
+    } do
+      {:ok, _workspace} = Workspaces.update_workspace(workspace, %{max_iterations: 3})
+      ticket = insert_ticket!(%{status: :in_progress, workspace_id: workspace.id})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: workspace.id,
+          role: :task,
+          status: :pending,
+          current_attempt: 1,
+          max_attempts: 1
+        })
+
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
+      loop_id = loop.id
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.current_attempt == 2
+      assert reloaded.max_attempts == 3
     end
 
     test "requeued loop past max_attempts fails on start instead of retrying", %{

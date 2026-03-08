@@ -158,8 +158,9 @@ defmodule Algedonia.TicketsTest do
   end
 
   describe "update_ticket/2 loop lifecycle transitions" do
-    test "entering in_progress ensures a task loop exists" do
-      ticket = insert_ticket!(%{status: :planning})
+    test "entering in_progress ensures a task loop with workspace iteration budget" do
+      workspace = insert_workspace!(%{max_iterations: 6})
+      ticket = insert_ticket!(%{status: :planning, workspace_id: workspace.id})
 
       assert {:ok, updated} = Tickets.update_ticket(ticket, %{status: :in_progress})
       assert updated.status == :in_progress
@@ -167,6 +168,7 @@ defmodule Algedonia.TicketsTest do
       [task_loop] = Loops.list_task_loops_for_ticket(ticket.id)
       assert task_loop.role == :task
       assert task_loop.status == :pending
+      assert task_loop.max_attempts == 6
     end
 
     test "entering in_progress reuses existing task loop" do

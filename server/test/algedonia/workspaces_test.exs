@@ -62,7 +62,7 @@ defmodule Algedonia.WorkspacesTest do
   end
 
   describe "workspace config fields" do
-    test "persists tracker/playback/defaults and planning mode" do
+    test "persists tracker/playback/defaults, max_iterations, and planning mode" do
       attrs = %{
         name: "Acme",
         slug: "acme-ws",
@@ -71,6 +71,7 @@ defmodule Algedonia.WorkspacesTest do
         tracker_config: %{"planning_states" => ["planning"]},
         playback_config: %{"concurrency" => 2},
         defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
+        max_iterations: 7,
         planning_mode: :always_review
       }
 
@@ -78,10 +79,11 @@ defmodule Algedonia.WorkspacesTest do
       assert workspace.tracker_config == %{"planning_states" => ["planning"]}
       assert workspace.playback_config == %{"concurrency" => 2}
       assert workspace.defaults == %{"base_pipeline" => ["compile", "test", "lint"]}
+      assert workspace.max_iterations == 7
       assert workspace.planning_mode == :always_review
     end
 
-    test "updates tracker/playback/defaults and planning mode" do
+    test "updates tracker/playback/defaults, max_iterations, and planning mode" do
       workspace = insert_workspace!()
 
       assert {:ok, updated} =
@@ -89,12 +91,14 @@ defmodule Algedonia.WorkspacesTest do
                  tracker_config: %{"planning_states" => ["ready"]},
                  playback_config: %{"concurrency" => 4},
                  defaults: %{"coding_agent" => "codex"},
+                 max_iterations: 9,
                  planning_mode: :always_approve
                })
 
       assert updated.tracker_config == %{"planning_states" => ["ready"]}
       assert updated.playback_config == %{"concurrency" => 4}
       assert updated.defaults == %{"coding_agent" => "codex"}
+      assert updated.max_iterations == 9
       assert updated.planning_mode == :always_approve
     end
 
@@ -108,6 +112,31 @@ defmodule Algedonia.WorkspacesTest do
 
       assert {:error, changeset} = Workspaces.create_workspace(attrs)
       assert errors_on(changeset).planning_mode
+    end
+
+    test "rejects invalid max_iterations in changeset" do
+      attrs = %{
+        name: "Acme",
+        slug: "acme-invalid-iterations",
+        prefix: "ACM",
+        max_iterations: 0
+      }
+
+      assert {:error, changeset} = Workspaces.create_workspace(attrs)
+      assert errors_on(changeset).max_iterations
+    end
+  end
+
+  describe "iteration_budget/1" do
+    test "returns configured workspace max_iterations" do
+      workspace = insert_workspace!(%{max_iterations: 6})
+      assert Workspaces.iteration_budget(workspace) == 6
+      assert Workspaces.iteration_budget(workspace.id) == 6
+    end
+
+    test "falls back to safe default for missing workspace" do
+      assert Workspaces.iteration_budget(Ecto.UUID.generate()) ==
+               Workspaces.default_iteration_budget()
     end
   end
 

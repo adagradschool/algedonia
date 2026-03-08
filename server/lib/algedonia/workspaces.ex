@@ -3,6 +3,7 @@ defmodule Algedonia.Workspaces do
   Context for workspaces, memberships, and invitations.
   """
   import Ecto.Query
+  require Logger
 
   alias Algedonia.Accounts.User
   alias Algedonia.Repo
@@ -17,6 +18,50 @@ defmodule Algedonia.Workspaces do
     completed: 4,
     archived: 5
   }
+  @default_iteration_budget 10
+  @max_iteration_budget 50
+
+  @doc """
+  Returns the safe fallback iteration budget used when workspace configuration
+  is missing or invalid.
+  """
+  @spec default_iteration_budget() :: integer()
+  def default_iteration_budget, do: @default_iteration_budget
+
+  @doc """
+  Resolves the project-level loop iteration budget for a workspace.
+
+  Falls back to a safe default and emits a warning when configuration is
+  missing or invalid.
+  """
+  @spec iteration_budget(Workspace.t() | Algedonia.Types.id() | nil) :: integer()
+  def iteration_budget(%Workspace{id: workspace_id, max_iterations: value}) do
+    normalize_iteration_budget(value, workspace_id)
+  end
+
+  def iteration_budget(workspace_id) when is_binary(workspace_id) do
+    case get_workspace(workspace_id) do
+      %Workspace{} = workspace ->
+        iteration_budget(workspace)
+
+      nil ->
+        Logger.warning(
+          "Missing workspace iteration budget for workspace #{workspace_id}; " <>
+            "falling back to #{@default_iteration_budget}"
+        )
+
+        @default_iteration_budget
+    end
+  end
+
+  def iteration_budget(other) do
+    Logger.warning(
+      "Invalid workspace iteration budget lookup #{inspect(other)}; " <>
+        "falling back to #{@default_iteration_budget}"
+    )
+
+    @default_iteration_budget
+  end
 
   @doc """
   Gets a workspace by slug, raising if not found.
@@ -318,5 +363,19 @@ defmodule Algedonia.Workspaces do
     |> where([h], h.from_status == ^from_status and h.to_status == ^to_status)
     |> where([h], h.enabled == true)
     |> Repo.all()
+  end
+
+  defp normalize_iteration_budget(value, _workspace_id)
+       when is_integer(value) and value > 0 and value <= @max_iteration_budget do
+    value
+  end
+
+  defp normalize_iteration_budget(value, workspace_id) do
+    Logger.warning(
+      "Invalid workspace iteration budget for workspace #{workspace_id}: #{inspect(value)}; " <>
+        "falling back to #{@default_iteration_budget}"
+    )
+
+    @default_iteration_budget
   end
 end

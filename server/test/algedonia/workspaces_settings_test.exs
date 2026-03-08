@@ -15,7 +15,7 @@ defmodule Algedonia.WorkspacesSettingsTest do
   end
 
   describe "update_workspace/2" do
-    test "updates name, slug, prefix, and github_repo_url" do
+    test "updates name, slug, prefix, github_repo_url, and max_iterations" do
       workspace = insert_workspace!(%{name: "Old Name"})
 
       assert {:ok, updated} =
@@ -23,13 +23,15 @@ defmodule Algedonia.WorkspacesSettingsTest do
                  name: "New Name",
                  slug: "new-name",
                  prefix: "NEW",
-                 github_repo_url: "https://github.com/org/repo"
+                 github_repo_url: "https://github.com/org/repo",
+                 max_iterations: 8
                })
 
       assert updated.name == "New Name"
       assert updated.slug == "new-name"
       assert updated.prefix == "NEW"
       assert updated.github_repo_url == "https://github.com/org/repo"
+      assert updated.max_iterations == 8
     end
 
     test "rejects invalid github_repo_url" do
@@ -47,6 +49,13 @@ defmodule Algedonia.WorkspacesSettingsTest do
 
       assert {:error, changeset} = Workspaces.update_workspace(workspace, %{slug: "taken"})
       assert errors_on(changeset).slug
+    end
+
+    test "rejects invalid max_iterations" do
+      workspace = insert_workspace!()
+
+      assert {:error, changeset} = Workspaces.update_workspace(workspace, %{max_iterations: 0})
+      assert errors_on(changeset).max_iterations
     end
   end
 

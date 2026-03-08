@@ -41,7 +41,8 @@ defmodule Algedonia.HookExecutor do
       title: "Hook: #{hook.from_status} → #{hook.to_status}",
       description: hook.instruction,
       role: :hook,
-      status: :pending
+      status: :pending,
+      max_attempts: Workspaces.iteration_budget(ticket.workspace_id)
     })
   end
 

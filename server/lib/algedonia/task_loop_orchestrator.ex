@@ -10,7 +10,8 @@ defmodule Algedonia.TaskLoopOrchestrator do
     PromptBuilder,
     Skills,
     TenantScope,
-    Tickets
+    Tickets,
+    Workspaces
   }
 
   @max_handoff_repairs 2
@@ -261,14 +262,16 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp start_loop(loop_id, daemon_name, opts, workspace_id, state) do
     with %{role: :task} = loop <- Loops.get_loop(loop_id) || {:error, :not_found},
          true <- loop.workspace_id == workspace_id || {:error, :workspace_scope_mismatch},
-         :ok <- guard_startable(loop),
+         max_attempts <- loop_iteration_budget(loop),
+         :ok <- guard_startable(loop, max_attempts),
          {:ok, daemon} <- fetch_daemon(daemon_name),
          :ok <- check_repo_ready(daemon.name, loop),
          {:ok, loop} <-
            Loops.update_loop(loop, %{
              status: :running,
              assigned_daemon_id: daemon.id,
-             current_attempt: max(loop.current_attempt, 0) + 1
+             current_attempt: max(loop.current_attempt, 0) + 1,
+             max_attempts: max_attempts
            }) do
       loop = Loops.preload_with_workspace(loop)
       task = PromptBuilder.maker_task(loop, loop.ticket, "")
@@ -455,8 +458,9 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   defp do_retry(loop, feedback, dn, state, opts \\ []) do
     failed_receipt = Keyword.get(opts, :failed_receipt)
+    max_attempts = loop_iteration_budget(loop)
 
-    if loop.current_attempt >= loop.max_attempts do
+    if loop.current_attempt >= max_attempts do
       case Loops.update_loop_status(loop, :failed) do
         {:ok, _updated} ->
           maybe_halt_ticket_after_checker_exhaustion(loop, failed_receipt)
@@ -470,7 +474,8 @@ defmodule Algedonia.TaskLoopOrchestrator do
            {:ok, loop} <-
              Loops.update_loop(loop, %{
                status: :running,
-               current_attempt: loop.current_attempt + 1
+               current_attempt: loop.current_attempt + 1,
+               max_attempts: max_attempts
              }) do
         loop = Loops.preload_with_workspace(loop)
         p = PromptBuilder.maker_task(loop, loop.ticket, feedback)
@@ -1043,12 +1048,24 @@ defmodule Algedonia.TaskLoopOrchestrator do
     |> Enum.filter(&(&1.status in [:passed, :failed]))
   end
 
-  defp guard_startable(%{status: :pending, current_attempt: ca, max_attempts: ma})
-       when ca >= ma,
+  defp guard_startable(%{status: :pending, current_attempt: ca}, max_attempts)
+       when is_integer(max_attempts) and ca >= max_attempts,
        do: {:error, :attempts_exhausted}
 
-  defp guard_startable(%{status: :pending}), do: :ok
-  defp guard_startable(_), do: {:error, :already_running}
+  defp guard_startable(%{status: :pending}, _max_attempts), do: :ok
+  defp guard_startable(_, _max_attempts), do: {:error, :already_running}
+
+  defp loop_iteration_budget(%{
+         ticket: %{workspace: %Algedonia.Workspaces.Workspace{} = workspace}
+       }) do
+    Workspaces.iteration_budget(workspace)
+  end
+
+  defp loop_iteration_budget(%{workspace_id: workspace_id}) when is_binary(workspace_id) do
+    Workspaces.iteration_budget(workspace_id)
+  end
+
+  defp loop_iteration_budget(_), do: Workspaces.default_iteration_budget()
 
   defp default_push(dn, lid, opts),
     do: AlgedoniaWeb.DaemonChannel.push_start_loop(dn, lid, opts)
