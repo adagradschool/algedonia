@@ -13,10 +13,15 @@ defmodule Algedonia.Loops.LoopStep do
   schema "loop_steps" do
     field :role, :string
     field :attempt, :integer
+    field :step_id, :string
+    field :skill, :string
+    field :order_index, :integer
+    field :required, :boolean, default: true
     field :status, :string
     field :session_id, :string
     field :exit_code, :integer
     field :verdict, :string
+    field :summary, :string
     field :feedback, :string
     field :feedback_path, :string
     field :error, :string
@@ -32,10 +37,15 @@ defmodule Algedonia.Loops.LoopStep do
           loop: Loop.t() | Ecto.Association.NotLoaded.t(),
           role: String.t(),
           attempt: integer(),
+          step_id: String.t() | nil,
+          skill: String.t() | nil,
+          order_index: integer() | nil,
+          required: boolean() | nil,
           status: String.t(),
           session_id: String.t() | nil,
           exit_code: integer() | nil,
           verdict: String.t() | nil,
+          summary: String.t() | nil,
           feedback: String.t() | nil,
           feedback_path: String.t() | nil,
           error: String.t() | nil,
@@ -52,10 +62,15 @@ defmodule Algedonia.Loops.LoopStep do
       :loop_id,
       :role,
       :attempt,
+      :step_id,
+      :skill,
+      :order_index,
+      :required,
       :status,
       :session_id,
       :exit_code,
       :verdict,
+      :summary,
       :feedback,
       :feedback_path,
       :error,

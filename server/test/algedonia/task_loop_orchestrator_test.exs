@@ -377,17 +377,41 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     %{ticket: ticket, loop: loop, daemon: daemon}
   end
 
-  defp valid_checker_payload(loop_id, attempt, verdict, feedback) do
+  defp valid_checker_payload(loop_id, attempt, verdict, feedback, extra \\ %{}) do
     expected_feedback_path =
       CheckerHandoff.expected_paths(loop_id, attempt, workspace_slug_for_loop(loop_id)).feedback
 
+    Map.merge(
+      %{
+        "session_id" => "checker-#{attempt}",
+        "exit_code" => 0,
+        "handoff_valid" => true,
+        "verdict" => verdict,
+        "feedback" => feedback,
+        "feedback_path" => expected_feedback_path
+      },
+      extra
+    )
+  end
+
+  defp checker_pipeline_config do
     %{
-      "session_id" => "checker-#{attempt}",
-      "exit_code" => 0,
-      "handoff_valid" => true,
-      "verdict" => verdict,
-      "feedback" => feedback,
-      "feedback_path" => expected_feedback_path
+      "base" => [
+        %{
+          "step_id" => "base-lint-test",
+          "skill" => "command",
+          "params" => "just lint && just test",
+          "required" => true
+        }
+      ],
+      "ticket_specific" => [
+        %{
+          "step_id" => "ticket-orchestrator-tests",
+          "skill" => "command",
+          "params" => "cd server && mix test test/algedonia/task_loop_orchestrator_test.exs",
+          "required" => true
+        }
+      ]
     }
   end
 
@@ -677,6 +701,203 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
 
       reloaded_ticket = Tickets.get_ticket!(ticket.id)
       assert reloaded_ticket.status == :completed
+    end
+  end
+
+  describe "task loop: ordered checker pipeline receipts" do
+    test "persists ordered checker step receipts with required metadata", %{orchestrator: pid} do
+      %{loop: loop, daemon: daemon} =
+        setup_task_loop(pid, loop: %{checker_config: checker_pipeline_config()})
+
+      handle_attempt_complete(
+        pid,
+        loop.id,
+        %{"session_id" => "maker-1", "exit_code" => 0},
+        daemon.name,
+        loop.workspace_id
+      )
+
+      assert_receive {:push, _, _, %{"role" => "checker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop.id,
+                 valid_checker_payload(loop.id, 1, "pass", "all checks passed", %{
+                   "checker_step_receipts" => [
+                     %{
+                       "step_id" => "base-lint-test",
+                       "skill" => "command",
+                       "order_index" => 0,
+                       "required" => true,
+                       "verdict" => "pass",
+                       "summary" => "Base pipeline passed."
+                     },
+                     %{
+                       "step_id" => "ticket-orchestrator-tests",
+                       "skill" => "command",
+                       "order_index" => 1,
+                       "required" => true,
+                       "verdict" => "pass",
+                       "summary" => "Ticket checker step passed."
+                     }
+                   ]
+                 }),
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      checker_receipts =
+        get_history(pid, loop.id)
+        |> Enum.filter(&(&1.role == "checker" && &1.attempt == 1))
+        |> Enum.sort_by(& &1.order_index)
+
+      assert length(checker_receipts) == 2
+      [base, ticket] = checker_receipts
+
+      assert base.step_id == "base-lint-test"
+      assert base.skill == "command"
+      assert base.order_index == 0
+      assert base.required == true
+      assert base.verdict == "pass"
+      assert base.summary == "Base pipeline passed."
+      assert base.attempt == 1
+
+      assert ticket.step_id == "ticket-orchestrator-tests"
+      assert ticket.skill == "command"
+      assert ticket.order_index == 1
+      assert ticket.required == true
+      assert ticket.verdict == "pass"
+      assert ticket.summary == "Ticket checker step passed."
+      assert ticket.attempt == 1
+    end
+
+    test "required-step failure blocks pass and emits structured retry feedback", %{
+      orchestrator: pid
+    } do
+      %{loop: loop, daemon: daemon} =
+        setup_task_loop(pid, loop: %{checker_config: checker_pipeline_config(), max_attempts: 3})
+
+      loop_id = loop.id
+
+      handle_attempt_complete(
+        pid,
+        loop.id,
+        %{"session_id" => "maker-1", "exit_code" => 0},
+        daemon.name,
+        loop.workspace_id
+      )
+
+      assert_receive {:push, _, _, %{"role" => "checker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop.id,
+                 valid_checker_payload(loop.id, 1, "fail", "ticket checker failed", %{
+                   "checker_step_receipts" => [
+                     %{
+                       "step_id" => "base-lint-test",
+                       "skill" => "command",
+                       "order_index" => 0,
+                       "required" => true,
+                       "verdict" => "pass",
+                       "summary" => "Base pipeline passed."
+                     },
+                     %{
+                       "step_id" => "ticket-orchestrator-tests",
+                       "skill" => "command",
+                       "order_index" => 1,
+                       "required" => true,
+                       "verdict" => "fail",
+                       "summary" => "Task loop orchestrator tests failed."
+                     }
+                   ]
+                 }),
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker", "task" => task} = retry_payload}
+      assert task =~ "step_id: ticket-orchestrator-tests"
+      assert task =~ "summary: Task loop orchestrator tests failed."
+
+      assert retry_payload["checker_failure"] == %{
+               "step_id" => "ticket-orchestrator-tests",
+               "skill" => "command",
+               "order_index" => 1,
+               "required" => true,
+               "verdict" => "fail",
+               "summary" => "Task loop orchestrator tests failed.",
+               "attempt" => 1
+             }
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :running
+      refute reloaded.status == :passed
+    end
+
+    test "checker exhaustion halts ticket and retains last failed receipt", %{orchestrator: pid} do
+      %{loop: loop, daemon: daemon, ticket: ticket} =
+        setup_task_loop(pid, loop: %{checker_config: checker_pipeline_config(), max_attempts: 1})
+
+      handle_attempt_complete(
+        pid,
+        loop.id,
+        %{"session_id" => "maker-1", "exit_code" => 0},
+        daemon.name,
+        loop.workspace_id
+      )
+
+      assert_receive {:push, _, _, %{"role" => "checker"}}
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop.id,
+                 valid_checker_payload(loop.id, 1, "fail", "ticket checker failed", %{
+                   "checker_step_receipts" => [
+                     %{
+                       "step_id" => "base-lint-test",
+                       "skill" => "command",
+                       "order_index" => 0,
+                       "required" => true,
+                       "verdict" => "pass",
+                       "summary" => "Base pipeline passed."
+                     },
+                     %{
+                       "step_id" => "ticket-orchestrator-tests",
+                       "skill" => "command",
+                       "order_index" => 1,
+                       "required" => true,
+                       "verdict" => "fail",
+                       "summary" => "Task loop orchestrator tests failed."
+                     }
+                   ]
+                 }),
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      refute_receive {:push, _, _, %{"role" => "maker"}}, 100
+
+      reloaded = Algedonia.Loops.get_loop!(loop.id)
+      assert reloaded.status == :failed
+
+      reloaded_ticket = Tickets.get_ticket!(ticket.id)
+      assert reloaded_ticket.status == :halted
+
+      last_failed_receipt =
+        get_history(pid, loop.id)
+        |> Enum.filter(&(&1.role == "checker" && &1.attempt == 1))
+        |> Enum.sort_by(& &1.order_index)
+        |> Enum.find(&(&1.required && &1.verdict != "pass"))
+
+      assert last_failed_receipt.step_id == "ticket-orchestrator-tests"
+      assert last_failed_receipt.skill == "command"
+      assert last_failed_receipt.verdict == "fail"
+      assert last_failed_receipt.summary == "Task loop orchestrator tests failed."
+      assert last_failed_receipt.attempt == 1
     end
   end
 

@@ -5,6 +5,14 @@ defmodule Algedonia.TaskLoopOrchestrator do
   alias Algedonia.{Agents, CheckerHandoff, Daemons, Loops, PromptBuilder, TenantScope, Tickets}
 
   @max_handoff_repairs 2
+  @default_base_pipeline [
+    %{
+      "step_id" => "base-just-lint-and-test",
+      "skill" => "command",
+      "params" => "just lint && just test",
+      "required" => true
+    }
+  ]
 
   @doc "Starts the TaskLoopOrchestrator GenServer."
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -386,23 +394,20 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp checker_done(loop, payload, dn, sid, ec, state) do
     case CheckerHandoff.validate(loop.id, loop.current_attempt, ws_slug_for(loop), payload) do
       {:ok, v} ->
-        verdict = if(v.verdict == "pass", do: "pass", else: "fail")
-        fp = Map.get(v, :feedback_path)
-
-        Loops.complete_last_running(loop.id, "checker", loop.current_attempt, %{
-          session_id: sid,
-          exit_code: ec,
-          verdict: verdict,
-          feedback: v.feedback,
-          feedback_path: fp,
-          status: "completed"
-        })
-
+        receipts = evaluate_checker_attempt(loop, payload, v)
+        persist_checker_receipts(loop, receipts, sid, ec, Map.get(v, :feedback_path))
         state = clear_hr(state, loop.id)
-        apply_verdict(verdict, loop, v.feedback, dn, state)
+        apply_checker_attempt_result(loop, receipts, dn, state)
 
       {:error, err} ->
         repair_handoff(loop, dn, err, sid, state)
+    end
+  end
+
+  defp apply_checker_attempt_result(loop, receipts, dn, state) do
+    case first_failed_required_receipt(receipts) do
+      nil -> apply_verdict("pass", loop, nil, dn, state)
+      receipt -> do_retry(loop, retry_feedback_text(receipt), dn, state, failed_receipt: receipt)
     end
   end
 
@@ -419,11 +424,17 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   defp apply_verdict(_fail, loop, feedback, dn, state), do: do_retry(loop, feedback, dn, state)
 
-  defp do_retry(loop, feedback, dn, state) do
+  defp do_retry(loop, feedback, dn, state, opts \\ []) do
+    failed_receipt = Keyword.get(opts, :failed_receipt)
+
     if loop.current_attempt >= loop.max_attempts do
       case Loops.update_loop_status(loop, :failed) do
-        {:ok, _} -> {:ok, clear_rc(state, loop.id)}
-        _ -> {:error, :update_failed}
+        {:ok, _updated} ->
+          maybe_halt_ticket_after_checker_exhaustion(loop, failed_receipt)
+          {:ok, clear_rc(state, loop.id)}
+
+        _ ->
+          {:error, :update_failed}
       end
     else
       with {:ok, daemon} <- ensure_daemon(loop, dn),
@@ -435,7 +446,9 @@ defmodule Algedonia.TaskLoopOrchestrator do
         loop = Loops.preload_with_workspace(loop)
         p = PromptBuilder.maker_task(loop, loop.ticket, feedback)
 
-        pl = Map.merge(%{"role" => "maker", "task" => p}, scoped_run_context(state, loop))
+        pl =
+          Map.merge(%{"role" => "maker", "task" => p}, scoped_run_context(state, loop))
+          |> maybe_put_failed_receipt(failed_receipt)
 
         {:ok, _step} =
           Loops.create_step(%{
@@ -452,6 +465,307 @@ defmodule Algedonia.TaskLoopOrchestrator do
       end
     end
   end
+
+  defp evaluate_checker_attempt(loop, payload, validated) do
+    payload_receipts = payload_step_receipts(payload)
+
+    {receipts, _global_fail_consumed?} =
+      checker_step_plan(loop)
+      |> Enum.reduce_while({[], false}, fn step, {acc, global_fail_consumed?} ->
+        payload_receipt = find_payload_step_receipt(payload_receipts, step)
+
+        {verdict, summary, global_fail_consumed?} =
+          resolve_checker_step_result(step, payload_receipt, validated, global_fail_consumed?)
+
+        receipt = %{
+          step_id: step.step_id,
+          skill: step.skill,
+          order_index: step.order_index,
+          required: step.required,
+          verdict: verdict,
+          summary: summary,
+          attempt: loop.current_attempt
+        }
+
+        acc = [receipt | acc]
+
+        if required_receipt_failure?(receipt),
+          do: {:halt, {acc, global_fail_consumed?}},
+          else: {:cont, {acc, global_fail_consumed?}}
+      end)
+
+    Enum.reverse(receipts)
+  end
+
+  defp persist_checker_receipts(loop, receipts, sid, ec, feedback_path) do
+    now = DateTime.utc_now()
+
+    Enum.with_index(receipts)
+    |> Enum.each(fn {receipt, index} ->
+      attrs =
+        checker_receipt_attrs(receipt, sid, ec, if(index == 0, do: feedback_path, else: nil))
+
+      if index == 0 do
+        persist_first_checker_receipt(loop, attrs, now)
+      else
+        create_checker_receipt_step(loop, attrs, now, index)
+      end
+    end)
+  end
+
+  defp checker_receipt_attrs(receipt, sid, ec, feedback_path) do
+    %{
+      session_id: sid,
+      exit_code: ec,
+      status: receipt_status(receipt.verdict),
+      verdict: receipt.verdict,
+      summary: receipt.summary,
+      feedback: receipt.summary,
+      feedback_path: feedback_path,
+      step_id: receipt.step_id,
+      skill: receipt.skill,
+      order_index: receipt.order_index,
+      required: receipt.required
+    }
+  end
+
+  defp persist_first_checker_receipt(loop, attrs, now) do
+    case Loops.complete_last_running(loop.id, "checker", loop.current_attempt, attrs) do
+      {:ok, _step} ->
+        :ok
+
+      :not_found ->
+        _ =
+          Loops.create_step(
+            Map.merge(attrs, %{
+              loop_id: loop.id,
+              role: "checker",
+              attempt: loop.current_attempt,
+              started_at: now,
+              finished_at: DateTime.add(now, 1, :microsecond)
+            })
+          )
+
+        :ok
+    end
+  end
+
+  defp create_checker_receipt_step(loop, attrs, now, index) do
+    _ =
+      Loops.create_step(
+        Map.merge(attrs, %{
+          loop_id: loop.id,
+          role: "checker",
+          attempt: loop.current_attempt,
+          started_at: DateTime.add(now, index, :microsecond),
+          finished_at: DateTime.add(now, index + 1, :microsecond)
+        })
+      )
+
+    :ok
+  end
+
+  defp checker_step_plan(loop) do
+    config = Map.get(loop, :checker_config)
+
+    base_steps =
+      config_steps(config, [:base, :base_pipeline, :base_steps])
+      |> default_if_empty(@default_base_pipeline)
+
+    ticket_steps =
+      if is_list(config),
+        do: config,
+        else:
+          config_steps(config, [
+            :ticket_specific,
+            :ticket_specific_steps,
+            :approved_checker_config,
+            :steps
+          ])
+
+    (base_steps ++ ticket_steps)
+    |> Enum.with_index()
+    |> Enum.map(fn {step, order_index} -> normalize_checker_step(step, order_index) end)
+  end
+
+  defp config_steps(config, keys) when is_map(config) and is_list(keys) do
+    Enum.find_value(keys, [], fn key ->
+      case map_value(config, key) do
+        steps when is_list(steps) -> steps
+        _ -> nil
+      end
+    end)
+  end
+
+  defp config_steps(_config, _keys), do: []
+
+  defp default_if_empty([], default), do: default
+  defp default_if_empty(list, _default), do: list
+
+  defp normalize_checker_step(step, order_index) when is_binary(step) do
+    %{
+      step_id: "checker-step-#{order_index}",
+      skill: "command",
+      order_index: order_index,
+      required: true
+    }
+    |> maybe_put_step_params(step)
+  end
+
+  defp normalize_checker_step(step, order_index) when is_map(step) do
+    required = map_value(step, :required)
+
+    %{
+      step_id: normalize_step_id(map_value(step, :step_id), order_index),
+      skill: normalize_skill(map_value(step, :skill)),
+      order_index: order_index,
+      required: if(is_boolean(required), do: required, else: true)
+    }
+    |> maybe_put_step_params(map_value(step, :params))
+  end
+
+  defp normalize_checker_step(_step, order_index),
+    do: %{
+      step_id: "checker-step-#{order_index}",
+      skill: "command",
+      order_index: order_index,
+      required: true
+    }
+
+  defp maybe_put_step_params(step, params) when is_nil(params), do: step
+  defp maybe_put_step_params(step, params), do: Map.put(step, :params, params)
+
+  defp normalize_step_id(nil, order_index), do: "checker-step-#{order_index}"
+  defp normalize_step_id("", order_index), do: "checker-step-#{order_index}"
+  defp normalize_step_id(step_id, _order_index), do: to_string(step_id) |> String.trim()
+
+  defp normalize_skill(nil), do: "command"
+  defp normalize_skill(""), do: "command"
+  defp normalize_skill(skill), do: to_string(skill) |> String.trim()
+
+  defp payload_step_receipts(payload) do
+    case map_value(payload, :checker_step_receipts) || map_value(payload, :step_receipts) do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
+  defp find_payload_step_receipt(receipts, step) do
+    Enum.find(receipts, fn receipt ->
+      receipt_step_id = map_value(receipt, :step_id)
+      receipt_order_index = normalize_order_index(map_value(receipt, :order_index))
+
+      (is_binary(receipt_step_id) && String.trim(receipt_step_id) == step.step_id) ||
+        receipt_order_index == step.order_index
+    end)
+  end
+
+  defp resolve_checker_step_result(_step, payload_receipt, validated, global_fail_consumed?)
+       when is_map(payload_receipt) do
+    verdict =
+      map_value(payload_receipt, :verdict)
+      |> normalize_receipt_verdict()
+
+    summary =
+      map_value(payload_receipt, :summary) ||
+        map_value(payload_receipt, :feedback) ||
+        validated.feedback
+
+    {verdict, normalize_summary(summary), global_fail_consumed?}
+  end
+
+  defp resolve_checker_step_result(step, _payload_receipt, validated, global_fail_consumed?) do
+    if validated.verdict == "pass" do
+      {"pass", normalize_summary(validated.feedback), global_fail_consumed?}
+    else
+      if step.required && !global_fail_consumed? do
+        {"fail", normalize_summary(validated.feedback), true}
+      else
+        {"pass", "Passed before failing required step.", global_fail_consumed?}
+      end
+    end
+  end
+
+  defp normalize_receipt_verdict(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> "fail"
+      verdict -> verdict
+    end
+  end
+
+  defp normalize_summary(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> "No summary provided."
+      summary -> summary
+    end
+  end
+
+  defp normalize_order_index(nil), do: nil
+  defp normalize_order_index(i) when is_integer(i), do: i
+
+  defp normalize_order_index(value) do
+    case Integer.parse(to_string(value)) do
+      {i, ""} -> i
+      _ -> nil
+    end
+  end
+
+  defp receipt_status(verdict) when verdict in ["pass", "fail"], do: "completed"
+  defp receipt_status(_), do: "failed"
+
+  defp required_receipt_failure?(receipt), do: receipt.required && receipt.verdict != "pass"
+
+  defp first_failed_required_receipt(receipts),
+    do: Enum.find(receipts, &required_receipt_failure?/1)
+
+  defp retry_feedback_text(receipt) do
+    """
+    Checker required step failed.
+    step_id: #{receipt.step_id}
+    skill: #{receipt.skill}
+    verdict: #{receipt.verdict}
+    summary: #{receipt.summary}
+    """
+  end
+
+  defp maybe_put_failed_receipt(payload, nil), do: payload
+
+  defp maybe_put_failed_receipt(payload, receipt),
+    do: Map.put(payload, "checker_failure", failed_receipt_payload(receipt))
+
+  defp failed_receipt_payload(receipt) do
+    %{
+      "step_id" => receipt.step_id,
+      "skill" => receipt.skill,
+      "order_index" => receipt.order_index,
+      "required" => receipt.required,
+      "verdict" => receipt.verdict,
+      "summary" => receipt.summary,
+      "attempt" => receipt.attempt
+    }
+  end
+
+  defp maybe_halt_ticket_after_checker_exhaustion(_loop, nil), do: :ok
+
+  defp maybe_halt_ticket_after_checker_exhaustion(loop, _failed_receipt) do
+    ticket = Tickets.get_ticket!(loop.ticket_id)
+
+    if ticket.status != :halted do
+      _ = Tickets.update_ticket(ticket, %{status: :halted}, skip_hooks: true)
+    end
+
+    :ok
+  end
+
+  defp map_value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp map_value(_map, _key), do: nil
 
   defp repair_handoff(loop, dn, err, sid, state) do
     repairs = Map.get(state.checker_handoff_repairs, loop.id, 0) + 1
@@ -690,10 +1004,15 @@ defmodule Algedonia.TaskLoopOrchestrator do
       id: step.id,
       role: step.role,
       attempt: step.attempt,
+      step_id: step.step_id,
+      skill: step.skill,
+      order_index: step.order_index,
+      required: step.required,
       status: step.status,
       session_id: step.session_id,
       exit_code: step.exit_code,
       verdict: step.verdict,
+      summary: step.summary,
       feedback: step.feedback,
       feedback_path: step.feedback_path,
       error: step.error,
