@@ -116,25 +116,16 @@ func TestCodexAdapterStartRequiresWorkspaceSlug(t *testing.T) {
 	}
 }
 
-func TestCodexAdapterSpawnSkipsBrewUpdate(t *testing.T) {
+func TestCodexAdapterDisablesUpdateCheck(t *testing.T) {
 	dir := t.TempDir()
-	marker := filepath.Join(dir, "brew_update_called")
 
 	codexScript := `#!/bin/sh
-if [ "${HOMEBREW_NO_AUTO_UPDATE:-}" != "1" ]; then
-  brew update
-fi
-printf 'codex-started\n'
+for arg in "$@"; do
+  printf '%s\n' "$arg"
+done
 exit 0
 `
 	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(codexScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	brewScript := "#!/bin/sh\n" +
-		"touch '" + marker + "'\n" +
-		"exit 0\n"
-	if err := os.WriteFile(filepath.Join(dir, "brew"), []byte(brewScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,7 +145,7 @@ exit 0
 	if err != nil {
 		t.Fatalf("AttachPTY: %v", err)
 	}
-	go io.Copy(io.Discard, reader)
+	go io.Copy(io.MultiWriter(io.Discard, proc.Collector()), reader)
 
 	result, err := a.Wait(proc)
 	if err != nil {
@@ -163,7 +154,8 @@ exit 0
 	if result.ExitCode != 0 {
 		t.Fatalf("ExitCode = %d, want 0", result.ExitCode)
 	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("brew update marker exists, expected spawn to skip brew update")
+	output := string(result.Output)
+	if !strings.Contains(output, "check_for_update_on_startup=false") {
+		t.Fatalf("expected args to contain check_for_update_on_startup=false, got:\n%s", output)
 	}
 }

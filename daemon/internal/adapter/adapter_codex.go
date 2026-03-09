@@ -21,7 +21,10 @@ type CodexAdapter struct{}
 
 // Start spawns codex in interactive TUI mode.
 func (a *CodexAdapter) Start(workdir string, task string, config map[string]string) (*Process, error) {
-	args := []string{"--dangerously-bypass-approvals-and-sandbox"}
+	args := []string{
+		"--dangerously-bypass-approvals-and-sandbox",
+		"-c", "check_for_update_on_startup=false",
+	}
 	if model := strings.TrimSpace(config["model"]); model != "" {
 		args = append(args, "--model", model)
 	}
