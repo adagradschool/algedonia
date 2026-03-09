@@ -236,14 +236,58 @@
               <div class="flex items-center gap-2 text-[11px] text-fg-muted">
                 <.icon name="hero-link-mini" class="size-3.5" /> Depends On
               </div>
-              <div :if={@blocker_tickets == []} class="text-[11px] text-fg-muted">
-                None
+              <div :if={@blocked_by_options != []} class="space-y-1">
+                <input
+                  type="text"
+                  placeholder="Search tickets..."
+                  value={@blocked_by_search}
+                  phx-keyup="filter_blocked_by_detail"
+                  class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                />
+                <select
+                  id="detail-blocked-by"
+                  name="ticket[blocked_by][]"
+                  multiple
+                  size={
+                    min(
+                      length(
+                        AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
+                          @blocked_by_options,
+                          @blocked_by_search
+                        )
+                      ),
+                      6
+                    )
+                  }
+                  class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  phx-debounce="600"
+                >
+                  {Phoenix.HTML.Form.options_for_select(
+                    AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
+                      @blocked_by_options,
+                      @blocked_by_search
+                    ),
+                    @ticket_form[:blocked_by].value || []
+                  )}
+                </select>
+                <p
+                  :for={
+                    msg <-
+                      Enum.map(@ticket_form[:blocked_by].errors || [], &translate_error(&1))
+                  }
+                  class="mt-1 text-[11px] text-error"
+                >
+                  {msg}
+                </p>
               </div>
-              <div :if={@blocker_tickets != []} class="space-y-1">
+              <div :if={@blocked_by_options == []} class="text-[11px] text-fg-muted">
+                No other tickets available
+              </div>
+              <div :if={@blocker_tickets != []} class="space-y-1 mt-1">
                 <.link
                   :for={blocker <- @blocker_tickets}
                   patch={~p"/w/#{@workspace_slug}/tickets/#{blocker.number}"}
-                  class="block text-xs text-accent-indigo hover:text-accent-indigo-hover transition-colors"
+                  class="block text-[11px] text-accent-indigo hover:text-accent-indigo-hover transition-colors"
                 >
                   #{blocker.number} {blocker.title}
                 </.link>

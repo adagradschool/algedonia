@@ -23,11 +23,15 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     ticket = Tickets.get_ticket_by_ref!(workspace_id, ticket_ref)
     if connected?(socket), do: Loops.subscribe_ticket_loops(workspace_id, ticket.id)
 
+    blocked_by_options = build_blocked_by_options(workspace_id, ticket.id)
+
     assign(socket,
       page_title: ticket.title,
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       blocker_tickets: resolve_blocker_tickets(ticket),
+      blocked_by_options: blocked_by_options,
+      blocked_by_search: "",
       comments: Tickets.list_comments(ticket.id),
       comment_form: to_form(Tickets.change_comment(%Comment{ticket_id: ticket.id})),
       comment_form_id: "new_comment_0",
@@ -271,6 +275,10 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     end
   end
 
+  def handle("filter_blocked_by_detail", %{"value" => query}, socket) do
+    {:noreply, assign(socket, blocked_by_search: query)}
+  end
+
   def handle("confirm_reset", _params, socket) do
     {:noreply, assign(socket, confirm_reset: true)}
   end
@@ -343,6 +351,12 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   end
 
   defp parse_detail_field(_), do: :error
+
+  defp build_blocked_by_options(workspace_id, ticket_id) do
+    Tickets.list_tickets(workspace_id: workspace_id)
+    |> Enum.reject(&(&1.id == ticket_id))
+    |> Enum.map(&{"##{&1.number} #{&1.title}", &1.id})
+  end
 
   defp resolve_blocker_tickets(%{blocked_by: ids}) when is_list(ids) and ids != [] do
     Tickets.get_tickets_by_ids(ids)
