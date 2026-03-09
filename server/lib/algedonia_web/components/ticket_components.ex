@@ -197,7 +197,10 @@ defmodule AlgedoniaWeb.TicketComponents do
           data-phx-link="redirect"
           data-phx-link-state="push"
           data-role="loop-stage-link"
-          class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
+          class={[
+            "inline-flex items-center px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors",
+            stage_pill_classes(@stage)
+          ]}
         >
           {stage_label(@stage || "maker", @attempt || 1)}
         </a>
@@ -464,6 +467,12 @@ defmodule AlgedoniaWeb.TicketComponents do
     </div>
     """
   end
+
+  defp stage_pill_classes("checker"),
+    do: "border-status-yellow/40 bg-status-yellow/10 text-status-yellow hover:bg-status-yellow/20"
+
+  defp stage_pill_classes(_),
+    do: "border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo hover:bg-accent-indigo/20"
 
   defp stage_label(stage, attempt), do: "#{String.capitalize(stage)} ##{attempt}"
 
