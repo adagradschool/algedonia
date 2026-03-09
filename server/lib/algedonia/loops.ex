@@ -502,6 +502,32 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Resumes an interrupted step by returning it to running state and clearing any completion fields.
+  """
+  @spec resume_step(LoopStep.t(), map()) :: {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()}
+  def resume_step(%LoopStep{} = step, attrs \\ %{}) do
+    defaults = %{
+      status: "running",
+      session_id: nil,
+      exit_code: nil,
+      verdict: nil,
+      summary: nil,
+      feedback: nil,
+      feedback_path: nil,
+      error: nil,
+      finished_at: nil
+    }
+
+    step
+    |> LoopStep.changeset(Map.merge(defaults, attrs))
+    |> Repo.update()
+    |> tap(fn
+      {:ok, step} -> broadcast_history(step.loop_id)
+      _ -> :ok
+    end)
+  end
+
+  @doc """
   Lists all steps for a loop, ordered by started_at ascending.
   """
   @spec list_steps_for_loop(Algedonia.Types.id()) :: [LoopStep.t()]

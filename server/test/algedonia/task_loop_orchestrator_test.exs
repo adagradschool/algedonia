@@ -701,6 +701,39 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert reloaded.status == :running
       assert reloaded.current_attempt == 2
     end
+
+    test "non-disconnect retry still creates a new maker step", %{orchestrator: pid} do
+      %{loop: loop, daemon: daemon} = setup_task_loop(pid)
+      loop_id = loop.id
+
+      [maker_step] = get_history(pid, loop_id)
+
+      assert :ok =
+               handle_attempt_error(
+                 pid,
+                 loop.id,
+                 %{
+                   "session_id" => "maker-1",
+                   "exit_code" => 2,
+                   "message" => "agent exited with code 2"
+                 },
+                 daemon.name,
+                 loop.workspace_id
+               )
+
+      assert_receive {:push, _, ^loop_id, %{"role" => "maker"}}
+
+      history = get_history(pid, loop_id)
+      assert length(history) == 2
+
+      [failed_step, retried_step] = history
+      assert failed_step.id == maker_step.id
+      assert failed_step.status == "failed"
+      assert retried_step.role == "maker"
+      assert retried_step.attempt == 2
+      assert retried_step.status == "running"
+      refute retried_step.id == maker_step.id
+    end
   end
 
   describe "task loop: checker pass" do
@@ -1187,6 +1220,131 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       reloaded = Algedonia.Loops.get_loop!(loop_id)
       assert reloaded.status == :running
       assert reloaded.current_attempt == 2
+    end
+  end
+
+  describe "task loop: disconnect recovery" do
+    test "reuses interrupted maker/checker steps and still completes normally", %{
+      orchestrator: pid
+    } do
+      %{loop: loop, daemon: daemon} = setup_task_loop(pid)
+      loop_id = loop.id
+
+      [maker_step] = get_history(pid, loop_id)
+      assert maker_step.role == "maker"
+      assert maker_step.status == "running"
+
+      assert {:ok, _} = Algedonia.Daemons.mark_unhealthy(daemon)
+
+      interrupted_history = get_history(pid, loop_id)
+      assert length(interrupted_history) == 1
+      assert hd(interrupted_history).id == maker_step.id
+      assert hd(interrupted_history).status == "interrupted"
+
+      recovery_daemon = insert_daemon!(%{status: :online, name: "recover-maker-daemon"})
+      recovery_daemon_name = recovery_daemon.name
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, recovery_daemon_name,
+                  [workspace_id: loop.workspace_id]}
+               )
+
+      assert_receive {:push, ^recovery_daemon_name, ^loop_id, %{"role" => "maker"}}
+
+      recovered_maker_history = get_history(pid, loop_id)
+      assert length(recovered_maker_history) == 1
+      assert hd(recovered_maker_history).id == maker_step.id
+      assert hd(recovered_maker_history).status == "running"
+
+      assert {:error, :already_running} =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, recovery_daemon_name,
+                  [workspace_id: loop.workspace_id]}
+               )
+
+      refute_receive {:push, ^recovery_daemon_name, ^loop_id, %{"role" => "maker"}}, 100
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 %{"role" => "maker", "session_id" => "maker-recovered-1", "exit_code" => 0},
+                 recovery_daemon_name,
+                 loop.workspace_id
+               )
+
+      assert_receive {:push, ^recovery_daemon_name, ^loop_id,
+                      %{"role" => "checker", "attempt" => 1}}
+
+      maker_completed_history = get_history(pid, loop_id)
+      assert length(maker_completed_history) == 2
+
+      [completed_maker, checker_step] = maker_completed_history
+      assert completed_maker.id == maker_step.id
+      assert completed_maker.status == "completed"
+      assert checker_step.role == "checker"
+      assert checker_step.status == "running"
+
+      assert {:ok, _} = Algedonia.Daemons.mark_unhealthy(recovery_daemon)
+
+      interrupted_checker_history = get_history(pid, loop_id)
+      assert length(interrupted_checker_history) == 2
+
+      [completed_maker_after_disconnect, interrupted_checker] = interrupted_checker_history
+      assert completed_maker_after_disconnect.id == maker_step.id
+      assert interrupted_checker.id == checker_step.id
+      assert interrupted_checker.status == "interrupted"
+
+      final_daemon = insert_daemon!(%{status: :online, name: "recover-checker-daemon"})
+      final_daemon_name = final_daemon.name
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, final_daemon_name, [workspace_id: loop.workspace_id]}
+               )
+
+      assert_receive {:push, ^final_daemon_name, ^loop_id, %{"role" => "checker", "attempt" => 1}}
+
+      recovered_checker_history = get_history(pid, loop_id)
+      assert length(recovered_checker_history) == 2
+
+      [completed_maker_after_resume, resumed_checker] = recovered_checker_history
+      assert completed_maker_after_resume.id == maker_step.id
+      assert resumed_checker.id == checker_step.id
+      assert resumed_checker.status == "running"
+
+      assert {:error, :already_running} =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop_id, final_daemon_name, [workspace_id: loop.workspace_id]}
+               )
+
+      refute_receive {:push, ^final_daemon_name, ^loop_id, %{"role" => "checker"}}, 100
+
+      assert :ok =
+               handle_attempt_complete(
+                 pid,
+                 loop_id,
+                 valid_checker_payload(loop_id, 1, "pass", "Recovered run completed cleanly"),
+                 final_daemon_name,
+                 loop.workspace_id
+               )
+
+      reloaded = Algedonia.Loops.get_loop!(loop_id)
+      assert reloaded.status == :passed
+
+      final_history = get_history(pid, loop_id)
+      assert length(final_history) == 2
+
+      [final_maker, final_checker] = final_history
+      assert final_maker.id == maker_step.id
+      assert final_maker.status == "completed"
+      assert final_checker.id == checker_step.id
+      assert final_checker.status == "completed"
     end
   end
 
