@@ -26,6 +26,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
      |> assign(:action_label, if(action == :new, do: "Save issue", else: "Update issue"))
      |> assign(:blocked_by_options, blocked_by_options)
      |> assign(:blocked_by_search, "")
+     |> assign(:depends_on_expanded, action != :new)
      |> assign_new(:return_to, fn ->
        workspace_slug = Map.get(assigns, :workspace_slug)
        if workspace_slug, do: ~p"/w/#{workspace_slug}/tickets", else: "/tickets"
@@ -46,6 +47,10 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
   def handle_event("filter_blocked_by", %{"value" => query}, socket) do
     {:noreply, assign(socket, :blocked_by_search, query)}
+  end
+
+  def handle_event("expand_depends_on", _params, socket) do
+    {:noreply, assign(socket, :depends_on_expanded, true)}
   end
 
   def handle_event("save", %{"ticket" => ticket_params}, socket) do
@@ -85,7 +90,15 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   end
 
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
-    assign(socket, :form, to_form(changeset))
+    blocked_by = Ecto.Changeset.get_field(changeset, :blocked_by, [])
+    blocked_by_error? = Keyword.has_key?(changeset.errors, :blocked_by)
+
+    expand_depends_on? =
+      socket.assigns.depends_on_expanded || blocked_by != [] || blocked_by_error?
+
+    socket
+    |> assign(:depends_on_expanded, expand_depends_on?)
+    |> assign(:form, to_form(changeset))
   end
 
   def status_options do
@@ -121,5 +134,6 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   end
 
   defp status_label(:in_progress), do: "In Progress"
+  defp status_label(:in_review), do: "In Review"
   defp status_label(status), do: status |> to_string() |> String.capitalize()
 end

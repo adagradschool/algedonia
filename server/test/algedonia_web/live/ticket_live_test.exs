@@ -522,6 +522,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       form_options = TicketFormComponent.status_options()
       assert Enum.map(form_options, &elem(&1, 1)) == Tickets.display_statuses()
     end
+
+    test "form status options include In Review label" do
+      assert {"In Review", :in_review} in TicketFormComponent.status_options()
+    end
   end
 
   describe "Export Markdown" do
@@ -759,22 +763,38 @@ defmodule AlgedoniaWeb.TicketLiveTest do
   end
 
   describe "Blocked-by / Depends On" do
-    test "create form shows Depends On field with workspace tickets", %{
+    test "create form keeps Depends On collapsed until expanded", %{
       conn: conn,
       workspace: workspace
     } do
       insert_ticket!(%{title: "Blocker ticket", workspace_id: workspace.id})
-      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
+      {:ok, view, initial_html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
 
-      html = render(view)
-      assert html =~ "Depends On"
+      assert initial_html =~ "Depends On"
+      assert has_element?(view, "#ticket-form-expand-depends-on")
+      refute has_element?(view, "#ticket-form-blocked-by")
+
+      html =
+        view
+        |> element("#ticket-form-expand-depends-on")
+        |> render_click()
+
+      refute has_element?(view, "#ticket-form-expand-depends-on")
+      assert has_element?(view, "#ticket-form-blocked-by")
       assert html =~ "Blocker ticket"
     end
 
-    test "create form persists blocked_by on submit", %{conn: conn, workspace: workspace} do
+    test "create form persists blocked_by on submit after expanding Depends On", %{
+      conn: conn,
+      workspace: workspace
+    } do
       blocker = insert_ticket!(%{title: "Must finish first", workspace_id: workspace.id})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
+
+      view
+      |> element("#ticket-form-expand-depends-on")
+      |> render_click()
 
       view
       |> form("#ticket-form",
