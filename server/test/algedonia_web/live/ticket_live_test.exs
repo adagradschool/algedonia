@@ -854,32 +854,126 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert html =~ "/w/#{workspace.slug}/tickets/#{blocker.number}"
     end
 
-    test "detail sidebar shows None when no blockers", %{conn: conn, workspace: workspace} do
+    test "detail sidebar shows no-tickets message when workspace has only one ticket", %{
+      conn: conn,
+      workspace: workspace
+    } do
       ticket = insert_ticket!(%{title: "Free ticket", workspace_id: workspace.id})
       {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 
       assert html =~ "Depends On"
-      assert html =~ "None"
+      assert html =~ "No other tickets available"
     end
 
-    test "detail sidebar updates when blocked_by changes via autosave", %{
+    test "detail sidebar shows editable blocked_by picker", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      _other = insert_ticket!(%{title: "Available blocker", workspace_id: workspace.id})
+      ticket = insert_ticket!(%{title: "Ticket under test", workspace_id: workspace.id})
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert html =~ "Depends On"
+      assert html =~ "detail-blocked-by"
+      assert html =~ "Available blocker"
+    end
+
+    test "detail sidebar persists blocked_by via autosave", %{
       conn: conn,
       workspace: workspace
     } do
       blocker = insert_ticket!(%{title: "New blocker", workspace_id: workspace.id})
       ticket = insert_ticket!(%{title: "Will be blocked", workspace_id: workspace.id})
-      {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 
-      assert html =~ "None"
+      view
+      |> form("#ticket-detail-form", ticket: %{blocked_by: [blocker.id]})
+      |> render_change()
 
-      Tickets.update_ticket(ticket, %{blocked_by: [blocker.id]})
+      updated = Tickets.get_ticket!(ticket.id)
+      assert updated.blocked_by == [blocker.id]
+    end
 
-      # Simulate PubSub update
+    test "detail sidebar shows blocker links after save and on pubsub update", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      blocker = insert_ticket!(%{title: "New blocker", workspace_id: workspace.id})
+      ticket = insert_ticket!(%{title: "Will be blocked", workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> form("#ticket-detail-form", ticket: %{blocked_by: [blocker.id]})
+      |> render_change()
+
+      html = render(view)
+      assert html =~ "New blocker"
+      assert html =~ "/w/#{workspace.slug}/tickets/#{blocker.number}"
+
+      # Also verify PubSub path refreshes blocker data
       updated = Tickets.get_ticket!(ticket.id)
       send(view.pid, {:ticket_updated, updated})
 
       html = render(view)
       assert html =~ "New blocker"
+    end
+
+    test "detail sidebar shows validation error for cycle in blocked_by", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket_a = insert_ticket!(%{title: "Ticket A", workspace_id: workspace.id})
+
+      ticket_b =
+        insert_ticket!(%{
+          title: "Ticket B",
+          workspace_id: workspace.id,
+          blocked_by: [ticket_a.id]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket_a}")
+
+      html =
+        view
+        |> form("#ticket-detail-form", ticket: %{blocked_by: [ticket_b.id]})
+        |> render_change()
+
+      assert html =~ "cycle"
+    end
+
+    test "detail sidebar does not discard persisted blockers on validation error", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      blocker = insert_ticket!(%{title: "Valid blocker", workspace_id: workspace.id})
+
+      ticket =
+        insert_ticket!(%{
+          title: "Has blocker",
+          workspace_id: workspace.id,
+          blocked_by: [blocker.id]
+        })
+
+      cycle_target =
+        insert_ticket!(%{
+          title: "Cycle target",
+          workspace_id: workspace.id,
+          blocked_by: [ticket.id]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      # Attempt a cycle — should show error
+      html =
+        view
+        |> form("#ticket-detail-form", ticket: %{blocked_by: [cycle_target.id]})
+        |> render_change()
+
+      assert html =~ "cycle"
+
+      # Persisted value should be unchanged
+      persisted = Tickets.get_ticket!(ticket.id)
+      assert persisted.blocked_by == [blocker.id]
     end
 
     test "form shows validation error for cycle", %{conn: conn, workspace: workspace} do
