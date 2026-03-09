@@ -5,6 +5,8 @@ defmodule AlgedoniaWeb.DiffComponents do
   use AlgedoniaWeb, :html
 
   alias Algedonia.DiffParser
+  alias Phoenix.HTML
+  alias Phoenix.HTML.Engine
 
   attr :diff_content, :string, default: nil
   attr :diff_loading, :boolean, default: false
@@ -106,7 +108,7 @@ defmodule AlgedoniaWeb.DiffComponents do
     ~H"""
     <div
       :for={hunk <- @file.hunks}
-      class="font-mono text-[11px] leading-relaxed"
+      class="font-mono text-[11px] leading-tight"
     >
       <div class="px-3 py-0.5 text-fg-muted bg-surface-panel border-b border-border text-[10px]">
         {hunk.header}
@@ -115,11 +117,8 @@ defmodule AlgedoniaWeb.DiffComponents do
         <tbody>
           <%= for line <- hunk.lines do %>
             <tr class={line_class(line.type)}>
-              <td class="diff-line-old select-none text-right pr-1 pl-2 text-fg-subtle w-[3ch] align-top">
-                {line.old_line || ""}
-              </td>
-              <td class="diff-line-new select-none text-right pr-1 text-fg-subtle w-[3ch] align-top">
-                {line.new_line || ""}
+              <td class="diff-line-number select-none text-right pr-1 pl-2 text-fg-subtle w-[4ch] align-top">
+                {display_line_number(line)}
               </td>
               <td class="diff-gutter select-none w-[2ch] text-center align-top">
                 <button
@@ -134,10 +133,8 @@ defmodule AlgedoniaWeb.DiffComponents do
                   <.icon name="hero-chat-bubble-left-mini" class="size-3" />
                 </button>
               </td>
-              <td class="diff-line-content pr-3 whitespace-pre-wrap break-all align-top">
-                <code class={diff_lang_class(@file.path)}>
-                  {line_prefix(line.type)}{line.content}
-                </code>
+              <td class="diff-line-content pr-3 align-top">
+                {diff_line_content(@file.path, line)}
               </td>
             </tr>
             <.inline_comment_row
@@ -153,7 +150,7 @@ defmodule AlgedoniaWeb.DiffComponents do
             />
             <%= for review <- reviews_for_line(@inline_reviews, @file.path, line.new_line || line.old_line) do %>
               <tr class="bg-accent-indigo/5">
-                <td colspan="4" class="px-3 py-2">
+                <td colspan="3" class="px-3 py-2">
                   <div class="flex items-start gap-2 text-xs">
                     <span class="shrink-0 px-1.5 py-0.5 rounded bg-accent-indigo/20 text-accent-indigo text-[10px] font-medium">
                       {review.author}
@@ -181,7 +178,7 @@ defmodule AlgedoniaWeb.DiffComponents do
   defp inline_comment_row(assigns) do
     ~H"""
     <tr class="bg-accent-indigo/5">
-      <td colspan="4" class="px-3 py-2" data-shortcuts="off">
+      <td colspan="3" class="px-3 py-2" data-shortcuts="off">
         <form phx-submit="add_inline_comment" class="space-y-2">
           <input type="hidden" name="file_path" value={@form["file_path"]} />
           <input type="hidden" name="line_number" value={@form["line_number"]} />
@@ -231,6 +228,23 @@ defmodule AlgedoniaWeb.DiffComponents do
   defp line_prefix(:addition), do: "+"
   defp line_prefix(:deletion), do: "-"
   defp line_prefix(:context), do: " "
+
+  defp diff_line_content(path, line) do
+    classes =
+      ["block m-0 p-0 whitespace-pre-wrap break-all leading-tight", diff_lang_class(path)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    escaped_content =
+      (line_prefix(line.type) <> line.content)
+      |> Engine.html_escape()
+      |> IO.iodata_to_binary()
+
+    HTML.raw("<code class=\"#{classes}\">#{escaped_content}</code>")
+  end
+
+  defp display_line_number(%{type: :deletion, old_line: old_line}), do: old_line || ""
+  defp display_line_number(%{new_line: new_line}), do: new_line || ""
 
   defp diff_lang_class(path) do
     case Path.extname(path) do
