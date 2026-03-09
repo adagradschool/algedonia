@@ -242,6 +242,147 @@ func TestHandleStopLoop(t *testing.T) {
 	}
 }
 
+func TestHandleMergePRReportsSuccess(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+	configureScopedWorktree(t, mgr, "scope")
+
+	original := runPRMergeCommand
+	runPRMergeCommand = func(_ context.Context, workdir string, prNumber int) error {
+		if prNumber != 42 {
+			t.Fatalf("prNumber = %d, want 42", prNumber)
+		}
+		if !strings.Contains(workdir, filepath.Join("scope", "worktrees")) {
+			t.Fatalf("unexpected workdir %q", workdir)
+		}
+		return nil
+	}
+	defer func() { runPRMergeCommand = original }()
+
+	err := mgr.HandleMergePR(context.Background(), map[string]interface{}{
+		"loop_id":        "99999999-9999-4999-8999-999999999999",
+		"workspace_slug": "scope",
+		"ticket_id":      "10101010-1010-4010-8010-101010101010",
+		"pr_number":      42,
+	})
+	if err != nil {
+		t.Fatalf("HandleMergePR: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+
+	event := events[0]
+	if event.Event != "pr_merge_result" {
+		t.Fatalf("event = %q, want pr_merge_result", event.Event)
+	}
+	if merged, _ := event.Payload["merged"].(bool); !merged {
+		t.Fatalf("merged = %v, want true", event.Payload["merged"])
+	}
+}
+
+func TestHandleMergePRReportsFailure(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+	configureScopedWorktree(t, mgr, "scope")
+
+	original := runPRMergeCommand
+	runPRMergeCommand = func(_ context.Context, _ string, _ int) error {
+		return fmt.Errorf("merge blocked")
+	}
+	defer func() { runPRMergeCommand = original }()
+
+	err := mgr.HandleMergePR(context.Background(), map[string]interface{}{
+		"loop_id":        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"workspace_slug": "scope",
+		"ticket_id":      "20202020-2020-4020-8020-202020202020",
+		"pr_number":      17,
+	})
+	if err != nil {
+		t.Fatalf("HandleMergePR: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+
+	event := events[0]
+	if event.Event != "pr_merge_result" {
+		t.Fatalf("event = %q, want pr_merge_result", event.Event)
+	}
+	if merged, _ := event.Payload["merged"].(bool); merged {
+		t.Fatalf("merged = %v, want false", event.Payload["merged"])
+	}
+	if message, _ := event.Payload["message"].(string); !strings.Contains(message, "Unable to merge PR #17") {
+		t.Fatalf("message = %q, want merge failure text", message)
+	}
+}
+
+func TestHandlePollReviewPRReportsStatus(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+	configureScopedWorktree(t, mgr, "scope")
+
+	original := runReviewPRStatusCommand
+	runReviewPRStatusCommand = func(_ context.Context, workdir string, prNumber int) (map[string]interface{}, error) {
+		if prNumber != 42 {
+			t.Fatalf("prNumber = %d, want 42", prNumber)
+		}
+		if !strings.Contains(workdir, filepath.Join("scope", "worktrees")) {
+			t.Fatalf("unexpected workdir %q", workdir)
+		}
+
+		return map[string]interface{}{
+			"merged":         false,
+			"ci_state":       "pending",
+			"feedback_token": "token-1",
+			"polled_at":      "2026-03-09T06:00:00Z",
+		}, nil
+	}
+	defer func() { runReviewPRStatusCommand = original }()
+
+	err := mgr.HandlePollReviewPR(context.Background(), map[string]interface{}{
+		"loop_id":        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		"workspace_slug": "scope",
+		"ticket_id":      "30303030-3030-4030-8030-303030303030",
+		"pr_number":      42,
+	})
+	if err != nil {
+		t.Fatalf("HandlePollReviewPR: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+
+	event := events[0]
+	if event.Event != "review_pr_status" {
+		t.Fatalf("event = %q, want review_pr_status", event.Event)
+	}
+	if ok, _ := event.Payload["ok"].(bool); !ok {
+		t.Fatalf("ok = %v, want true", event.Payload["ok"])
+	}
+	if token, _ := event.Payload["feedback_token"].(string); token != "token-1" {
+		t.Fatalf("feedback_token = %q, want token-1", token)
+	}
+}
+
 func TestSendInput(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
@@ -546,6 +687,129 @@ func TestStartLoopWithAdapter(t *testing.T) {
 		for _, e := range events {
 			t.Logf("  event: %s %v", e.Event, e.Payload)
 		}
+	}
+}
+
+func TestStartLoopWithAdapterPlanningCompletesOnExit(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	script := "#!/bin/sh\necho 'planning done'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+
+	ctx := context.Background()
+	err := mgr.StartLoopWithAdapter(
+		ctx,
+		"11111111-2222-4333-8444-555555555555",
+		"claude_code",
+		"planning",
+		dir,
+		"",
+		"scope",
+		"10101010-1010-4010-8010-101010101010",
+		"plan this ticket",
+		"",
+		"",
+		1,
+	)
+	if err != nil {
+		t.Fatalf("StartLoopWithAdapter: %v", err)
+	}
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for planning loop to finish")
+		default:
+		}
+		if mgr.RunningCount() == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	found := false
+	for _, e := range events {
+		if e.Event == "attempt_complete" && e.Payload["loop_id"] == "11111111-2222-4333-8444-555555555555" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected attempt_complete event for planning loop")
+	}
+}
+
+func TestStartLoopWithAdapterReviewMarkerCompletesTurnWithoutExitingProcess(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	script := `#!/bin/sh
+mkdir -p "$ALGEDONIA_RUNTIME_DIR/$ALGEDONIA_LOOP_ID"
+sleep 1
+cat > "$ALGEDONIA_RUNTIME_DIR/$ALGEDONIA_LOOP_ID/attempt_complete.json" <<'EOF'
+{"loop_id":"22222222-3333-4444-8555-666666666666","role":"review","source":"test"}
+EOF
+sleep 60
+`
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+
+	ctx := context.Background()
+	loopID := "22222222-3333-4444-8555-666666666666"
+	err := mgr.StartLoopWithAdapter(
+		ctx,
+		loopID,
+		"claude_code",
+		"review",
+		dir,
+		"",
+		"scope",
+		"20202020-2020-4020-8020-202020202020",
+		"review this ticket",
+		"",
+		"",
+		1,
+	)
+	if err != nil {
+		t.Fatalf("StartLoopWithAdapter: %v", err)
+	}
+	defer mgr.StopLoop(loopID, "test cleanup")
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for review attempt_complete event")
+		default:
+		}
+
+		mu.Lock()
+		found := false
+		for _, e := range events {
+			if e.Event == "attempt_complete" && e.Payload["loop_id"] == loopID {
+				found = true
+				break
+			}
+		}
+		mu.Unlock()
+
+		if found {
+			break
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if mgr.RunningCount() != 1 {
+		t.Fatalf("RunningCount() = %d, want 1 while review process stays alive", mgr.RunningCount())
 	}
 }
 

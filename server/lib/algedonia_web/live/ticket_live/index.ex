@@ -243,7 +243,11 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     if ticket,
       do:
         {:noreply,
-         assign(socket, hook_loops: Algedonia.Loops.list_hook_loops_for_ticket(ticket.id))},
+         assign(socket,
+           loop_id: Algedonia.Loops.first_inspect_loop_id(ticket.id),
+           review_loop_id: Algedonia.Loops.first_review_loop_id(ticket.id),
+           hook_loops: Algedonia.Loops.list_hook_loops_for_ticket(ticket.id)
+         )},
       else: {:noreply, socket}
   end
 

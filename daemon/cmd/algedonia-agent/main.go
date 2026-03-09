@@ -160,6 +160,8 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
 			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)
 			client.RegisterHandler("get_diff", mgr.HandleGetDiff)
+			client.RegisterHandler("merge_pr", mgr.HandleMergePR)
+			client.RegisterHandler("poll_review_pr", mgr.HandlePollReviewPR)
 			client.RegisterHandler("cleanup_worktree", mgr.HandleCleanupWorktree)
 			client.RegisterHandler("open_editor", mgr.HandleOpenEditor)
 			client.SetRunningLoopsFn(mgr.RunningCount)

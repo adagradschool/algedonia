@@ -4,7 +4,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   """
   use AlgedoniaWeb, :live_view
 
-  alias Algedonia.{Agents, Loops, TaskLoopOrchestrator, Terminals, Tickets}
+  alias Algedonia.{Agents, Loops, ReviewLoop, TaskLoopOrchestrator, Terminals, Tickets}
   alias AlgedoniaWeb.DaemonChannel
 
   alias AlgedoniaWeb.LoopLive.{
@@ -60,6 +60,7 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> assign(:repo_ready_retry_count, 0)
       |> assign(:manual_step_selected?, false)
       |> assign(:comments, list_ticket_comments(socket.assigns[:ticket]))
+      |> assign(:review_poll_state, ReviewLoop.poll_state(loop_id) || %{})
       |> OverviewHelper.init_assigns()
       |> DiffTab.init_assigns()
       |> HistoryHelper.assign_history(loop_history(socket))
@@ -217,6 +218,45 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, push_navigate(socket, to: path)}
   end
 
+  def handle_event("pull_comments", _params, socket) do
+    case socket.assigns[:ticket] do
+      %{status: :in_review} = ticket ->
+        ReviewLoop.pull_comments(ticket)
+        {:noreply, put_flash(socket, :info, "Fetching latest review comments...")}
+
+      _ ->
+        {:noreply,
+         put_flash(socket, :error, "Pull Comments is only available in the In Review phase")}
+    end
+  end
+
+  def handle_event("merge_pr", _params, socket) do
+    ticket = socket.assigns[:ticket]
+
+    cond do
+      !match?(%{status: :in_review}, ticket) ->
+        {:noreply, put_flash(socket, :error, "Merge is only available in the In Review phase")}
+
+      !is_integer(ticket.review_pr_number) ->
+        {:noreply, put_flash(socket, :error, "No pull request is linked to this ticket yet")}
+
+      true ->
+        case resolve_daemon(socket) do
+          {:ok, daemon} ->
+            DaemonChannel.push_merge_pr(daemon.name, socket.assigns.loop_id, %{
+              "workspace_slug" => socket.assigns.workspace_slug,
+              "ticket_id" => ticket.id,
+              "pr_number" => ticket.review_pr_number
+            })
+
+            {:noreply, put_flash(socket, :info, "Merging pull request...")}
+
+          {:error, :no_online_daemon} ->
+            {:noreply, put_flash(socket, :error, "No online daemon available")}
+        end
+    end
+  end
+
   @impl true
   @spec handle_info(term(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
@@ -324,6 +364,19 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, socket}
   end
 
+  def handle_info({:pr_merge_result, :ok, message}, socket) do
+    {:noreply, put_flash(socket, :info, message)}
+  end
+
+  def handle_info({:pr_merge_result, :error, message}, socket) do
+    {:noreply, put_flash(socket, :error, message)}
+  end
+
+  def handle_info({:review_poll_state, loop_id, poll_state}, socket)
+      when loop_id == socket.assigns.loop_id do
+    {:noreply, assign(socket, :review_poll_state, poll_state)}
+  end
+
   def handle_info({event, ticket}, socket) when event in [:ticket_updated] do
     if socket.assigns.ticket && socket.assigns.ticket.id == ticket.id do
       agent_type = Agents.ticket_agent_type(ticket)
@@ -358,6 +411,12 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def render_markdown(text), do: Markdown.render(text)
+
+  def review_poll_label(%{last_polled_at: %DateTime{} = dt}) do
+    "Polled #{Calendar.strftime(dt, "%H:%M:%S")}"
+  end
+
+  def review_poll_label(_), do: nil
 
   def verdict_heading(final_verdict, loop_record) do
     if HistoryHelper.final_outcome?(final_verdict, loop_record),

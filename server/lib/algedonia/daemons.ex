@@ -90,6 +90,7 @@ defmodule Algedonia.Daemons do
     |> tap(fn
       {:ok, daemon} ->
         Loops.requeue_running_task_loops_for_daemon(daemon.id)
+        Algedonia.ReviewLoop.reconcile_running_reviews(force_start: true, daemon_id: daemon.id)
         broadcast({:daemon_status_changed, daemon}, daemon)
 
       _ ->
@@ -218,6 +219,8 @@ defmodule Algedonia.Daemons do
           Logger.warning("Failed to redispatch loop #{loop.id}: #{inspect(reason)}")
       end
     end
+
+    Algedonia.ReviewLoop.reconcile_running_reviews(force_start: true, daemon_id: daemon.id)
   end
 
   @doc """

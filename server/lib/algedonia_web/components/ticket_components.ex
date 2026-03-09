@@ -154,15 +154,6 @@ defmodule AlgedoniaWeb.TicketComponents do
         <.type_badge type={@ticket.type} />
       </div>
       <div class="flex items-center gap-2 justify-end">
-        <button
-          phx-click="pull_comments"
-          phx-value-id={@ticket.id}
-          phx-stop-propagation
-          class="inline-flex items-center px-2 py-0.5 rounded-md border border-status-cyan/40 bg-status-cyan/10 text-status-cyan text-[11px] font-medium hover:bg-status-cyan/20 transition-colors"
-          type="button"
-        >
-          Pull Comments
-        </button>
         <a
           :if={@loop_id}
           href={workspace_path(@workspace_slug, "/tickets/#{@ticket_ref}/loops/#{@loop_ref}")}
@@ -333,16 +324,6 @@ defmodule AlgedoniaWeb.TicketComponents do
         type="button"
       >
         Start Work
-      </button>
-      <button
-        :if={@ticket.status == :in_review}
-        phx-click="pull_comments"
-        phx-value-id={@ticket.id}
-        phx-stop-propagation
-        class="inline-flex items-center px-2 py-1 rounded-md border border-status-cyan/40 bg-status-cyan/10 text-status-cyan text-[11px] font-medium hover:bg-status-cyan/20 transition-colors shrink-0"
-        type="button"
-      >
-        Pull Comments
       </button>
       <a
         :if={@loop_id && @ticket.status != :planning}

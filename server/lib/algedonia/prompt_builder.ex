@@ -64,17 +64,29 @@ defmodule Algedonia.PromptBuilder do
 
   Includes ticket context, agent navigation link, and previous review feedback.
   """
-  @spec review_task(map(), map(), String.t() | nil, String.t() | nil) :: String.t()
-  def review_task(loop, ticket, feedback, agent_link \\ nil) do
+  @spec review_task(map(), map(), String.t() | nil, map() | String.t() | nil) :: String.t()
+  def review_task(loop, ticket, feedback, metadata \\ %{})
+
+  def review_task(loop, ticket, feedback, agent_link)
+      when is_binary(agent_link) or is_nil(agent_link) do
+    review_task(loop, ticket, feedback, %{agent_link: agent_link})
+  end
+
+  def review_task(loop, ticket, feedback, metadata) when is_map(metadata) do
     task_desc = loop.description || loop.title
 
     render_template!("review_task", %{
       ticket_title: ticket.title,
+      ticket_code: review_ticket_code(metadata, ticket),
       acceptance_criteria: non_empty(ticket.acceptance_criteria),
       comments: format_comments(Tickets.list_comments(ticket.id)),
       task_desc: task_desc,
       previous_feedback: non_empty(feedback),
-      agent_link: non_empty(agent_link)
+      branch_name: non_empty(Map.get(metadata, :branch_name)),
+      pr_title: non_empty(Map.get(metadata, :pr_title)),
+      pr_description: non_empty(Map.get(metadata, :pr_description)),
+      ticket_link: non_empty(Map.get(metadata, :ticket_link)),
+      agent_link: non_empty(Map.get(metadata, :agent_link))
     })
   end
 
@@ -219,5 +231,12 @@ defmodule Algedonia.PromptBuilder do
       |> Path.join("prompts/#{name}.md.eex")
 
     EEx.eval_file(path, Map.to_list(assigns), trim: true)
+  end
+
+  defp review_ticket_code(metadata, ticket) do
+    case non_empty(Map.get(metadata, :ticket_code)) do
+      nil -> ticket_reference(ticket)
+      code -> code
+    end
   end
 end

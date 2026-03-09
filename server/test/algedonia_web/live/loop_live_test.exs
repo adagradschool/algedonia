@@ -144,6 +144,62 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute has_element?(view, "#loop-terminal-panel .h-12 span", "maker")
     end
 
+    test "review loop shows pull comments and merge buttons in top bar", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review this",
+          review_pr_number: 42
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      assert has_element?(view, "#loop-terminal-panel button", "Pull Comments")
+      assert has_element?(view, "#loop-terminal-panel button", "Merge")
+    end
+
+    test "review loop shows last polled timestamp subtly", %{conn: conn, workspace: workspace} do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review poll",
+          review_pr_number: 42
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      send(
+        view.pid,
+        {:review_poll_state, loop.id,
+         %{last_polled_at: ~U[2026-03-09 06:00:00Z], feedback_token: "abc", ci_state: "success"}}
+      )
+
+      assert render(view) =~ "Polled 06:00:00"
+    end
+
     test "stale planning URL with non-UUID ref self-heals to real planning loop", %{
       conn: conn,
       workspace: workspace

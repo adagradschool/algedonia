@@ -9,6 +9,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
     Daemons,
     HookExecutor,
     Loops,
+    ReviewLoop,
     TaskLoopOrchestrator,
     TenantScope,
     Workspaces
@@ -22,6 +23,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
     "stop_loop",
     "stdin_input",
     "get_diff",
+    "merge_pr",
+    "poll_review_pr",
     "cleanup_worktree",
     "open_editor"
   ]
@@ -218,6 +221,58 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in(
+        "review_pr_status",
+        %{"loop_id" => loop_id, "workspace_slug" => workspace_slug} = payload,
+        socket
+      ) do
+    with true <- uuid_string?(loop_id),
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         %{id: workspace_id} <- Workspaces.get_workspace_by_slug(workspace_slug) do
+      TenantScope.with_workspace(workspace_id, fn ->
+        ReviewLoop.handle_pr_status(loop_id, payload, workspace_id: workspace_id)
+      end)
+
+      {:noreply, socket}
+    else
+      _ -> {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+    end
+  end
+
+  def handle_in("review_pr_status", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+  end
+
+  def handle_in(
+        "pr_merge_result",
+        %{"loop_id" => loop_id, "workspace_slug" => workspace_slug} = payload,
+        socket
+      ) do
+    with true <- uuid_string?(loop_id),
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         %{id: workspace_id} <- Workspaces.get_workspace_by_slug(workspace_slug) do
+      TenantScope.with_workspace(workspace_id, fn ->
+        message = merge_result_message(payload)
+        result = handle_merge_result(payload, loop_id, workspace_id)
+        status = merge_result_status(result)
+
+        Phoenix.PubSub.broadcast(
+          Algedonia.PubSub,
+          Topics.loop(workspace_id, loop_id),
+          {:pr_merge_result, status, message}
+        )
+      end)
+
+      {:noreply, socket}
+    else
+      _ -> {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+    end
+  end
+
+  def handle_in("pr_merge_result", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+  end
+
+  def handle_in(
         "loop_exited",
         %{"loop_id" => loop_id, "exit_code" => exit_code, "workspace_slug" => workspace_slug} =
           payload,
@@ -292,6 +347,32 @@ defmodule AlgedoniaWeb.DaemonChannel do
 
     payload = Map.merge(%{"loop_id" => loop_id}, opts)
     AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "get_diff", payload)
+  end
+
+  @doc """
+  Pushes a merge_pr command to the daemon to squash-merge a ticket's PR.
+  """
+  @spec push_merge_pr(String.t(), Algedonia.Types.id(), map()) :: :ok
+  def push_merge_pr(daemon_name, loop_id, opts \\ %{}) do
+    require_non_empty_string!(loop_id, "loop_id", "merge_pr")
+    require_non_empty_string!(Map.get(opts, "workspace_slug"), "workspace_slug", "merge_pr")
+    require_non_empty_string!(Map.get(opts, "ticket_id"), "ticket_id", "merge_pr")
+
+    payload = Map.merge(%{"loop_id" => loop_id}, opts)
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "merge_pr", payload)
+  end
+
+  @doc """
+  Pushes a poll_review_pr command to the daemon to check merged state, CI, and feedback changes.
+  """
+  @spec push_poll_review_pr(String.t(), Algedonia.Types.id(), map()) :: :ok
+  def push_poll_review_pr(daemon_name, loop_id, opts \\ %{}) do
+    require_non_empty_string!(loop_id, "loop_id", "poll_review_pr")
+    require_non_empty_string!(Map.get(opts, "workspace_slug"), "workspace_slug", "poll_review_pr")
+    require_non_empty_string!(Map.get(opts, "ticket_id"), "ticket_id", "poll_review_pr")
+
+    payload = Map.merge(%{"loop_id" => loop_id}, opts)
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "poll_review_pr", payload)
   end
 
   @doc """
@@ -468,6 +549,25 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   defp route_attempt_error(_, _, _, _, _), do: {:error, :invalid_role}
+
+  defp merge_result_message(payload) do
+    Map.get(payload, "message") ||
+      if(Map.get(payload, "merged"),
+        do: "Pull request merged.",
+        else: "Unable to merge pull request."
+      )
+  end
+
+  defp handle_merge_result(payload, loop_id, workspace_id) do
+    if Map.get(payload, "merged") do
+      ReviewLoop.handle_merge_detected(loop_id, workspace_id: workspace_id)
+    else
+      {:error, :merge_failed}
+    end
+  end
+
+  defp merge_result_status(:ok), do: :ok
+  defp merge_result_status(_), do: :error
 
   defp complete_planning_loop(loop_id, payload) do
     case Loops.get_loop(loop_id) do

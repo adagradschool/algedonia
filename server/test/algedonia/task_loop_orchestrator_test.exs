@@ -763,7 +763,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       assert reloaded.status == :passed
     end
 
-    test "checker pass completes ticket when all loops pass", %{orchestrator: pid} do
+    test "checker pass moves ticket to in_review when all loops pass", %{orchestrator: pid} do
       %{loop: loop, daemon: daemon, ticket: ticket} = setup_task_loop(pid)
 
       handle_attempt_complete(
@@ -785,10 +785,12 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       )
 
       reloaded_ticket = Tickets.get_ticket!(ticket.id)
-      assert reloaded_ticket.status == :completed
+      assert reloaded_ticket.status == :in_review
     end
 
-    test "checker pass completes ticket even when hook loop is pending", %{orchestrator: pid} do
+    test "checker pass moves ticket to in_review even when hook loop is pending", %{
+      orchestrator: pid
+    } do
       %{loop: loop, daemon: daemon, ticket: ticket} = setup_task_loop(pid)
 
       _hook_loop = insert_loop!(%{ticket_id: ticket.id, role: :hook, status: :pending})
@@ -812,7 +814,7 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
       )
 
       reloaded_ticket = Tickets.get_ticket!(ticket.id)
-      assert reloaded_ticket.status == :completed
+      assert reloaded_ticket.status == :in_review
     end
   end
 

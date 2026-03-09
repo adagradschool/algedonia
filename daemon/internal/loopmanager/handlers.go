@@ -3,7 +3,10 @@ package loopmanager
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -117,6 +121,293 @@ func (m *Manager) HandleGetDiff(ctx context.Context, payload map[string]interfac
 
 	m.sendEvent("diff_result", result)
 	return nil
+}
+
+var runPRMergeCommand = func(ctx context.Context, workdir string, prNumber int) error {
+	cmd := exec.CommandContext(
+		ctx,
+		"gh",
+		"pr",
+		"merge",
+		strconv.Itoa(prNumber),
+		"--squash",
+		"--delete-branch",
+	)
+	cmd.Dir = workdir
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+
+	return nil
+}
+
+type reviewPRSnapshot struct {
+	State             string                  `json:"state"`
+	ReviewDecision    string                  `json:"reviewDecision"`
+	MergeStateStatus  string                  `json:"mergeStateStatus"`
+	URL               string                  `json:"url"`
+	StatusCheckRollup []reviewStatusCheckItem `json:"statusCheckRollup"`
+}
+
+type reviewStatusCheckItem struct {
+	Typename   string `json:"__typename"`
+	Conclusion string `json:"conclusion"`
+	State      string `json:"state"`
+	Status     string `json:"status"`
+}
+
+type reviewCommentPayload struct {
+	ID        int64  `json:"id"`
+	UpdatedAt string `json:"updated_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+type issueCommentPayload struct {
+	ID        int64  `json:"id"`
+	UpdatedAt string `json:"updated_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+type reviewEventPayload struct {
+	ID          int64  `json:"id"`
+	State       string `json:"state"`
+	SubmittedAt string `json:"submitted_at"`
+}
+
+var runReviewPRStatusCommand = func(ctx context.Context, workdir string, prNumber int) (map[string]interface{}, error) {
+	baseArgs := []string{"-C", workdir}
+
+	viewCmd := exec.CommandContext(
+		ctx,
+		"gh",
+		append(baseArgs,
+			"pr", "view", strconv.Itoa(prNumber),
+			"--json", "state,reviewDecision,mergeStateStatus,url,statusCheckRollup",
+		)...,
+	)
+	viewOut, err := viewCmd.Output()
+	if err != nil {
+		return nil, decodeCommandError(err, viewCmd)
+	}
+
+	var snapshot reviewPRSnapshot
+	if err := json.Unmarshal(viewOut, &snapshot); err != nil {
+		return nil, fmt.Errorf("parsing gh pr view output: %w", err)
+	}
+
+	inlineComments, err := fetchPRJSON[[]reviewCommentPayload](
+		ctx,
+		workdir,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	issueComments, err := fetchPRJSON[[]issueCommentPayload](
+		ctx,
+		workdir,
+		fmt.Sprintf("repos/{owner}/{repo}/issues/%d/comments", prNumber),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	reviews, err := fetchPRJSON[[]reviewEventPayload](
+		ctx,
+		workdir,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", prNumber),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"pr_url":         snapshot.URL,
+		"merged":         strings.EqualFold(snapshot.State, "MERGED"),
+		"ci_state":       deriveCIState(snapshot.StatusCheckRollup),
+		"feedback_token": reviewFeedbackFingerprint(inlineComments, issueComments, reviews),
+		"polled_at":      time.Now().UTC().Format(time.RFC3339Nano),
+	}, nil
+}
+
+// HandleMergePR is a command handler for "merge_pr" events from the server.
+// It performs a squash merge through GitHub CLI inside the ticket worktree.
+func (m *Manager) HandleMergePR(ctx context.Context, payload map[string]interface{}) error {
+	loopID := payloadStr(payload, "loop_id")
+	if loopID == "" {
+		return fmt.Errorf("missing loop_id in merge_pr payload")
+	}
+
+	workspaceSlug := payloadStr(payload, "workspace_slug")
+	ticketID := payloadStr(payload, "ticket_id")
+	workdir, _, err := m.resolveScopedTicketWorkdir(ctx, workspaceSlug, ticketID)
+	if err != nil {
+		return fmt.Errorf("invalid merge_pr scope: %w", err)
+	}
+
+	prNumber := parseAttempt(payload["pr_number"])
+	if prNumber <= 0 {
+		return fmt.Errorf("missing pr_number in merge_pr payload")
+	}
+
+	mergeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	result := map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+		"pr_number":      prNumber,
+	}
+
+	if err := runPRMergeCommand(mergeCtx, workdir, prNumber); err != nil {
+		result["merged"] = false
+		result["message"] = fmt.Sprintf("Unable to merge PR #%d: %v", prNumber, err)
+		m.sendEvent("pr_merge_result", result)
+		return nil
+	}
+
+	result["merged"] = true
+	result["message"] = fmt.Sprintf("Pull request #%d merged.", prNumber)
+	m.sendEvent("pr_merge_result", result)
+	return nil
+}
+
+// HandlePollReviewPR polls GitHub for merged state, CI state, and review feedback changes.
+func (m *Manager) HandlePollReviewPR(ctx context.Context, payload map[string]interface{}) error {
+	loopID := payloadStr(payload, "loop_id")
+	if loopID == "" {
+		return fmt.Errorf("missing loop_id in poll_review_pr payload")
+	}
+
+	workspaceSlug := payloadStr(payload, "workspace_slug")
+	ticketID := payloadStr(payload, "ticket_id")
+	workdir, _, err := m.resolveScopedTicketWorkdir(ctx, workspaceSlug, ticketID)
+	if err != nil {
+		return fmt.Errorf("invalid poll_review_pr scope: %w", err)
+	}
+
+	prNumber := parseAttempt(payload["pr_number"])
+	if prNumber <= 0 {
+		return fmt.Errorf("missing pr_number in poll_review_pr payload")
+	}
+
+	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	result := map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+		"pr_number":      prNumber,
+	}
+
+	status, err := runReviewPRStatusCommand(pollCtx, workdir, prNumber)
+	if err != nil {
+		result["ok"] = false
+		result["message"] = fmt.Sprintf("Unable to poll PR #%d: %v", prNumber, err)
+		m.sendEvent("review_pr_status", result)
+		return nil
+	}
+
+	for key, value := range status {
+		result[key] = value
+	}
+
+	result["ok"] = true
+	m.sendEvent("review_pr_status", result)
+	return nil
+}
+
+func fetchPRJSON[T any](ctx context.Context, workdir, path string) (T, error) {
+	var zero T
+
+	cmd := exec.CommandContext(ctx, "gh", "-C", workdir, "api", "--paginate", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return zero, decodeCommandError(err, cmd)
+	}
+
+	var result T
+	if err := json.Unmarshal(out, &result); err != nil {
+		return zero, fmt.Errorf("parsing gh api output for %s: %w", path, err)
+	}
+
+	return result, nil
+}
+
+func decodeCommandError(err error, cmd *exec.Cmd) error {
+	if err == nil {
+		return nil
+	}
+
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		msg := strings.TrimSpace(string(exitErr.Stderr))
+		if msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+	}
+
+	return err
+}
+
+func deriveCIState(items []reviewStatusCheckItem) string {
+	if len(items) == 0 {
+		return "unknown"
+	}
+
+	state := "success"
+
+	for _, item := range items {
+		conclusion := strings.ToUpper(strings.TrimSpace(item.Conclusion))
+		status := strings.ToUpper(strings.TrimSpace(item.Status))
+		checkState := strings.ToUpper(strings.TrimSpace(item.State))
+
+		switch {
+		case conclusion == "FAILURE" || conclusion == "STARTUP_FAILURE" ||
+			conclusion == "TIMED_OUT" || conclusion == "CANCELLED" ||
+			conclusion == "ACTION_REQUIRED":
+			return "failure"
+		case conclusion == "" && (status == "IN_PROGRESS" || status == "QUEUED" || checkState == "PENDING"):
+			state = "pending"
+		case conclusion == "PENDING" || conclusion == "NEUTRAL":
+			if state != "failure" {
+				state = "pending"
+			}
+		}
+	}
+
+	return state
+}
+
+func reviewFeedbackFingerprint(
+	inlineComments []reviewCommentPayload,
+	issueComments []issueCommentPayload,
+	reviews []reviewEventPayload,
+) string {
+	var parts []string
+
+	for _, comment := range inlineComments {
+		parts = append(parts, fmt.Sprintf("inline:%d:%s:%s", comment.ID, comment.CreatedAt, comment.UpdatedAt))
+	}
+
+	for _, comment := range issueComments {
+		parts = append(parts, fmt.Sprintf("issue:%d:%s:%s", comment.ID, comment.CreatedAt, comment.UpdatedAt))
+	}
+
+	for _, review := range reviews {
+		parts = append(parts, fmt.Sprintf("review:%d:%s:%s", review.ID, review.State, review.SubmittedAt))
+	}
+
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(sum[:])
 }
 
 func collectGitDiff(ctx context.Context, workdir string) (string, error) {

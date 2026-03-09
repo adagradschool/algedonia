@@ -455,6 +455,20 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Returns the active review-loop ID for a ticket, falling back to the most recent review loop.
+  """
+  @spec first_review_loop_id(Algedonia.Types.id()) :: Algedonia.Types.id() | nil
+  def first_review_loop_id(ticket_id) do
+    review_loops = list_review_loops_for_ticket(ticket_id)
+
+    (Enum.find(review_loops, &(&1.status in [:pending, :running])) || List.last(review_loops))
+    |> case do
+      nil -> nil
+      loop -> loop.id
+    end
+  end
+
+  @doc """
   Subscribes to loop-status events for a ticket.
   """
   @spec subscribe_ticket_loops(Algedonia.Types.id(), Algedonia.Types.id()) ::

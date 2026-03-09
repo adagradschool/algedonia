@@ -136,14 +136,40 @@
             </span>
           </div>
 
-          <button
-            :if={@active && @planning_session?}
-            phx-click="finish_planning"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
-            type="button"
-          >
-            Done
-          </button>
+          <div class="flex items-center gap-2">
+            <span
+              :if={
+                @ticket && @ticket.status == :in_review && review_poll_label(@review_poll_state)
+              }
+              class="text-[11px] text-fg-subtle"
+            >
+              {review_poll_label(@review_poll_state)}
+            </span>
+            <button
+              :if={@ticket && @ticket.status == :in_review}
+              phx-click="pull_comments"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-status-cyan/40 bg-status-cyan/10 text-status-cyan hover:bg-status-cyan/20 text-sm font-medium transition-colors"
+              type="button"
+            >
+              Pull Comments
+            </button>
+            <button
+              :if={@ticket && @ticket.status == :in_review}
+              phx-click="merge_pr"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green hover:bg-status-green/20 text-sm font-medium transition-colors"
+              type="button"
+            >
+              Merge
+            </button>
+            <button
+              :if={@active && @planning_session?}
+              phx-click="finish_planning"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-status-green hover:bg-status-green/80 text-white text-sm font-medium transition-colors"
+              type="button"
+            >
+              Done
+            </button>
+          </div>
         </div>
 
         <div :if={!@planning_session?} class="border-b border-border-soft bg-[#0d1017]">

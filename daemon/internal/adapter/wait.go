@@ -55,6 +55,20 @@ func WaitWithCompletionMarker(proc *Process, waitProcessFn func() (int, error)) 
 	}, nil
 }
 
+// WaitForExit waits only for the agent process to exit and ignores completion markers.
+func WaitForExit(proc *Process) (*ExitResult, error) {
+	exitCode, err := waitProcess(proc.session)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExitResult{
+		ExitCode:  exitCode,
+		SessionID: proc.SessionID,
+		Output:    proc.collector.Bytes(),
+	}, nil
+}
+
 // pollCompletionMarker polls for the existence of the marker file every 250ms.
 func pollCompletionMarker(path string, ch chan<- waitOutcome) {
 	for {

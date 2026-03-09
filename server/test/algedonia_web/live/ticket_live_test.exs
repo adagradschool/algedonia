@@ -490,6 +490,66 @@ defmodule AlgedoniaWeb.TicketLiveTest do
              )
     end
 
+    test "ticket detail review button targets the review loop, not the task loop", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{title: "Reviewable", status: :in_review, workspace_id: workspace.id})
+
+      task_loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :passed})
+      review_loop = insert_loop!(%{ticket_id: ticket.id, role: :review, status: :running})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert has_element?(
+               view,
+               ~s{a[href*="/loops/#{String.slice(review_loop.id, 0, 8)}"]},
+               "Review"
+             )
+
+      refute has_element?(
+               view,
+               ~s{a[href*="/loops/#{String.slice(task_loop.id, 0, 8)}"]},
+               "Review"
+             )
+
+      assert has_element?(
+               view,
+               ~s{a[href*="/loops/#{String.slice(task_loop.id, 0, 8)}"]},
+               "Inspect"
+             )
+    end
+
+    test "board in_review card shows review link and not pull comments", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{title: "Review card", status: :in_review, workspace_id: workspace.id})
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      Algedonia.Loops.create_step(%{
+        loop_id: loop.id,
+        role: "review",
+        attempt: 1,
+        status: "running",
+        started_at: DateTime.utc_now()
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Review #1")
+      refute render(view) =~ "Pull Comments"
+    end
+
     test "ticket detail does not show inspect when only hook loop exists", %{
       conn: conn,
       workspace: workspace
