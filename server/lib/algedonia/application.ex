@@ -24,7 +24,7 @@ defmodule Algedonia.Application do
           else: []
         ) ++
         if(Application.get_env(:algedonia, :start_orchestrator, true),
-          do: [Algedonia.TaskLoopOrchestrator],
+          do: [Algedonia.TaskLoopOrchestrator, Algedonia.ReviewLoop],
           else: []
         ) ++
         [AlgedoniaWeb.Endpoint]

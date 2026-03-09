@@ -60,6 +60,25 @@ defmodule Algedonia.PromptBuilder do
   end
 
   @doc """
+  Builds the review task prompt for the auto-land review loop.
+
+  Includes ticket context, agent navigation link, and previous review feedback.
+  """
+  @spec review_task(map(), map(), String.t() | nil, String.t() | nil) :: String.t()
+  def review_task(loop, ticket, feedback, agent_link \\ nil) do
+    task_desc = loop.description || loop.title
+
+    render_template!("review_task", %{
+      ticket_title: ticket.title,
+      acceptance_criteria: non_empty(ticket.acceptance_criteria),
+      comments: format_comments(Tickets.list_comments(ticket.id)),
+      task_desc: task_desc,
+      previous_feedback: non_empty(feedback),
+      agent_link: non_empty(agent_link)
+    })
+  end
+
+  @doc """
   Builds the planning-session task prompt used by ad-hoc planning loops.
   """
   @spec planning_session_task(map()) :: String.t()

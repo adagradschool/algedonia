@@ -409,6 +409,15 @@ defmodule AlgedoniaWeb.DaemonChannel do
     :ok
   end
 
+  defp route_attempt_complete("review", loop_id, payload, daemon_name, workspace_id) do
+    Algedonia.ReviewLoop.handle_attempt_complete(loop_id, payload,
+      daemon_name: daemon_name,
+      workspace_id: workspace_id
+    )
+
+    :ok
+  end
+
   defp route_attempt_complete("hook", loop_id, payload, _daemon_name, workspace_id) do
     HookExecutor.handle_attempt_complete(loop_id, payload, workspace_id: workspace_id)
 
@@ -428,6 +437,15 @@ defmodule AlgedoniaWeb.DaemonChannel do
   defp route_attempt_error(role, loop_id, payload, daemon_name, workspace_id)
        when role in ["maker", "checker"] do
     TaskLoopOrchestrator.handle_attempt_error(loop_id, payload,
+      daemon_name: daemon_name,
+      workspace_id: workspace_id
+    )
+
+    :ok
+  end
+
+  defp route_attempt_error("review", loop_id, payload, daemon_name, workspace_id) do
+    Algedonia.ReviewLoop.handle_attempt_error(loop_id, payload,
       daemon_name: daemon_name,
       workspace_id: workspace_id
     )

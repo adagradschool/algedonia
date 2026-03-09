@@ -227,6 +227,16 @@ defmodule Algedonia.TicketsTest do
       assert [reloaded] = Loops.list_task_loops_for_ticket(ticket.id)
       assert reloaded.id == loop.id
     end
+
+    test "in_progress -> in_review is a valid transition" do
+      ticket = insert_ticket!(%{status: :in_progress})
+      assert {:ok, updated} = Tickets.update_ticket(ticket, %{status: :in_review})
+      assert updated.status == :in_review
+    end
+
+    test "in_review status is included in display_statuses" do
+      assert :in_review in Tickets.display_statuses()
+    end
   end
 
   describe "delete_ticket/1" do

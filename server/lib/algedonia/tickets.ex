@@ -14,7 +14,15 @@ defmodule Algedonia.Tickets do
   alias Algedonia.Tickets.Planning
   alias Algedonia.Workspaces.Workspace
 
-  @display_statuses [:backlog, :planning, :in_progress, :halted, :completed, :archived]
+  @display_statuses [
+    :backlog,
+    :planning,
+    :in_progress,
+    :in_review,
+    :halted,
+    :completed,
+    :archived
+  ]
 
   @doc """
   Returns ticket statuses in UI display order.
@@ -286,6 +294,9 @@ defmodule Algedonia.Tickets do
       cond do
         old_status != :in_progress and new_status == :in_progress ->
           maybe_ensure_work_loop(updated)
+
+        old_status == :in_progress and new_status == :in_review ->
+          Algedonia.ReviewLoop.start_review(updated)
 
         old_status == :in_progress and new_status in [:backlog, :planning] ->
           _ = Algedonia.Loops.delete_loops_for_ticket(updated.id)
