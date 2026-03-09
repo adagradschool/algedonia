@@ -108,6 +108,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   def init(s) do
     {:ok,
      Map.merge(s, %{
+       active_run_payloads: %{},
        checker_handoff_repairs: %{},
        task_run_config: %{},
        subscribed_ticket_workspaces: MapSet.new()
@@ -265,40 +266,14 @@ defmodule Algedonia.TaskLoopOrchestrator do
     with %{role: :task} = loop <- Loops.get_loop(loop_id) || {:error, :not_found},
          true <- loop.workspace_id == workspace_id || {:error, :workspace_scope_mismatch},
          max_attempts <- loop_iteration_budget(loop),
-         :ok <- guard_startable(loop, max_attempts),
+         recovery_step = recoverable_interrupted_step(loop),
+         :ok <- guard_startable(loop, max_attempts, recovery_step),
          {:ok, daemon} <- fetch_daemon(daemon_name),
          :ok <- check_repo_ready(daemon.name, loop),
          {:ok, loop} <-
-           Loops.update_loop(loop, %{
-             status: :running,
-             assigned_daemon_id: daemon.id,
-             current_attempt: max(loop.current_attempt, 0) + 1,
-             max_attempts: max_attempts
-           }) do
+           start_loop_update(loop, daemon.id, max_attempts, recovery_step) do
       loop = Loops.preload_with_workspace(loop)
-      task = PromptBuilder.maker_task(loop, loop.ticket, "")
-      ws_slug = loop.ticket.workspace.slug
-      ticket_id = loop.ticket.id
-
-      run =
-        task_run_options(opts, loop.ticket)
-        |> mp("workspace_slug", ws_slug)
-        |> mp("ticket_id", ticket_id)
-        |> mp("workspace_id", workspace_id)
-
-      {:ok, _step} =
-        Loops.create_step(%{
-          loop_id: loop.id,
-          role: "maker",
-          attempt: loop.current_attempt,
-          status: "running",
-          started_at: DateTime.utc_now()
-        })
-
-      {:ok,
-       state
-       |> put_rc(loop.id, run)
-       |> push(daemon.name, loop.id, Map.merge(%{"role" => "maker", "task" => task}, run))}
+      start_loop_dispatch(loop, daemon.name, opts, workspace_id, state, recovery_step)
     else
       %{role: _} ->
         {:error, :not_task_loop}
@@ -310,6 +285,39 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
       {:error, r} ->
         {:error, r}
+    end
+  end
+
+  defp start_loop_dispatch(loop, daemon_name, opts, workspace_id, state, nil) do
+    task = PromptBuilder.maker_task(loop, loop.ticket, "")
+    ws_slug = loop.ticket.workspace.slug
+    ticket_id = loop.ticket.id
+
+    run =
+      task_run_options(opts, loop.ticket)
+      |> mp("workspace_slug", ws_slug)
+      |> mp("ticket_id", ticket_id)
+      |> mp("workspace_id", workspace_id)
+
+    {:ok, _step} =
+      Loops.create_step(%{
+        loop_id: loop.id,
+        role: "maker",
+        attempt: loop.current_attempt,
+        status: "running",
+        started_at: DateTime.utc_now()
+      })
+
+    {:ok,
+     state
+     |> put_rc(loop.id, run)
+     |> push(daemon_name, loop.id, Map.merge(%{"role" => "maker", "task" => task}, run))}
+  end
+
+  defp start_loop_dispatch(loop, daemon_name, _opts, _workspace_id, state, step) do
+    with {:ok, _step} <- Loops.resume_step(step),
+         {:ok, payload} <- recovery_payload(state, loop, step) do
+      {:ok, push(state, daemon_name, loop.id, payload)}
     end
   end
 
@@ -875,7 +883,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
 
   defp push(state, dn, lid, opts) do
     state.push_fn.(dn, lid, opts)
-    state
+    put_active_payload(state, lid, opts)
   end
 
   defp task_run_options(opts, ticket) do
@@ -888,7 +896,14 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp mp(m, _k, nil), do: m
   defp mp(m, k, v), do: Map.put(m, k, v)
   defp put_rc(s, id, c), do: %{s | task_run_config: Map.put(s.task_run_config, id, c)}
-  defp clear_rc(s, id), do: %{s | task_run_config: Map.delete(s.task_run_config, id)}
+
+  defp clear_rc(s, id),
+    do: %{
+      s
+      | task_run_config: Map.delete(s.task_run_config, id),
+        active_run_payloads: Map.delete(s.active_run_payloads, id)
+    }
+
   defp rc(s, id), do: Map.get(s.task_run_config, id, %{})
 
   defp ensure_ticket_workspace_subscription(state, workspace_id) do
@@ -1050,12 +1065,97 @@ defmodule Algedonia.TaskLoopOrchestrator do
     |> Enum.filter(&(&1.status in [:passed, :failed]))
   end
 
-  defp guard_startable(%{status: :pending, current_attempt: ca}, max_attempts)
+  defp recoverable_interrupted_step(loop) do
+    case Loops.latest_step(loop.id) do
+      %{status: "interrupted", attempt: attempt, role: role} = step
+      when attempt == loop.current_attempt and role in ["maker", "checker"] ->
+        step
+
+      _ ->
+        nil
+    end
+  end
+
+  defp recovery_payload(state, loop, step) do
+    case active_payload(state, loop.id) do
+      %{"role" => role} = payload when role == step.role ->
+        {:ok, payload}
+
+      _ ->
+        {:ok, default_recovery_payload(state, loop, step)}
+    end
+  end
+
+  defp default_recovery_payload(state, loop, %{role: "maker"}) do
+    Map.merge(
+      %{
+        "role" => "maker",
+        "task" =>
+          PromptBuilder.maker_task(
+            loop,
+            loop.ticket,
+            "Resume the interrupted in-flight attempt after the daemon disconnected."
+          )
+      },
+      scoped_run_context(state, loop)
+    )
+  end
+
+  defp default_recovery_payload(state, loop, %{role: "checker"}) do
+    repairs = Map.get(state.checker_handoff_repairs, loop.id, 0)
+
+    task =
+      if repairs > 0 do
+        PromptBuilder.checker_handoff_repair_task(
+          loop,
+          "Resume the interrupted handoff repair after the daemon disconnected.",
+          repairs,
+          ws_slug_for(loop)
+        )
+      else
+        PromptBuilder.checker_task(loop, loop.ticket, ws_slug_for(loop))
+      end
+
+    Map.merge(
+      %{
+        "role" => "checker",
+        "task" => task,
+        "attempt" => loop.current_attempt
+      },
+      scoped_run_context(state, loop)
+    )
+  end
+
+  defp start_loop_update(loop, daemon_id, max_attempts, nil) do
+    Loops.update_loop(loop, %{
+      status: :running,
+      assigned_daemon_id: daemon_id,
+      current_attempt: max(loop.current_attempt, 0) + 1,
+      max_attempts: max_attempts
+    })
+  end
+
+  defp start_loop_update(loop, daemon_id, max_attempts, _recovery_step) do
+    Loops.update_loop(loop, %{
+      status: :running,
+      assigned_daemon_id: daemon_id,
+      max_attempts: max_attempts
+    })
+  end
+
+  defp guard_startable(%{status: :pending}, _max_attempts, %{}), do: :ok
+
+  defp guard_startable(%{status: :pending, current_attempt: ca}, max_attempts, nil)
        when is_integer(max_attempts) and ca >= max_attempts,
        do: {:error, :attempts_exhausted}
 
-  defp guard_startable(%{status: :pending}, _max_attempts), do: :ok
-  defp guard_startable(_, _max_attempts), do: {:error, :already_running}
+  defp guard_startable(%{status: :pending}, _max_attempts, nil), do: :ok
+  defp guard_startable(_, _max_attempts, _recovery_step), do: {:error, :already_running}
+
+  defp put_active_payload(s, id, payload),
+    do: %{s | active_run_payloads: Map.put(s.active_run_payloads, id, payload)}
+
+  defp active_payload(s, id), do: Map.get(s.active_run_payloads, id)
 
   defp loop_iteration_budget(%{
          ticket: %{workspace: %Algedonia.Workspaces.Workspace{} = workspace}

@@ -57,6 +57,48 @@ defmodule Algedonia.DaemonsTest do
       assert updated_loop.status == :pending
       assert is_nil(updated_loop.assigned_daemon_id)
     end
+
+    test "reconnect requeue keeps the current step record and marks it interrupted" do
+      user = Factory.insert_user!()
+
+      daemon =
+        Factory.insert_daemon!(%{
+          name: "reconnect-step-daemon",
+          status: :offline,
+          user_id: user.id
+        })
+
+      ticket = Factory.insert_ticket!()
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :running,
+          current_attempt: 1,
+          assigned_daemon_id: daemon.id
+        })
+
+      {:ok, step} =
+        Algedonia.Loops.create_step(%{
+          loop_id: loop.id,
+          role: "maker",
+          attempt: 1,
+          status: "running",
+          started_at: DateTime.utc_now()
+        })
+
+      assert {:ok, _daemon} =
+               Daemons.register_daemon(%{name: "reconnect-step-daemon", user_id: user.id})
+
+      history = Algedonia.Loops.list_steps_for_loop(loop.id)
+      assert length(history) == 1
+
+      [interrupted_step] = history
+      assert interrupted_step.id == step.id
+      assert interrupted_step.status == "interrupted"
+    end
   end
 
   describe "update_heartbeat/2" do
