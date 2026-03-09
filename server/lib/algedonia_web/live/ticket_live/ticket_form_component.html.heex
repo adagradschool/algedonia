@@ -87,8 +87,18 @@
 
     <div :if={@blocked_by_options != []} class="pt-2">
       <div class="fieldset mb-2">
-        <label>
-          <span class="label mb-1">Depends On</span>
+        <span class="label mb-1">Depends On</span>
+        <button
+          :if={!@depends_on_expanded}
+          id="ticket-form-expand-depends-on"
+          type="button"
+          phx-click="expand_depends_on"
+          phx-target={@myself}
+          class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg px-3 py-2 text-left hover:border-accent-indigo focus:outline-none focus:border-accent-indigo"
+        >
+          Add blockers
+        </button>
+        <label :if={@depends_on_expanded}>
           <input
             type="text"
             placeholder="Search tickets..."
