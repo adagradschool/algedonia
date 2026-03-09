@@ -2,14 +2,24 @@ package loopmanager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/algedonia/daemon/internal/adapter"
 )
+
+type adapterLifecycleSpec struct {
+	persistentSession       bool
+	markerCompletesTurn     bool
+	normalExitCompletesTurn bool
+	waitErrorMessageFmt     string
+	unexpectedExitFmt       string
+}
 
 // buildAdapterTask returns the server-composed task payload verbatim.
 func buildAdapterTask(taskDesc string) string {
@@ -82,6 +92,13 @@ func (m *Manager) waitForAdapter(loopID, role string, lp *LoopProcess, ag adapte
 		m.mu.Unlock()
 	}()
 
+	spec := lifecycleSpecForRole(role)
+
+	if spec.persistentSession {
+		m.waitForPersistentSession(loopID, role, lp, proc, spec)
+		return
+	}
+
 	result, waitErr := ag.Wait(proc)
 	sessionID := ag.SessionID(proc)
 	scope := adapterScope(lp, role)
@@ -98,6 +115,101 @@ func (m *Manager) waitForAdapter(loopID, role string, lp *LoopProcess, ag adapte
 	}
 
 	m.handleAdapterResult(loopID, role, lp, result, sessionID, scope)
+}
+
+func lifecycleSpecForRole(role string) adapterLifecycleSpec {
+	switch role {
+	case "planning":
+		return adapterLifecycleSpec{
+			persistentSession:       true,
+			markerCompletesTurn:     false,
+			normalExitCompletesTurn: true,
+			waitErrorMessageFmt:     "planning agent wait error: %v",
+			unexpectedExitFmt:       "planning agent exited unexpectedly with code %d",
+		}
+	case "review":
+		return adapterLifecycleSpec{
+			persistentSession:       true,
+			markerCompletesTurn:     true,
+			normalExitCompletesTurn: false,
+			waitErrorMessageFmt:     "review agent wait error: %v",
+			unexpectedExitFmt:       "review agent exited unexpectedly with code %d",
+		}
+	default:
+		return adapterLifecycleSpec{}
+	}
+}
+
+func (m *Manager) waitForPersistentSession(loopID, role string, lp *LoopProcess, proc *adapter.Process, spec adapterLifecycleSpec) {
+	exitCh := make(chan struct {
+		result *adapter.ExitResult
+		err    error
+	}, 1)
+
+	go func() {
+		result, err := adapter.WaitForExit(proc)
+		exitCh <- struct {
+			result *adapter.ExitResult
+			err    error
+		}{result: result, err: err}
+	}()
+
+	scope := adapterScope(lp, role)
+	sessionID := proc.SessionID
+	markerPath := strings.TrimSpace(proc.CompletionMarkerPath())
+	var lastMarkerSeen time.Time
+	var ticker *time.Ticker
+
+	if spec.markerCompletesTurn {
+		ticker = time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+	}
+
+	for {
+		select {
+		case outcome := <-exitCh:
+			if loopStopped(lp) {
+				return
+			}
+
+			if outcome.err != nil {
+				m.sendLifecycleError(loopID, scope, fmt.Sprintf(spec.waitErrorMessageFmt, outcome.err))
+				return
+			}
+
+			if spec.normalExitCompletesTurn {
+				m.handleAdapterResult(loopID, role, lp, outcome.result, sessionID, scope)
+				return
+			}
+
+			exitCode := 0
+			if outcome.result != nil {
+				exitCode = outcome.result.ExitCode
+			}
+
+			payload := map[string]interface{}{
+				"loop_id":     loopID,
+				"message":     fmt.Sprintf(spec.unexpectedExitFmt, exitCode),
+				"recoverable": true,
+				"exit_code":   exitCode,
+				"session_id":  sessionID,
+			}
+			mergeScopePayload(payload, scope)
+			m.sendEvent("error", payload)
+			return
+
+		case <-markerTick(ticker):
+			if spec.markerCompletesTurn {
+				markerPayload, markerTime, ok := readCompletionMarkerPayload(markerPath, lastMarkerSeen)
+				if !ok {
+					continue
+				}
+
+				lastMarkerSeen = markerTime
+				m.sendMarkerCompletion(loopID, sessionID, scope, markerPayload)
+			}
+		}
+	}
 }
 
 // handleAdapterResult dispatches the adapter exit result to the appropriate
@@ -225,4 +337,70 @@ func mergeScopePayload(payload map[string]interface{}, scope map[string]interfac
 	for key, value := range scope {
 		payload[key] = value
 	}
+}
+
+func loopStopped(lp *LoopProcess) bool {
+	lp.mu.Lock()
+	defer lp.mu.Unlock()
+	return lp.stopped
+}
+
+func readCompletionMarkerPayload(path string, lastSeen time.Time) (map[string]interface{}, time.Time, bool) {
+	if path == "" {
+		return nil, time.Time{}, false
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+
+	modTime := info.ModTime()
+	if !modTime.After(lastSeen) {
+		return nil, time.Time{}, false
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) == 0 {
+		return nil, time.Time{}, false
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, time.Time{}, false
+	}
+
+	return payload, modTime, true
+}
+
+func markerTick(ticker *time.Ticker) <-chan time.Time {
+	if ticker == nil {
+		return nil
+	}
+	return ticker.C
+}
+
+func (m *Manager) sendLifecycleError(loopID string, scope map[string]interface{}, message string) {
+	payload := map[string]interface{}{
+		"loop_id":     loopID,
+		"message":     message,
+		"recoverable": true,
+	}
+	mergeScopePayload(payload, scope)
+	m.sendEvent("error", payload)
+}
+
+func (m *Manager) sendMarkerCompletion(loopID, sessionID string, scope map[string]interface{}, markerPayload map[string]interface{}) {
+	payload := map[string]interface{}{
+		"loop_id":    loopID,
+		"exit_code":  0,
+		"session_id": sessionID,
+	}
+
+	for key, value := range markerPayload {
+		payload[key] = value
+	}
+
+	mergeScopePayload(payload, scope)
+	m.sendEvent("attempt_complete", payload)
 }

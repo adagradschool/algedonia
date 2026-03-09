@@ -456,7 +456,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
   defp apply_verdict("pass", loop, _feedback, _dn, state) do
     case Loops.update_loop_status(loop, :passed) do
       {:ok, ul} ->
-        maybe_complete_ticket(ul)
+        maybe_transition_ticket_to_review(ul)
         {:ok, clear_rc(state, loop.id)}
 
       _ ->
@@ -846,7 +846,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
     clear_hr(state, loop.id)
   end
 
-  defp maybe_complete_ticket(loop) do
+  defp maybe_transition_ticket_to_review(loop) do
     task_loops =
       loop.ticket_id
       |> Loops.list_task_loops_for_ticket()
@@ -855,7 +855,11 @@ defmodule Algedonia.TaskLoopOrchestrator do
     all_tasks_passed? = task_loops != [] and Enum.all?(task_loops, &(&1.status == :passed))
 
     if all_tasks_passed? do
-      Tickets.update_ticket(Tickets.get_ticket!(loop.ticket_id), %{status: :completed})
+      ticket = Tickets.get_ticket!(loop.ticket_id)
+
+      if ticket.status == :in_progress do
+        Tickets.update_ticket(ticket, %{status: :in_review})
+      end
     end
   end
 

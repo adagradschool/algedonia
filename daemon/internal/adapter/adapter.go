@@ -28,6 +28,11 @@ func (p *Process) Collector() *outputCollector {
 	return p.collector
 }
 
+// CompletionMarkerPath returns the runtime marker file path used for turn completion.
+func (p *Process) CompletionMarkerPath() string {
+	return p.completionMarker
+}
+
 // ExitResult captures the outcome of an agent run.
 type ExitResult struct {
 	ExitCode  int

@@ -166,6 +166,31 @@ func parseAttempt(raw interface{}) int {
 	return 1
 }
 
+func parseOptionalInt(raw interface{}) (int, bool) {
+	switch v := raw.(type) {
+	case int:
+		return v, true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return 0, false
+		}
+
+		parsed, err := strconv.Atoi(trimmed)
+		if err == nil {
+			return parsed, true
+		}
+	}
+
+	return 0, false
+}
+
 func closeAdapterProcess(ag adapter.AgentAdapter, proc *adapter.Process) error {
 	if ag == nil || proc == nil {
 		return nil

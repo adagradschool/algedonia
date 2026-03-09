@@ -455,6 +455,20 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Returns the active review-loop ID for a ticket, falling back to the most recent review loop.
+  """
+  @spec first_review_loop_id(Algedonia.Types.id()) :: Algedonia.Types.id() | nil
+  def first_review_loop_id(ticket_id) do
+    review_loops = list_review_loops_for_ticket(ticket_id)
+
+    (Enum.find(review_loops, &(&1.status in [:pending, :running])) || List.last(review_loops))
+    |> case do
+      nil -> nil
+      loop -> loop.id
+    end
+  end
+
+  @doc """
   Subscribes to loop-status events for a ticket.
   """
   @spec subscribe_ticket_loops(Algedonia.Types.id(), Algedonia.Types.id()) ::
@@ -485,6 +499,22 @@ defmodule Algedonia.Loops do
       {:ok, step} -> broadcast_history(step.loop_id)
       _ -> :ok
     end)
+  end
+
+  @doc """
+  Resumes the latest interrupted step for the given attempt and roles, if present.
+  """
+  @spec maybe_resume_interrupted_step(Algedonia.Types.id(), integer(), [String.t()], map()) ::
+          {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()} | :noop
+  def maybe_resume_interrupted_step(loop_id, attempt, roles, attrs \\ %{})
+      when is_binary(loop_id) and is_integer(attempt) and is_list(roles) do
+    case latest_step(loop_id) do
+      %LoopStep{status: "interrupted", attempt: ^attempt, role: role} = step ->
+        if role in roles, do: resume_step(step, attrs), else: :noop
+
+      _ ->
+        :noop
+    end
   end
 
   @doc """

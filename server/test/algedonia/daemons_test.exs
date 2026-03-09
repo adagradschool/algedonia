@@ -1,7 +1,7 @@
 defmodule Algedonia.DaemonsTest do
-  use Algedonia.DataCase, async: true
+  use Algedonia.DataCase, async: false
 
-  alias Algedonia.Daemons
+  alias Algedonia.{Daemons, ReviewLoop}
   alias Algedonia.Factory
 
   describe "register_daemon/1" do
@@ -221,6 +221,64 @@ defmodule Algedonia.DaemonsTest do
 
       assert {:ok, updated} = Daemons.update_heartbeat(daemon, %{capacity: 3, running_loops: 0})
       assert updated.status == :online
+    end
+  end
+
+  describe "reconcile_running_loops/2" do
+    test "restarts missing review loops when daemon heartbeat reports none running" do
+      test_pid = self()
+
+      {:ok, pid} =
+        ReviewLoop.start_link(
+          push_fn: fn daemon_name, loop_id, opts ->
+            send(test_pid, {:push_start_loop, daemon_name, loop_id, opts})
+          end,
+          name: ReviewLoop
+        )
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          GenServer.stop(pid)
+        end
+      end)
+
+      user = Factory.insert_user!()
+      workspace = Factory.insert_workspace!(%{slug: "reconcile-review"})
+      Factory.insert_membership!(workspace, user)
+
+      daemon =
+        Factory.insert_daemon!(%{
+          name: "reconcile-review-daemon",
+          status: :online,
+          user_id: user.id
+        })
+
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Recover review session"
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          workspace_id: workspace.id,
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1,
+          assigned_daemon_id: daemon.id,
+          branch_name: "review/alg-#{ticket.number}-recover-review-session"
+        })
+
+      assert :ok = Daemons.reconcile_running_loops(daemon, [])
+
+      daemon_name = daemon.name
+      loop_id = loop.id
+      assert_receive {:push_start_loop, ^daemon_name, ^loop_id, payload}
+      assert payload["role"] == "review"
+      assert payload["workspace_slug"] == workspace.slug
+      assert payload["ticket_id"] == ticket.id
     end
   end
 

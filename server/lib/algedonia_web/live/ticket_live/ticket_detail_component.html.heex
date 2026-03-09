@@ -62,6 +62,15 @@
                 <.icon name="hero-play-mini" class="size-3.5" /> Start Work
               </button>
               <.link
+                :if={@review_loop_id && @ticket.status == :in_review}
+                navigate={
+                  ~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{short_id(@review_loop_id)}"
+                }
+                class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-status-cyan border border-status-cyan/40 bg-status-cyan/10 rounded-md hover:bg-status-cyan/20 transition-colors"
+              >
+                <.icon name="hero-chat-bubble-left-right-mini" class="size-3.5" /> Review
+              </.link>
+              <.link
                 :if={@loop_id && @ticket.status != :planning}
                 navigate={
                   ~p"/w/#{@workspace_slug}/tickets/#{@ticket}/loops/#{short_id(@loop_id)}"

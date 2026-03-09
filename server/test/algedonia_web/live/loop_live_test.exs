@@ -3,7 +3,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Algedonia.{Factory, Loops, Terminals}
+  alias Algedonia.{Factory, Loops, Terminals, Tickets}
   alias Algedonia.PubSub.Topics
 
   describe "Show" do
@@ -120,6 +120,39 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert render(view) =~ "No online daemon available"
     end
 
+    test "planning session restart reuses the interrupted step", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      _daemon = Factory.insert_daemon!(%{status: :online})
+
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "Resume planning"
+        })
+
+      {:ok, planning_loop_id} = Tickets.start_planning_work(ticket)
+      loop = Loops.get_loop!(planning_loop_id)
+      [step] = Loops.list_steps_for_loop(planning_loop_id)
+
+      Loops.interrupt_running_steps(planning_loop_id)
+      {:ok, _loop} = Loops.update_loop(loop, %{status: :pending, assigned_daemon_id: nil})
+
+      {:ok, _view, _html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(planning_loop_id, 0, 8)}?#{%{role: "planning"}}"
+        )
+
+      Process.sleep(100)
+
+      [resumed_step] = Loops.list_steps_for_loop(planning_loop_id)
+      assert resumed_step.id == step.id
+      assert resumed_step.status == "running"
+    end
+
     test "planning role shows sidebar but hides top-bar maker/index indicators", %{
       conn: conn,
       workspace: workspace
@@ -142,6 +175,62 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       assert has_element?(view, "#loop-left-sidebar-panel")
       refute has_element?(view, "#loop-index-badge")
       refute has_element?(view, "#loop-terminal-panel .h-12 span", "maker")
+    end
+
+    test "review loop shows pull comments and merge buttons in top bar", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review this",
+          review_pr_number: 42
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      assert has_element?(view, "#loop-terminal-panel button", "Pull Comments")
+      assert has_element?(view, "#loop-terminal-panel button", "Merge")
+    end
+
+    test "review loop shows last polled timestamp subtly", %{conn: conn, workspace: workspace} do
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review poll",
+          review_pr_number: 42
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      send(
+        view.pid,
+        {:review_poll_state, loop.id,
+         %{last_polled_at: ~U[2026-03-09 06:00:00Z], feedback_token: "abc", ci_state: "success"}}
+      )
+
+      assert render(view) =~ "Polled 06:00:00"
     end
 
     test "stale planning URL with non-UUID ref self-heals to real planning loop", %{

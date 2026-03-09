@@ -8,6 +8,7 @@ defmodule Algedonia.Daemons do
   alias Algedonia.Loops
   alias Algedonia.PubSub.Topics
   alias Algedonia.Repo
+  alias Algedonia.ReviewLoop
   alias Algedonia.TaskLoopOrchestrator
   alias Algedonia.Workspaces.WorkspaceMembership
 
@@ -90,6 +91,7 @@ defmodule Algedonia.Daemons do
     |> tap(fn
       {:ok, daemon} ->
         Loops.requeue_running_task_loops_for_daemon(daemon.id)
+        Algedonia.ReviewLoop.reconcile_running_reviews(force_start: true, daemon_id: daemon.id)
         broadcast({:daemon_status_changed, daemon}, daemon)
 
       _ ->
@@ -218,19 +220,18 @@ defmodule Algedonia.Daemons do
           Logger.warning("Failed to redispatch loop #{loop.id}: #{inspect(reason)}")
       end
     end
+
+    Algedonia.ReviewLoop.reconcile_running_reviews(force_start: true, daemon_id: daemon.id)
   end
 
   @doc """
   Reconciles server state with what the daemon reports it's running.
-  Stops orphan loops on the daemon and redispatches missing loops.
+  Stops orphan loops on the daemon and restarts missing persistent review loops.
   """
   @spec reconcile_running_loops(DaemonRegistration.t(), [Algedonia.Types.id()]) :: :ok
   def reconcile_running_loops(daemon, reported_loop_ids) when is_list(reported_loop_ids) do
-    server_running =
-      daemon.id
-      |> Loops.list_running_loops_for_daemon()
-      |> Enum.map(& &1.id)
-      |> MapSet.new()
+    server_running_loops = Loops.list_running_loops_for_daemon(daemon.id)
+    server_running = MapSet.new(Enum.map(server_running_loops, & &1.id))
 
     daemon_running = MapSet.new(reported_loop_ids)
 
@@ -239,6 +240,15 @@ defmodule Algedonia.Daemons do
 
     for loop_id <- orphans do
       AlgedoniaWeb.DaemonChannel.push_stop_loop(daemon.name, loop_id, "orphan reconciliation")
+    end
+
+    missing_ids = MapSet.difference(server_running, daemon_running)
+
+    if Enum.any?(
+         server_running_loops,
+         &(MapSet.member?(missing_ids, &1.id) and &1.role == :review)
+       ) do
+      ReviewLoop.reconcile_running_reviews(force_start: true, daemon_id: daemon.id)
     end
 
     :ok

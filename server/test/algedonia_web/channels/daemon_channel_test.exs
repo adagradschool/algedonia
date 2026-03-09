@@ -574,6 +574,34 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
+  describe "poll_review_pr push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards poll_review_pr broadcast to daemon", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_poll_review_pr(
+        @daemon_id,
+        "88888888-8888-4888-8888-888888888888",
+        %{
+          "workspace_slug" => "my-workspace",
+          "ticket_id" => "99999999-9999-4999-8999-999999999999",
+          "pr_number" => 42
+        }
+      )
+
+      assert_push "poll_review_pr", %{
+        "loop_id" => "88888888-8888-4888-8888-888888888888",
+        "workspace_slug" => "my-workspace",
+        "ticket_id" => "99999999-9999-4999-8999-999999999999",
+        "pr_number" => 42
+      }
+    end
+  end
+
   describe "cleanup_worktree push" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =

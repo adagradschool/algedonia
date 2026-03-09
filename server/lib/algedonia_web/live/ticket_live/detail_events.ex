@@ -43,6 +43,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       editing_comment_id: nil,
       edit_form: nil,
       loop_id: Loops.first_inspect_loop_id(ticket.id),
+      review_loop_id: Loops.first_review_loop_id(ticket.id),
       hook_loops: Loops.list_hook_loops_for_ticket(ticket.id),
       transition_hooks: Workspaces.list_transition_hooks(workspace_id)
     )
@@ -297,6 +298,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
          |> assign(
            confirm_reset: false,
            loop_id: nil,
+           review_loop_id: nil,
            hook_loops: []
          )
          |> assign_saved_ticket(updated)
@@ -317,6 +319,8 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       blocker_tickets: resolve_blocker_tickets(ticket),
+      loop_id: Loops.first_inspect_loop_id(ticket.id),
+      review_loop_id: Loops.first_review_loop_id(ticket.id),
       save_state: :saved
     )
   end
