@@ -502,6 +502,48 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Resumes the latest interrupted step for the given attempt and roles, if present.
+  """
+  @spec maybe_resume_interrupted_step(Algedonia.Types.id(), integer(), [String.t()], map()) ::
+          {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()} | :noop
+  def maybe_resume_interrupted_step(loop_id, attempt, roles, attrs \\ %{})
+      when is_binary(loop_id) and is_integer(attempt) and is_list(roles) do
+    case latest_step(loop_id) do
+      %LoopStep{status: "interrupted", attempt: ^attempt, role: role} = step ->
+        if role in roles, do: resume_step(step, attrs), else: :noop
+
+      _ ->
+        :noop
+    end
+  end
+
+  @doc """
+  Resumes an interrupted step by returning it to running state and clearing any completion fields.
+  """
+  @spec resume_step(LoopStep.t(), map()) :: {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()}
+  def resume_step(%LoopStep{} = step, attrs \\ %{}) do
+    defaults = %{
+      status: "running",
+      session_id: nil,
+      exit_code: nil,
+      verdict: nil,
+      summary: nil,
+      feedback: nil,
+      feedback_path: nil,
+      error: nil,
+      finished_at: nil
+    }
+
+    step
+    |> LoopStep.changeset(Map.merge(defaults, attrs))
+    |> Repo.update()
+    |> tap(fn
+      {:ok, step} -> broadcast_history(step.loop_id)
+      _ -> :ok
+    end)
+  end
+
+  @doc """
   Completes a step by updating its status and optional fields, then broadcasts.
   """
   @spec complete_step(LoopStep.t(), map()) :: {:ok, LoopStep.t()} | {:error, Ecto.Changeset.t()}

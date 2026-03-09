@@ -60,7 +60,7 @@ defmodule Algedonia.PromptBuilder do
   end
 
   @doc """
-  Builds the review task prompt for the auto-land review loop.
+  Builds the review task prompt for the in-review PR shepherd loop.
 
   Includes ticket context, agent navigation link, and previous review feedback.
   """

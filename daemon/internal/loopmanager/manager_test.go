@@ -337,15 +337,24 @@ func TestHandlePollReviewPRReportsStatus(t *testing.T) {
 	configureScopedWorktree(t, mgr, "scope")
 
 	original := runReviewPRStatusCommand
-	runReviewPRStatusCommand = func(_ context.Context, workdir string, prNumber int) (map[string]interface{}, error) {
+	runReviewPRStatusCommand = func(
+		_ context.Context,
+		workdir string,
+		prNumber int,
+		branchName string,
+	) (map[string]interface{}, error) {
 		if prNumber != 42 {
 			t.Fatalf("prNumber = %d, want 42", prNumber)
+		}
+		if branchName != "" {
+			t.Fatalf("branchName = %q, want empty", branchName)
 		}
 		if !strings.Contains(workdir, filepath.Join("scope", "worktrees")) {
 			t.Fatalf("unexpected workdir %q", workdir)
 		}
 
 		return map[string]interface{}{
+			"pr_number":      42,
 			"merged":         false,
 			"ci_state":       "pending",
 			"feedback_token": "token-1",
@@ -380,6 +389,67 @@ func TestHandlePollReviewPRReportsStatus(t *testing.T) {
 	}
 	if token, _ := event.Payload["feedback_token"].(string); token != "token-1" {
 		t.Fatalf("feedback_token = %q, want token-1", token)
+	}
+}
+
+func TestHandlePollReviewPRResolvesByBranchWhenPRNumberMissing(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+	configureScopedWorktree(t, mgr, "scope")
+
+	original := runReviewPRStatusCommand
+	runReviewPRStatusCommand = func(
+		_ context.Context,
+		workdir string,
+		prNumber int,
+		branchName string,
+	) (map[string]interface{}, error) {
+		if prNumber != 0 {
+			t.Fatalf("prNumber = %d, want 0", prNumber)
+		}
+		if branchName != "review/alg-100-discover-pr" {
+			t.Fatalf("branchName = %q, want review/alg-100-discover-pr", branchName)
+		}
+		if !strings.Contains(workdir, filepath.Join("scope", "worktrees")) {
+			t.Fatalf("unexpected workdir %q", workdir)
+		}
+
+		return map[string]interface{}{
+			"pr_number":      94,
+			"pr_url":         "https://github.com/test/repo/pull/94",
+			"merged":         true,
+			"ci_state":       "success",
+			"feedback_token": "token-2",
+			"polled_at":      "2026-03-09T06:10:00Z",
+		}, nil
+	}
+	defer func() { runReviewPRStatusCommand = original }()
+
+	err := mgr.HandlePollReviewPR(context.Background(), map[string]interface{}{
+		"loop_id":        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		"workspace_slug": "scope",
+		"ticket_id":      "30303030-3030-4030-8030-303030303030",
+		"branch_name":    "review/alg-100-discover-pr",
+	})
+	if err != nil {
+		t.Fatalf("HandlePollReviewPR: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+
+	event := events[0]
+	if event.Event != "review_pr_status" {
+		t.Fatalf("event = %q, want review_pr_status", event.Event)
+	}
+	if prNumber, _ := event.Payload["pr_number"].(int); prNumber != 94 {
+		t.Fatalf("pr_number = %v, want 94", event.Payload["pr_number"])
 	}
 }
 

@@ -148,6 +148,7 @@ var runPRMergeCommand = func(ctx context.Context, workdir string, prNumber int) 
 }
 
 type reviewPRSnapshot struct {
+	Number            int                     `json:"number"`
 	State             string                  `json:"state"`
 	ReviewDecision    string                  `json:"reviewDecision"`
 	MergeStateStatus  string                  `json:"mergeStateStatus"`
@@ -180,15 +181,29 @@ type reviewEventPayload struct {
 	SubmittedAt string `json:"submitted_at"`
 }
 
-var runReviewPRStatusCommand = func(ctx context.Context, workdir string, prNumber int) (map[string]interface{}, error) {
+var runReviewPRStatusCommand = func(
+	ctx context.Context,
+	workdir string,
+	prNumber int,
+	branchName string,
+) (map[string]interface{}, error) {
 	baseArgs := []string{"-C", workdir}
+	target := strconv.Itoa(prNumber)
+
+	if prNumber <= 0 {
+		target = strings.TrimSpace(branchName)
+	}
+
+	if target == "" {
+		return nil, fmt.Errorf("missing pr_number or branch_name")
+	}
 
 	viewCmd := exec.CommandContext(
 		ctx,
 		"gh",
 		append(baseArgs,
-			"pr", "view", strconv.Itoa(prNumber),
-			"--json", "state,reviewDecision,mergeStateStatus,url,statusCheckRollup",
+			"pr", "view", target,
+			"--json", "number,state,reviewDecision,mergeStateStatus,url,statusCheckRollup",
 		)...,
 	)
 	viewOut, err := viewCmd.Output()
@@ -201,10 +216,14 @@ var runReviewPRStatusCommand = func(ctx context.Context, workdir string, prNumbe
 		return nil, fmt.Errorf("parsing gh pr view output: %w", err)
 	}
 
+	if snapshot.Number <= 0 {
+		return nil, fmt.Errorf("unable to resolve PR number from gh pr view")
+	}
+
 	inlineComments, err := fetchPRJSON[[]reviewCommentPayload](
 		ctx,
 		workdir,
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", snapshot.Number),
 	)
 	if err != nil {
 		return nil, err
@@ -213,7 +232,7 @@ var runReviewPRStatusCommand = func(ctx context.Context, workdir string, prNumbe
 	issueComments, err := fetchPRJSON[[]issueCommentPayload](
 		ctx,
 		workdir,
-		fmt.Sprintf("repos/{owner}/{repo}/issues/%d/comments", prNumber),
+		fmt.Sprintf("repos/{owner}/{repo}/issues/%d/comments", snapshot.Number),
 	)
 	if err != nil {
 		return nil, err
@@ -222,13 +241,14 @@ var runReviewPRStatusCommand = func(ctx context.Context, workdir string, prNumbe
 	reviews, err := fetchPRJSON[[]reviewEventPayload](
 		ctx,
 		workdir,
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", prNumber),
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", snapshot.Number),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
+		"pr_number":      snapshot.Number,
 		"pr_url":         snapshot.URL,
 		"merged":         strings.EqualFold(snapshot.State, "MERGED"),
 		"ci_state":       deriveCIState(snapshot.StatusCheckRollup),
@@ -252,8 +272,8 @@ func (m *Manager) HandleMergePR(ctx context.Context, payload map[string]interfac
 		return fmt.Errorf("invalid merge_pr scope: %w", err)
 	}
 
-	prNumber := parseAttempt(payload["pr_number"])
-	if prNumber <= 0 {
+	prNumber, ok := parseOptionalInt(payload["pr_number"])
+	if !ok || prNumber <= 0 {
 		return fmt.Errorf("missing pr_number in merge_pr payload")
 	}
 
@@ -294,9 +314,11 @@ func (m *Manager) HandlePollReviewPR(ctx context.Context, payload map[string]int
 		return fmt.Errorf("invalid poll_review_pr scope: %w", err)
 	}
 
-	prNumber := parseAttempt(payload["pr_number"])
-	if prNumber <= 0 {
-		return fmt.Errorf("missing pr_number in poll_review_pr payload")
+	prNumber, _ := parseOptionalInt(payload["pr_number"])
+	branchName := payloadStr(payload, "branch_name")
+
+	if prNumber <= 0 && strings.TrimSpace(branchName) == "" {
+		return fmt.Errorf("missing pr_number or branch_name in poll_review_pr payload")
 	}
 
 	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -309,7 +331,7 @@ func (m *Manager) HandlePollReviewPR(ctx context.Context, payload map[string]int
 		"pr_number":      prNumber,
 	}
 
-	status, err := runReviewPRStatusCommand(pollCtx, workdir, prNumber)
+	status, err := runReviewPRStatusCommand(pollCtx, workdir, prNumber, branchName)
 	if err != nil {
 		result["ok"] = false
 		result["message"] = fmt.Sprintf("Unable to poll PR #%d: %v", prNumber, err)

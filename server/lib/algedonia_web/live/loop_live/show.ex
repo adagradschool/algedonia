@@ -510,13 +510,19 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp start_planning_loop(socket, daemon) do
     loop = socket.assigns.loop_record
     task = ContextHelper.ad_hoc_task(socket)
+    attempt = max(loop.current_attempt, 0) + 1
 
     {:ok, loop} =
       Loops.update_loop(loop, %{
         status: :running,
         assigned_daemon_id: daemon.id,
-        current_attempt: 1
+        current_attempt: attempt
       })
+
+    case Loops.maybe_resume_interrupted_step(loop.id, attempt, ["planning", "maker"]) do
+      {:ok, _step} -> :ok
+      :noop -> :ok
+    end
 
     opts =
       %{}

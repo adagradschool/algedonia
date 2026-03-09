@@ -1,6 +1,6 @@
 defmodule Algedonia.ReviewLoop do
   @moduledoc """
-  Orchestrates the In Review auto-land loop: commit → push → PR → CI/review
+  Orchestrates the In Review PR shepherd loop: commit → push → PR → CI/review
   polling → merge detection → ticket completion.
 
   Runs as a GenServer that keeps a review agent alive until merge, polls the PR
@@ -404,25 +404,30 @@ defmodule Algedonia.ReviewLoop do
   defp poll_running_review(loop_id, loop, ticket, _info, state) do
     case ensure_review_runtime(Loops.preload_with_workspace(loop), state, start_agent?: false) do
       {:ok, state} ->
-        if is_integer(ticket.review_pr_number) do
-          poll_dispatch_review(loop_id, ticket, state)
-        else
-          schedule_poll(state, loop_id)
-        end
+        poll_dispatch_review(loop_id, loop, ticket, state)
 
       {:error, _} ->
         schedule_poll(state, loop_id)
     end
   end
 
-  defp poll_dispatch_review(loop_id, ticket, state) do
+  defp poll_dispatch_review(loop_id, loop, ticket, state) do
     daemon_name = state.review_loops[loop_id][:daemon_name]
 
     payload = %{
       "workspace_slug" => workspace_slug_for_state(loop_id, state),
-      "ticket_id" => ticket.id,
-      "pr_number" => ticket.review_pr_number
+      "ticket_id" => ticket.id
     }
+
+    payload =
+      if is_integer(ticket.review_pr_number),
+        do: Map.put(payload, "pr_number", ticket.review_pr_number),
+        else: payload
+
+    payload =
+      if is_binary(loop.branch_name) and loop.branch_name != "",
+        do: Map.put(payload, "branch_name", loop.branch_name),
+        else: payload
 
     state.poll_fn.(daemon_name, loop_id, payload)
 
@@ -550,7 +555,7 @@ defmodule Algedonia.ReviewLoop do
       ticket_id: ticket.id,
       title: "Review #{ticket_code(ticket, workspace)}: #{ticket.title}",
       description:
-        "Auto-land #{ticket_code(ticket, workspace)} via branch, PR, CI, and review follow-up",
+        "Prepare #{ticket_code(ticket, workspace)} for human review via branch, PR, CI, and feedback follow-up",
       branch_name: suggested_branch_name(ticket, workspace),
       role: :review,
       status: :pending,
@@ -668,14 +673,22 @@ defmodule Algedonia.ReviewLoop do
 
     task = PromptBuilder.review_task(loop, ticket, "", review_prompt_metadata(loop, agent_link))
 
+    step_attrs = %{
+      loop_id: loop.id,
+      role: "review",
+      attempt: loop.current_attempt,
+      status: "running",
+      started_at: DateTime.utc_now()
+    }
+
     {:ok, _step} =
-      Loops.create_step(%{
-        loop_id: loop.id,
-        role: "review",
-        attempt: loop.current_attempt,
-        status: "running",
-        started_at: DateTime.utc_now()
-      })
+      case Loops.maybe_resume_interrupted_step(loop.id, loop.current_attempt, ["review"]) do
+        {:ok, step} ->
+          {:ok, step}
+
+        :noop ->
+          Loops.create_step(step_attrs)
+      end
 
     payload = %{
       "role" => "review",

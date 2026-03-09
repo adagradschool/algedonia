@@ -3,7 +3,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Algedonia.{Factory, Loops, Terminals}
+  alias Algedonia.{Factory, Loops, Terminals, Tickets}
   alias Algedonia.PubSub.Topics
 
   describe "Show" do
@@ -118,6 +118,39 @@ defmodule AlgedoniaWeb.LoopLiveTest do
         )
 
       assert render(view) =~ "No online daemon available"
+    end
+
+    test "planning session restart reuses the interrupted step", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      _daemon = Factory.insert_daemon!(%{status: :online})
+
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :planning,
+          title: "Resume planning"
+        })
+
+      {:ok, planning_loop_id} = Tickets.start_planning_work(ticket)
+      loop = Loops.get_loop!(planning_loop_id)
+      [step] = Loops.list_steps_for_loop(planning_loop_id)
+
+      Loops.interrupt_running_steps(planning_loop_id)
+      {:ok, _loop} = Loops.update_loop(loop, %{status: :pending, assigned_daemon_id: nil})
+
+      {:ok, _view, _html} =
+        live(
+          conn,
+          ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(planning_loop_id, 0, 8)}?#{%{role: "planning"}}"
+        )
+
+      Process.sleep(100)
+
+      [resumed_step] = Loops.list_steps_for_loop(planning_loop_id)
+      assert resumed_step.id == step.id
+      assert resumed_step.status == "running"
     end
 
     test "planning role shows sidebar but hides top-bar maker/index indicators", %{
