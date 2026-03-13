@@ -1,11 +1,15 @@
-const STORAGE_PREFIX = "algedonia:ticket-list-prefs:"
+import {
+  parseStoredPrefs,
+  sanitizePersistedPrefs,
+  storageKeyForWorkspace
+} from "./ticket_list_prefs_storage.mjs"
 
 const TicketListPrefs = {
   mounted() {
     const slug = this.el.dataset.workspaceSlug
     if (!slug) return
 
-    this.storageKey = `${STORAGE_PREFIX}${slug}`
+    this.storageKey = storageKeyForWorkspace(slug)
 
     const prefs = this.restorePrefs()
     if (prefs) {
@@ -21,7 +25,10 @@ const TicketListPrefs = {
     if (!this.storageKey) return
 
     try {
-      window.localStorage.setItem(this.storageKey, JSON.stringify(payload))
+      const sanitized = sanitizePersistedPrefs(payload)
+      if (!sanitized) return
+
+      window.localStorage.setItem(this.storageKey, JSON.stringify(sanitized))
     } catch (_error) {}
   },
 
@@ -29,18 +36,7 @@ const TicketListPrefs = {
     if (!this.storageKey) return null
 
     try {
-      const raw = window.localStorage.getItem(this.storageKey)
-      if (!raw) return null
-
-      const parsed = JSON.parse(raw)
-      if (!parsed || typeof parsed !== "object") return null
-
-      const result = {}
-      if (typeof parsed.sort_by === "string") result.sort_by = parsed.sort_by
-      if (typeof parsed.view_mode === "string") result.view_mode = parsed.view_mode
-      if (Object.keys(result).length === 0) return null
-
-      return result
+      return parseStoredPrefs(window.localStorage.getItem(this.storageKey))
     } catch (_error) {
       return null
     }

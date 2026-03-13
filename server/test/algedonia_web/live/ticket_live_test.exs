@@ -1,7 +1,9 @@
 defmodule AlgedoniaWeb.TicketLiveTest do
   use AlgedoniaWeb.ConnCase, async: true
 
-  alias Algedonia.{Loops, Tickets}
+  import Ecto.Query
+
+  alias Algedonia.{Loops, Repo, Tickets}
   alias Algedonia.PubSub.Topics
   alias AlgedoniaWeb.TicketLive.TicketFormComponent
 
@@ -267,6 +269,141 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets?q=alpha")
       assert html =~ "Alpha migration"
       refute html =~ "Beta cleanup"
+    end
+
+    test "completed column defaults to updated_at desc on first load", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      older =
+        insert_ticket!(%{
+          title: "Completed older",
+          status: :completed,
+          workspace_id: workspace.id
+        })
+
+      newer =
+        insert_ticket!(%{
+          title: "Completed newer",
+          status: :completed,
+          workspace_id: workspace.id
+        })
+
+      set_ticket_updated_at!(older, ~U[2025-01-01 00:00:00Z])
+      set_ticket_updated_at!(newer, ~U[2025-02-01 00:00:00Z])
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert_ordered_titles(render_board_column(view, :completed), [
+        "Completed newer",
+        "Completed older"
+      ])
+    end
+
+    test "sorting field and direction reorder only the targeted status column", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      insert_ticket!(%{
+        title: "Alpha backlog",
+        priority: 5,
+        status: :backlog,
+        workspace_id: workspace.id
+      })
+
+      insert_ticket!(%{
+        title: "Zulu backlog",
+        priority: 1,
+        status: :backlog,
+        workspace_id: workspace.id
+      })
+
+      older =
+        insert_ticket!(%{
+          title: "Completed older",
+          status: :completed,
+          workspace_id: workspace.id
+        })
+
+      newer =
+        insert_ticket!(%{
+          title: "Completed newer",
+          status: :completed,
+          workspace_id: workspace.id
+        })
+
+      set_ticket_updated_at!(older, ~U[2025-01-01 00:00:00Z])
+      set_ticket_updated_at!(newer, ~U[2025-02-01 00:00:00Z])
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
+
+      assert_ordered_titles(render_board_column(view, :completed), [
+        "Completed newer",
+        "Completed older"
+      ])
+
+      view
+      |> element(
+        ~s{button[phx-click="set_status_sort"][phx-value-status="backlog"][phx-value-sort_by="title"]}
+      )
+      |> render_click()
+
+      assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
+
+      view
+      |> element(
+        ~s{button[phx-click="set_status_sort"][phx-value-status="backlog"][phx-value-sort_order="desc"]}
+      )
+      |> render_click()
+
+      assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
+
+      assert_ordered_titles(render_board_column(view, :completed), [
+        "Completed newer",
+        "Completed older"
+      ])
+
+      view
+      |> element(
+        ~s{button[phx-click="set_status_sort"][phx-value-status="backlog"][phx-value-sort_order="asc"]}
+      )
+      |> render_click()
+
+      assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
+    end
+
+    test "restore_prefs reapplies saved view and per-status sort preferences", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      insert_ticket!(%{
+        title: "Alpha backlog",
+        priority: 1,
+        status: :backlog,
+        workspace_id: workspace.id
+      })
+
+      insert_ticket!(%{
+        title: "Zulu backlog",
+        priority: 5,
+        status: :backlog,
+        workspace_id: workspace.id
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      render_hook(view, "restore_prefs", %{
+        "view_mode" => "list",
+        "sort_preferences" => %{
+          "backlog" => %{"sort_by" => "title", "sort_order" => "desc"}
+        }
+      })
+
+      assert_patch(view, ~p"/w/#{workspace.slug}/tickets?view=list")
+
+      assert_ordered_titles(render_list_section(view, :backlog), ["Zulu backlog", "Alpha backlog"])
     end
 
     test "plan from list moves ticket to planning and opens planning session", %{
@@ -1055,6 +1192,43 @@ defmodule AlgedoniaWeb.TicketLiveTest do
         |> render_submit()
 
       assert html =~ "cycle"
+    end
+  end
+
+  defp render_board_column(view, status) do
+    view
+    |> element("#col-#{status}")
+    |> render()
+  end
+
+  defp render_list_section(view, status) do
+    view
+    |> element("#list-#{status}")
+    |> render()
+  end
+
+  defp assert_ordered_titles(html, [first, second | rest]) do
+    first_index = title_index!(html, first)
+    second_index = title_index!(html, second)
+
+    assert first_index < second_index
+
+    assert_ordered_titles(html, [second | rest])
+  end
+
+  defp assert_ordered_titles(_html, [_last]), do: :ok
+
+  defp set_ticket_updated_at!(ticket, updated_at) do
+    from(t in Algedonia.Tickets.Ticket, where: t.id == ^ticket.id)
+    |> Repo.update_all(set: [updated_at: updated_at])
+
+    Tickets.get_ticket!(ticket.id)
+  end
+
+  defp title_index!(html, title) do
+    case :binary.match(html, title) do
+      {index, _length} -> index
+      :nomatch -> flunk("expected #{inspect(title)} to appear in rendered HTML")
     end
   end
 end

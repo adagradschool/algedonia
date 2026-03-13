@@ -76,51 +76,6 @@
             </li>
           </ul>
         </div>
-
-        <%!-- Sort dropdown --%>
-        <div class="dropdown dropdown-end">
-          <label
-            tabindex="0"
-            class="flex items-center gap-1.5 px-2 py-1 bg-surface-raised border border-border rounded-md text-xs text-fg-secondary hover:text-fg transition-colors cursor-pointer"
-          >
-            <.icon name="hero-arrows-up-down" class="size-3" /> Sort
-          </label>
-          <ul
-            tabindex="0"
-            class="dropdown-content menu bg-surface-raised border border-border rounded-lg z-10 w-44 p-1 shadow-lg mt-1"
-          >
-            <li>
-              <button
-                phx-click="sort"
-                phx-value-sort_by="priority"
-                class={["text-xs rounded", @sort_by == :priority && "text-fg bg-accent-indigo/10"]}
-              >
-                Priority
-              </button>
-            </li>
-            <li>
-              <button
-                phx-click="sort"
-                phx-value-sort_by="inserted_at"
-                class={[
-                  "text-xs rounded",
-                  @sort_by == :inserted_at && "text-fg bg-accent-indigo/10"
-                ]}
-              >
-                Date created
-              </button>
-            </li>
-            <li>
-              <button
-                phx-click="sort"
-                phx-value-sort_by="title"
-                class={["text-xs rounded", @sort_by == :title && "text-fg bg-accent-indigo/10"]}
-              >
-                Title
-              </button>
-            </li>
-          </ul>
-        </div>
       </div>
 
       <div class="flex items-center gap-2">
@@ -175,6 +130,7 @@
         status={status}
         last={status == List.last(@statuses)}
         count={length(Map.get(@tickets_by_status, status, []))}
+        sort={sort_preference(@sort_preferences, status)}
         stream={stream_for(@streams, status)}
         prefix={@workspace_prefix}
         workspace_slug={@workspace_slug}
@@ -185,13 +141,11 @@
     <%!-- List view --%>
     <div :if={@live_action != :show && @view_mode == :list} class="flex-1 overflow-auto px-2 py-2">
       <div :for={status <- @statuses} :if={Map.get(@tickets_by_status, status, []) != []}>
-        <div class="flex items-center gap-2 px-3 py-1.5">
-          <.status_icon status={status} />
-          <span class="text-xs font-medium text-fg-secondary">{status_label(status)}</span>
-          <span class="text-[10px] text-fg-muted">
-            {length(Map.get(@tickets_by_status, status, []))}
-          </span>
-        </div>
+        <.status_section_header
+          status={status}
+          count={length(Map.get(@tickets_by_status, status, []))}
+          sort={sort_preference(@sort_preferences, status)}
+        />
         <div
           id={"list-#{status}"}
           phx-update="stream"
