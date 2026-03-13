@@ -390,7 +390,11 @@ defmodule Algedonia.Loops do
       from(l in Loop,
         where: l.ticket_id in ^ticket_ids and l.role != :hook and l.status not in ^terminal,
         distinct: l.ticket_id,
-        order_by: [asc: l.ticket_id, asc: l.inserted_at],
+        order_by: [
+          asc: l.ticket_id,
+          asc: fragment("CASE WHEN ? = ? THEN 0 ELSE 1 END", l.role, ^"task"),
+          asc: l.inserted_at
+        ],
         select: {l.ticket_id, l.id, l.status, l.current_attempt}
       )
       |> Repo.all()
