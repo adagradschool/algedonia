@@ -69,19 +69,11 @@ defmodule Algedonia.Tickets.Search do
     end)
   end
 
-  defp status_sort_preference(sort_preferences, :completed) do
-    Map.get(sort_preferences, :completed) || Map.get(sort_preferences, "completed") ||
-      %{
-        sort_by: :updated_at,
-        sort_order: :desc
-      }
-  end
-
   defp status_sort_preference(sort_preferences, status) do
     Map.get(sort_preferences, status) || Map.get(sort_preferences, to_string(status)) ||
       %{
-        sort_by: :priority,
-        sort_order: :asc
+        sort_by: :updated_at,
+        sort_order: :desc
       }
   end
 

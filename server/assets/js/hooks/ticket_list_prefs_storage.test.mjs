@@ -20,7 +20,7 @@ test("parses persisted per-status sort preferences and keeps workspace-scoped st
   assert.equal(prefs.view_mode, "list")
   assert.deepEqual(prefs.sort_preferences.backlog, {sort_by: "title", sort_order: "desc"})
   assert.deepEqual(prefs.sort_preferences.completed, {sort_by: "updated_at", sort_order: "desc"})
-  assert.deepEqual(prefs.sort_preferences.in_progress, {sort_by: "priority", sort_order: "asc"})
+  assert.deepEqual(prefs.sort_preferences.in_progress, {sort_by: "updated_at", sort_order: "desc"})
 })
 
 test("legacy global sort payloads do not drive ordering anymore", () => {
@@ -41,7 +41,7 @@ test("invalid current-format sort values fall back to safe defaults", () => {
     }
   }))
 
-  assert.deepEqual(prefs.sort_preferences.backlog, {sort_by: "priority", sort_order: "asc"})
+  assert.deepEqual(prefs.sort_preferences.backlog, {sort_by: "updated_at", sort_order: "desc"})
   assert.deepEqual(prefs.sort_preferences.completed, {
     sort_by: "updated_at",
     sort_order: "desc"
@@ -61,12 +61,12 @@ test("persist sanitization keeps only supported view and sort payload fields", (
     view_mode: "list",
     sort_preferences: {
       backlog: {sort_by: "title", sort_order: "asc"},
-      planning: {sort_by: "priority", sort_order: "asc"},
-      in_progress: {sort_by: "priority", sort_order: "asc"},
-      in_review: {sort_by: "priority", sort_order: "asc"},
-      halted: {sort_by: "priority", sort_order: "asc"},
+      planning: {sort_by: "updated_at", sort_order: "desc"},
+      in_progress: {sort_by: "updated_at", sort_order: "desc"},
+      in_review: {sort_by: "updated_at", sort_order: "desc"},
+      halted: {sort_by: "updated_at", sort_order: "desc"},
       completed: {sort_by: "updated_at", sort_order: "desc"},
-      archived: {sort_by: "priority", sort_order: "asc"}
+      archived: {sort_by: "updated_at", sort_order: "desc"}
     }
   })
 })

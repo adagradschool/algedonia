@@ -13,15 +13,16 @@ const STATUSES = [
 const VALID_VIEW_MODES = new Set(["board", "list"])
 const VALID_SORT_FIELDS = new Set(["priority", "inserted_at", "updated_at", "title"])
 const VALID_SORT_ORDERS = new Set(["asc", "desc"])
+const DEFAULT_SORT_PREFERENCE = Object.freeze({sort_by: "updated_at", sort_order: "desc"})
 
 const DEFAULT_SORT_PREFERENCES = Object.freeze({
-  backlog: Object.freeze({sort_by: "priority", sort_order: "asc"}),
-  planning: Object.freeze({sort_by: "priority", sort_order: "asc"}),
-  in_progress: Object.freeze({sort_by: "priority", sort_order: "asc"}),
-  in_review: Object.freeze({sort_by: "priority", sort_order: "asc"}),
-  halted: Object.freeze({sort_by: "priority", sort_order: "asc"}),
-  completed: Object.freeze({sort_by: "updated_at", sort_order: "desc"}),
-  archived: Object.freeze({sort_by: "priority", sort_order: "asc"})
+  backlog: DEFAULT_SORT_PREFERENCE,
+  planning: DEFAULT_SORT_PREFERENCE,
+  in_progress: DEFAULT_SORT_PREFERENCE,
+  in_review: DEFAULT_SORT_PREFERENCE,
+  halted: DEFAULT_SORT_PREFERENCE,
+  completed: DEFAULT_SORT_PREFERENCE,
+  archived: DEFAULT_SORT_PREFERENCE
 })
 
 export function storageKeyForWorkspace(slug) {

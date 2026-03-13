@@ -59,8 +59,7 @@ defmodule AlgedoniaWeb.TicketLive.FilterHelpers do
   @doc """
   Returns the default sort preference for a single status.
   """
-  def default_sort_preference(:completed), do: %{sort_by: :updated_at, sort_order: :desc}
-  def default_sort_preference(_status), do: %{sort_by: :priority, sort_order: :asc}
+  def default_sort_preference(_status), do: %{sort_by: :updated_at, sort_order: :desc}
 
   @doc """
   Normalizes a per-status sort preference payload into a full, safe preference map.

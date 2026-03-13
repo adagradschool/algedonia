@@ -271,10 +271,24 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Beta cleanup"
     end
 
-    test "completed column defaults to updated_at desc on first load", %{
+    test "status columns default to updated_at desc on first load", %{
       conn: conn,
       workspace: workspace
     } do
+      backlog_older =
+        insert_ticket!(%{
+          title: "Backlog older",
+          status: :backlog,
+          workspace_id: workspace.id
+        })
+
+      backlog_newer =
+        insert_ticket!(%{
+          title: "Backlog newer",
+          status: :backlog,
+          workspace_id: workspace.id
+        })
+
       older =
         insert_ticket!(%{
           title: "Completed older",
@@ -289,10 +303,17 @@ defmodule AlgedoniaWeb.TicketLiveTest do
           workspace_id: workspace.id
         })
 
+      set_ticket_updated_at!(backlog_older, ~U[2025-01-01 00:00:00Z])
       set_ticket_updated_at!(older, ~U[2025-01-01 00:00:00Z])
+      set_ticket_updated_at!(backlog_newer, ~U[2025-02-01 00:00:00Z])
       set_ticket_updated_at!(newer, ~U[2025-02-01 00:00:00Z])
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      assert_ordered_titles(render_board_column(view, :backlog), [
+        "Backlog newer",
+        "Backlog older"
+      ])
 
       assert_ordered_titles(render_board_column(view, :completed), [
         "Completed newer",
@@ -304,19 +325,21 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       conn: conn,
       workspace: workspace
     } do
-      insert_ticket!(%{
-        title: "Alpha backlog",
-        priority: 5,
-        status: :backlog,
-        workspace_id: workspace.id
-      })
+      alpha_backlog =
+        insert_ticket!(%{
+          title: "Alpha backlog",
+          priority: 5,
+          status: :backlog,
+          workspace_id: workspace.id
+        })
 
-      insert_ticket!(%{
-        title: "Zulu backlog",
-        priority: 1,
-        status: :backlog,
-        workspace_id: workspace.id
-      })
+      zulu_backlog =
+        insert_ticket!(%{
+          title: "Zulu backlog",
+          priority: 1,
+          status: :backlog,
+          workspace_id: workspace.id
+        })
 
       older =
         insert_ticket!(%{
@@ -334,10 +357,12 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       set_ticket_updated_at!(older, ~U[2025-01-01 00:00:00Z])
       set_ticket_updated_at!(newer, ~U[2025-02-01 00:00:00Z])
+      set_ticket_updated_at!(alpha_backlog, ~U[2025-02-01 00:00:00Z])
+      set_ticket_updated_at!(zulu_backlog, ~U[2025-01-01 00:00:00Z])
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
+      assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
 
       assert_ordered_titles(render_board_column(view, :completed), [
         "Completed newer",
@@ -350,20 +375,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       )
       |> render_click()
 
-      assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
-
-      view
-      |> element(
-        ~s{button[phx-click="set_status_sort"][phx-value-status="backlog"][phx-value-sort_order="desc"]}
-      )
-      |> render_click()
-
       assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
-
-      assert_ordered_titles(render_board_column(view, :completed), [
-        "Completed newer",
-        "Completed older"
-      ])
 
       view
       |> element(
@@ -372,6 +384,19 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> render_click()
 
       assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
+
+      assert_ordered_titles(render_board_column(view, :completed), [
+        "Completed newer",
+        "Completed older"
+      ])
+
+      view
+      |> element(
+        ~s{button[phx-click="set_status_sort"][phx-value-status="backlog"][phx-value-sort_order="desc"]}
+      )
+      |> render_click()
+
+      assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
     end
 
     test "restore_prefs reapplies saved view and per-status sort preferences", %{

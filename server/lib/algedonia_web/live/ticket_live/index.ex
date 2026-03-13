@@ -168,29 +168,9 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   def handle_event("restore_prefs", prefs, socket) do
-    sort_preferences =
-      if Map.has_key?(prefs, "sort_preferences") || Map.has_key?(prefs, :sort_preferences) do
-        normalize_sort_preferences(
-          Map.get(prefs, "sort_preferences") || Map.get(prefs, :sort_preferences)
-        )
-      else
-        socket.assigns.sort_preferences
-      end
-
-    socket =
-      if sort_preferences == socket.assigns.sort_preferences do
-        socket
-      else
-        socket
-        |> assign(:sort_preferences, sort_preferences)
-        |> stream_tickets()
-      end
-
-    view_override =
-      if !socket.assigns.url_has_view? &&
-           (Map.get(prefs, "view_mode") || Map.get(prefs, :view_mode)) in ["board", "list"] do
-        Map.get(prefs, "view_mode") || Map.get(prefs, :view_mode)
-      end
+    sort_preferences = restored_sort_preferences(prefs, socket.assigns.sort_preferences)
+    socket = maybe_assign_sort_preferences(socket, sort_preferences)
+    view_override = restored_view_mode(prefs, socket.assigns.url_has_view?)
 
     if view_override do
       {:noreply, push_patch(socket, to: tickets_path(socket, view: view_override))}
@@ -269,6 +249,32 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   # -- Streams --
+
+  defp restored_sort_preferences(prefs, current_preferences) do
+    case Map.get(prefs, "sort_preferences") || Map.get(prefs, :sort_preferences) do
+      preferences when is_map(preferences) -> normalize_sort_preferences(preferences)
+      _ -> current_preferences
+    end
+  end
+
+  defp maybe_assign_sort_preferences(socket, sort_preferences) do
+    if sort_preferences == socket.assigns.sort_preferences do
+      socket
+    else
+      socket
+      |> assign(:sort_preferences, sort_preferences)
+      |> stream_tickets()
+    end
+  end
+
+  defp restored_view_mode(_prefs, true), do: nil
+
+  defp restored_view_mode(prefs, false) do
+    case Map.get(prefs, "view_mode") || Map.get(prefs, :view_mode) do
+      view when view in ["board", "list"] -> view
+      _ -> nil
+    end
+  end
 
   defp stream_tickets(socket) do
     a = socket.assigns
