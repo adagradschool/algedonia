@@ -200,8 +200,60 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       {:ok, view, _html} =
         live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
 
-      assert has_element?(view, "#loop-terminal-panel button", "Pull Comments")
-      assert has_element?(view, "#loop-terminal-panel button", "Merge")
+      assert has_element?(
+               view,
+               "#loop-terminal-panel button[phx-click='pull_comments']",
+               "Pull Comments"
+             )
+
+      refute has_element?(
+               view,
+               "#loop-terminal-panel button[phx-click='pull_comments'][disabled]"
+             )
+
+      assert has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr']", "Merge")
+      refute has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr'][disabled]")
+    end
+
+    test "review loop disables pull comments and merge buttons until a PR is linked", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      tooltip = "Available after a pull request is linked to this ticket."
+
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review this",
+          review_pr_number: nil
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      assert has_element?(
+               view,
+               "#loop-terminal-panel span[title='#{tooltip}'] button[disabled]",
+               "Pull Comments"
+             )
+
+      assert has_element?(
+               view,
+               "#loop-terminal-panel span[title='#{tooltip}'] button[disabled]",
+               "Merge"
+             )
+
+      refute has_element?(view, "#loop-terminal-panel button[phx-click='pull_comments']")
+      refute has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr']")
     end
 
     test "review loop shows last polled timestamp subtly", %{conn: conn, workspace: workspace} do
@@ -231,6 +283,75 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       )
 
       assert render(view) =~ "Polled 06:00:00"
+    end
+
+    test "pull_comments without linked PR flashes error and does not dispatch review actions", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      daemon = Factory.insert_daemon!(%{status: :online})
+      topic = "daemon:#{daemon.name}"
+      AlgedoniaWeb.Endpoint.subscribe(topic)
+
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review this",
+          review_pr_number: nil
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          assigned_daemon_id: daemon.id,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      html = render_click(view, "pull_comments", %{})
+
+      assert html =~ "No pull request is linked to this ticket yet"
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^topic, event: "start_loop"}, 100
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^topic, event: "stdin_input"}, 100
+    end
+
+    test "merge_pr without linked PR flashes error and does not dispatch merge action", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      daemon = Factory.insert_daemon!(%{status: :online})
+      topic = "daemon:#{daemon.name}"
+      AlgedoniaWeb.Endpoint.subscribe(topic)
+
+      ticket =
+        Factory.insert_ticket!(%{
+          workspace_id: workspace.id,
+          status: :in_review,
+          title: "Review this",
+          review_pr_number: nil
+        })
+
+      loop =
+        Factory.insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          assigned_daemon_id: daemon.id,
+          current_attempt: 1
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
+
+      html = render_click(view, "merge_pr", %{})
+
+      assert html =~ "No pull request is linked to this ticket yet"
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^topic, event: "merge_pr"}, 100
     end
 
     test "stale planning URL with non-UUID ref self-heals to real planning loop", %{

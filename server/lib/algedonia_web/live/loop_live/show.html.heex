@@ -110,6 +110,10 @@
         class="bg-[#0a0d12] flex flex-col overflow-hidden"
       >
         <div class="h-12 border-b border-border-soft px-4 flex items-center justify-between gap-3">
+          <% in_review? = match?(%{status: :in_review}, @ticket) %>
+          <% review_pr_linked? = review_pr_linked?(@ticket) %>
+          <% review_pr_link_title =
+            if(in_review? && !review_pr_linked?, do: review_pr_link_required_message()) %>
           <div class="flex items-center gap-2 min-w-0">
             <h1 class="text-base font-medium text-fg whitespace-normal break-words leading-tight">
               {@loop_title}
@@ -139,29 +143,49 @@
 
           <div class="flex items-center gap-2">
             <span
-              :if={
-                @ticket && @ticket.status == :in_review && review_poll_label(@review_poll_state)
-              }
+              :if={in_review? && review_poll_label(@review_poll_state)}
               class="text-[11px] text-fg-subtle"
             >
               {review_poll_label(@review_poll_state)}
             </span>
-            <button
-              :if={@ticket && @ticket.status == :in_review}
-              phx-click="pull_comments"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-status-cyan/40 bg-status-cyan/10 text-status-cyan hover:bg-status-cyan/20 text-sm font-medium transition-colors"
-              type="button"
-            >
-              Pull Comments
-            </button>
-            <button
-              :if={@ticket && @ticket.status == :in_review}
-              phx-click="merge_pr"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-status-green/40 bg-status-green/10 text-status-green hover:bg-status-green/20 text-sm font-medium transition-colors"
-              type="button"
-            >
-              Merge
-            </button>
+            <span :if={in_review?} class="inline-flex" title={review_pr_link_title}>
+              <button
+                phx-click={if(review_pr_linked?, do: "pull_comments")}
+                disabled={!review_pr_linked?}
+                aria-disabled={!review_pr_linked?}
+                class={[
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium transition-colors",
+                  if(review_pr_linked?,
+                    do:
+                      "border-status-cyan/40 bg-status-cyan/10 text-status-cyan hover:bg-status-cyan/20",
+                    else:
+                      "border-status-cyan/25 bg-status-cyan/5 text-status-cyan/60 cursor-not-allowed opacity-60"
+                  )
+                ]}
+                type="button"
+              >
+                Pull Comments
+              </button>
+            </span>
+            <span :if={in_review?} class="inline-flex" title={review_pr_link_title}>
+              <button
+                phx-click={if(review_pr_linked?, do: "merge_pr")}
+                disabled={!review_pr_linked?}
+                aria-disabled={!review_pr_linked?}
+                class={[
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium transition-colors",
+                  if(review_pr_linked?,
+                    do:
+                      "border-status-green/40 bg-status-green/10 text-status-green hover:bg-status-green/20",
+                    else:
+                      "border-status-green/25 bg-status-green/5 text-status-green/60 cursor-not-allowed opacity-60"
+                  )
+                ]}
+                type="button"
+              >
+                Merge
+              </button>
+            </span>
             <button
               :if={@active && @planning_session?}
               phx-click="finish_planning"
