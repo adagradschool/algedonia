@@ -3,6 +3,9 @@ defmodule AlgedoniaWeb.PresenceLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Algedonia.Factory
+  alias Algedonia.PubSub.Topics
+
   test "two users on /tickets see each other", %{conn: conn, workspace: workspace, user: user} do
     conn1 =
       Plug.Test.init_test_session(conn, %{
@@ -114,6 +117,81 @@ defmodule AlgedoniaWeb.PresenceLiveTest do
              view,
              "#global-command-palette[data-tickets-path='/w/#{target_workspace.slug}/tickets']"
            )
+  end
+
+  test "tickets layout avatar badge updates for daemon status transitions", %{
+    conn: conn,
+    workspace: workspace,
+    user: user
+  } do
+    daemon =
+      Factory.insert_daemon!(%{
+        name: "badge-daemon",
+        user_id: user.id,
+        status: :offline
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+    assert has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="offline"]))
+
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      Topics.monitor(workspace.id),
+      {:daemon_status_changed, %{daemon | status: :unhealthy}}
+    )
+
+    assert_eventually(fn ->
+      has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="unhealthy"]))
+    end)
+
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      Topics.monitor(workspace.id),
+      {:daemon_status_changed, %{daemon | status: :online}}
+    )
+
+    assert_eventually(fn ->
+      has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="online"]))
+    end)
+  end
+
+  test "home layout avatar badge defaults to offline and updates for daemon status transitions",
+       %{
+         conn: conn,
+         workspace: workspace,
+         user: user
+       } do
+    daemon =
+      Factory.insert_daemon!(%{
+        name: "home-badge-daemon",
+        user_id: user.id,
+        status: :offline
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}")
+
+    assert has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="offline"]))
+
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      Topics.monitor(workspace.id),
+      {:daemon_status_changed, %{daemon | status: :unhealthy}}
+    )
+
+    assert_eventually(fn ->
+      has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="unhealthy"]))
+    end)
+
+    Phoenix.PubSub.broadcast(
+      Algedonia.PubSub,
+      Topics.monitor(workspace.id),
+      {:daemon_status_changed, %{daemon | status: :online}}
+    )
+
+    assert_eventually(fn ->
+      has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="online"]))
+    end)
   end
 
   defp assert_eventually(func, attempts \\ 50) do

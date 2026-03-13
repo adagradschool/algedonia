@@ -7,8 +7,10 @@ defmodule AlgedoniaWeb.PresenceHook do
 
   alias Algedonia.Accounts
   alias Algedonia.Accounts.User
+  alias Algedonia.Daemons
   alias Algedonia.Presence
   alias Algedonia.Workspaces
+  alias AlgedoniaWeb.Helpers
 
   def on_mount(:default, params, session, socket) do
     workspace_slug = params["workspace"]
@@ -31,6 +33,9 @@ defmodule AlgedoniaWeb.PresenceHook do
 
     if workspace, do: Algedonia.TenantScope.put_workspace(workspace.id)
 
+    daemon_statuses = daemon_statuses_for(workspace)
+    workspace_daemon_status = Helpers.aggregate_daemon_status(Map.values(daemon_statuses))
+
     socket =
       socket
       |> assign(:current_user, current_user)
@@ -42,6 +47,9 @@ defmodule AlgedoniaWeb.PresenceHook do
       |> assign(:workspace_slug, workspace_slug)
       |> assign(:current_workspace, workspace)
       |> assign(:user_workspaces, user_workspaces)
+      |> assign(:workspace_daemon_statuses, daemon_statuses)
+      |> assign(:workspace_daemon_status, workspace_daemon_status)
+      |> assign(:forward_daemon_events?, socket.view == AlgedoniaWeb.MonitorLive.Index)
       |> assign(:github_token, session["github_token"])
       |> assign(:show_new_workspace_modal, false)
       |> attach_hook(:current_path, :handle_params, fn _params, uri, socket ->
@@ -50,6 +58,10 @@ defmodule AlgedoniaWeb.PresenceHook do
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Algedonia.PubSub, topic)
+
+      if workspace && socket.view != AlgedoniaWeb.MonitorLive.Index do
+        Daemons.subscribe(workspace.id)
+      end
 
       Presence.track(self(), topic, display_name, %{
         display_name: display_name,
@@ -62,6 +74,7 @@ defmodule AlgedoniaWeb.PresenceHook do
         socket
         |> assign(:presences, presences)
         |> attach_hook(:presence_diff, :handle_info, &handle_presence_diff/2)
+        |> attach_hook(:workspace_daemon_badge, :handle_info, &handle_daemon_update/2)
 
       {:cont, socket}
     else
@@ -76,12 +89,40 @@ defmodule AlgedoniaWeb.PresenceHook do
 
   defp handle_presence_diff(_msg, socket), do: {:cont, socket}
 
+  defp handle_daemon_update({event, daemon}, socket)
+       when event in [:daemon_status_changed, :daemon_heartbeat] do
+    statuses =
+      socket.assigns.workspace_daemon_statuses
+      |> Map.put(daemon.id, daemon.status)
+
+    socket =
+      socket
+      |> assign(:workspace_daemon_statuses, statuses)
+      |> assign(:workspace_daemon_status, Helpers.aggregate_daemon_status(Map.values(statuses)))
+
+    if socket.assigns.forward_daemon_events?, do: {:cont, socket}, else: {:halt, socket}
+  end
+
+  defp handle_daemon_update({:repo_clone_status, _daemon_name, _workspace_slug, _payload}, socket) do
+    if socket.assigns.forward_daemon_events?, do: {:cont, socket}, else: {:halt, socket}
+  end
+
+  defp handle_daemon_update(_msg, socket), do: {:cont, socket}
+
   defp list_presences(topic) do
     topic
     |> Presence.list()
     |> Enum.map(fn {name, %{metas: [meta | _]}} ->
       Map.put(meta, :display_name, name)
     end)
+  end
+
+  defp daemon_statuses_for(nil), do: %{}
+
+  defp daemon_statuses_for(workspace) do
+    workspace.id
+    |> Daemons.list_daemons()
+    |> Map.new(fn daemon -> {daemon.id, daemon.status} end)
   end
 
   defp topic_for(view, workspace_slug) do

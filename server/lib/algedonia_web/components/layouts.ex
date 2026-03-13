@@ -18,6 +18,7 @@ defmodule AlgedoniaWeb.Layouts do
   attr :current_workspace, :map, required: true
   attr :current_user, :map, default: nil
   attr :user_workspaces, :list, default: []
+  attr :workspace_daemon_status, :atom, default: :offline
 
   attr :nav_section, :atom,
     default: nil,
@@ -53,6 +54,7 @@ defmodule AlgedoniaWeb.Layouts do
             current_workspace={@current_workspace}
             current_user={@current_user}
             user_workspaces={@user_workspaces}
+            workspace_daemon_status={@workspace_daemon_status}
             inbox_active={nav_active?(assigns, :inbox, "/")}
             issues_active={nav_active?(assigns, :issues, "/tickets")}
             skills_active={nav_active?(assigns, :skills, "/skills")}
@@ -102,6 +104,7 @@ defmodule AlgedoniaWeb.Layouts do
   attr :current_workspace, :map, required: true
   attr :current_user, :map, default: nil
   attr :user_workspaces, :list, default: []
+  attr :workspace_daemon_status, :atom, default: :offline
   attr :inbox_active, :boolean, default: false
   attr :issues_active, :boolean, default: false
   attr :skills_active, :boolean, default: false
@@ -243,17 +246,29 @@ defmodule AlgedoniaWeb.Layouts do
             title={@current_user.name || @current_user.github_username}
             class="workspace-sidebar-account flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-panel transition-colors"
           >
-            <img
-              :if={@current_user.avatar_url}
-              src={@current_user.avatar_url}
-              class="size-6 rounded-full"
-              alt=""
-            />
-            <div
-              :if={!@current_user.avatar_url}
-              class="size-6 rounded-full bg-accent-indigo flex items-center justify-center text-white text-xs font-medium"
-            >
-              {String.first(@current_user.name || "?")}
+            <div class="relative inline-flex">
+              <img
+                :if={@current_user.avatar_url}
+                src={@current_user.avatar_url}
+                class="size-6 rounded-full"
+                alt=""
+              />
+              <div
+                :if={!@current_user.avatar_url}
+                class="size-6 rounded-full bg-accent-indigo flex items-center justify-center text-white text-xs font-medium"
+              >
+                {String.first(@current_user.name || "?")}
+              </div>
+              <span
+                data-testid="workspace-daemon-badge"
+                data-state={@workspace_daemon_status}
+                title={"Daemon status: #{@workspace_daemon_status}"}
+                class={[
+                  "absolute -bottom-0.5 -right-0.5 inline-block size-2.5 rounded-full border border-surface-sidebar",
+                  daemon_badge_color(@workspace_daemon_status)
+                ]}
+              >
+              </span>
             </div>
             <span
               data-sidebar-expanded-only
@@ -308,6 +323,8 @@ defmodule AlgedoniaWeb.Layouts do
     </a>
     """
   end
+
+  defp daemon_badge_color(status), do: AlgedoniaWeb.Helpers.daemon_status_color(status)
 
   defp nav_active?(assigns, section, path) do
     case Map.get(assigns, :nav_section) do
