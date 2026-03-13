@@ -13,8 +13,7 @@ defmodule Algedonia.Tickets.Search do
 
     * `:status` — filter by status atom
     * `:assignee` — filter by assignee string
-    * `:sort_by` — field to sort by (default `:priority`)
-    * `:sort_order` — `:asc` or `:desc` (default `:asc`)
+    * `:sort_preferences` — per-status field/direction preferences
     * `:workspace_id` — scope to workspace
     * `:query` — text search string
     * `:prefix` — workspace prefix for ticket code search
@@ -23,11 +22,13 @@ defmodule Algedonia.Tickets.Search do
   def search_tickets_grouped(opts) do
     query = Keyword.get(opts, :query)
     prefix = Keyword.get(opts, :prefix, "AG")
+    sort_preferences = Keyword.get(opts, :sort_preferences, %{})
 
     grouped =
       opts
-      |> Tickets.list_tickets_by_status()
+      |> grouped_tickets()
       |> filter_grouped_by_query(query, prefix)
+      |> sort_grouped(sort_preferences)
 
     count =
       grouped
@@ -51,6 +52,45 @@ defmodule Algedonia.Tickets.Search do
       {status, Enum.filter(tickets, &ticket_matches_query?(&1, terms, prefix))}
     end)
   end
+
+  defp grouped_tickets(opts) do
+    opts
+    |> Keyword.drop([:sort_by, :sort_order, :sort_preferences])
+    |> Tickets.list_tickets()
+    |> Enum.group_by(& &1.status)
+  end
+
+  defp sort_grouped(grouped, sort_preferences) do
+    Map.new(grouped, fn {status, tickets} ->
+      preference = status_sort_preference(sort_preferences, status)
+
+      {status,
+       Enum.sort_by(tickets, &ticket_sort_key(&1, preference.sort_by), preference.sort_order)}
+    end)
+  end
+
+  defp status_sort_preference(sort_preferences, status) do
+    Map.get(sort_preferences, status) || Map.get(sort_preferences, to_string(status)) ||
+      %{
+        sort_by: :updated_at,
+        sort_order: :desc
+      }
+  end
+
+  defp ticket_sort_key(ticket, :inserted_at),
+    do: {sortable_datetime(ticket.inserted_at), ticket.number || 0, ticket.id}
+
+  defp ticket_sort_key(ticket, :updated_at),
+    do: {sortable_datetime(ticket.updated_at), ticket.number || 0, ticket.id}
+
+  defp ticket_sort_key(ticket, :title),
+    do: {String.downcase(ticket.title || ""), ticket.number || 0, ticket.id}
+
+  defp ticket_sort_key(ticket, _sort_by),
+    do: {ticket.priority || 0, ticket.number || 0, String.downcase(ticket.title || ""), ticket.id}
+
+  defp sortable_datetime(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
+  defp sortable_datetime(_datetime), do: 0
 
   defp ticket_matches_query?(ticket, terms, prefix) do
     haystack =

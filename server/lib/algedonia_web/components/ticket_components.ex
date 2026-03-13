@@ -392,6 +392,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr :status, :atom, required: true
   attr :count, :integer, required: true
   attr :stream, :any, required: true
+  attr :sort, :map, required: true
   attr :prefix, :string, default: "AG"
   attr :workspace_slug, :string, default: nil
   attr :loop_info, :map, default: %{}
@@ -410,19 +411,13 @@ defmodule AlgedoniaWeb.TicketComponents do
           <span class="text-[10px] text-fg-muted">{@count}</span>
         </div>
         <div class="flex items-center gap-1">
+          <.status_sort_menu status={@status} sort={@sort} />
           <button
             class="size-6 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
             phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/new?status=#{@status}"))}
             title="Add issue"
           >
             <.icon name="hero-plus-mini" class="size-4" />
-          </button>
-          <button
-            class="size-6 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
-            title="Column options"
-            type="button"
-          >
-            <.icon name="hero-ellipsis-horizontal-mini" class="size-4" />
           </button>
         </div>
       </div>
@@ -444,6 +439,100 @@ defmodule AlgedoniaWeb.TicketComponents do
           workspace_slug={@workspace_slug}
           loop_info={@loop_info}
         />
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Renders a status header for list view with per-status sorting controls.
+  """
+  attr :status, :atom, required: true
+  attr :count, :integer, required: true
+  attr :sort, :map, required: true
+
+  def status_section_header(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+      <div class="flex items-center gap-2">
+        <.status_icon status={@status} />
+        <span class="text-xs font-medium text-fg-secondary">{status_label(@status)}</span>
+        <span class="text-[10px] text-fg-muted">{@count}</span>
+      </div>
+      <.status_sort_menu status={@status} sort={@sort} />
+    </div>
+    """
+  end
+
+  attr :status, :atom, required: true
+  attr :sort, :map, required: true
+
+  def status_sort_menu(assigns) do
+    ~H"""
+    <div class="dropdown dropdown-end" phx-stop-propagation>
+      <button
+        id={"ticket-sort-#{@status}"}
+        type="button"
+        class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
+        title={"Sort #{status_label(@status)}"}
+      >
+        <.icon name="hero-arrows-up-down" class="size-3" />
+        <span>{sort_summary(@sort)}</span>
+      </button>
+      <div
+        tabindex="0"
+        class="dropdown-content z-10 mt-1 w-48 rounded-lg border border-border bg-surface-raised p-1 shadow-lg"
+      >
+        <div class="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-fg-muted">
+          Sort by
+        </div>
+        <div class="flex flex-col gap-0.5">
+          <button
+            :for={field <- sort_fields()}
+            type="button"
+            phx-click="set_status_sort"
+            phx-value-status={@status}
+            phx-value-sort_by={field}
+            class={[
+              "rounded-md px-2 py-1 text-left text-xs transition-colors",
+              @sort.sort_by == field && "bg-accent-indigo/10 text-fg",
+              @sort.sort_by != field && "text-fg-secondary hover:bg-surface-panel hover:text-fg"
+            ]}
+          >
+            {sort_field_label(field)}
+          </button>
+        </div>
+        <div class="px-2 py-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-fg-muted">
+          Direction
+        </div>
+        <div class="grid grid-cols-2 gap-1 px-1 pb-1">
+          <button
+            type="button"
+            phx-click="set_status_sort"
+            phx-value-status={@status}
+            phx-value-sort_order="asc"
+            class={[
+              "rounded-md px-2 py-1 text-xs transition-colors",
+              @sort.sort_order == :asc && "bg-accent-indigo/10 text-fg",
+              @sort.sort_order != :asc && "text-fg-secondary hover:bg-surface-panel hover:text-fg"
+            ]}
+          >
+            Asc
+          </button>
+          <button
+            type="button"
+            phx-click="set_status_sort"
+            phx-value-status={@status}
+            phx-value-sort_order="desc"
+            class={[
+              "rounded-md px-2 py-1 text-xs transition-colors",
+              @sort.sort_order == :desc && "bg-accent-indigo/10 text-fg",
+              @sort.sort_order != :desc && "text-fg-secondary hover:bg-surface-panel hover:text-fg"
+            ]}
+          >
+            Desc
+          </button>
+        </div>
       </div>
     </div>
     """
@@ -491,6 +580,18 @@ defmodule AlgedoniaWeb.TicketComponents do
     do: "#{prefix}-#{number}"
 
   defp ticket_code(ticket, _prefix), do: short_id(ticket.id)
+
+  defp sort_fields, do: [:priority, :inserted_at, :updated_at, :title]
+  defp sort_field_label(:priority), do: "Priority"
+  defp sort_field_label(:inserted_at), do: "Created"
+  defp sort_field_label(:updated_at), do: "Updated"
+  defp sort_field_label(:title), do: "Title"
+
+  defp sort_summary(%{sort_by: sort_by, sort_order: sort_order}),
+    do: "#{sort_field_label(sort_by)} #{sort_direction_label(sort_order)}"
+
+  defp sort_direction_label(:desc), do: "desc"
+  defp sort_direction_label(_), do: "asc"
 
   defp workspace_path(nil, path), do: path
   defp workspace_path(slug, path), do: "/w/#{slug}#{path}"

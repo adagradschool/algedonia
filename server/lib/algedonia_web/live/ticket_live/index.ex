@@ -41,6 +41,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:ok,
      assign(socket,
        statuses: @statuses,
+       sort_preferences: default_sort_preferences(),
        show_shortcut_help: false,
        current_user_id: session["user_id"],
        current_workspace_id: current_workspace_id,
@@ -62,10 +63,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     socket =
       socket
       |> assign(filter_state)
-      |> assign(
-        url_has_sort?: Map.has_key?(params, "sort_by"),
-        url_has_view?: Map.has_key?(params, "view")
-      )
+      |> assign(url_has_view?: Map.has_key?(params, "view"))
 
     prior_action = socket.assigns[:last_live_action]
 
@@ -105,7 +103,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   def handle_event("toggle_view", %{"view" => view}, socket) do
     {:noreply,
      socket
-     |> push_prefs(view_mode: view, sort_by: socket.assigns.sort_by)
+     |> push_prefs(view_mode: view)
      |> push_patch(to: tickets_path(socket, view: view))}
   end
 
@@ -114,7 +112,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
     {:noreply,
      socket
-     |> push_prefs(view_mode: view, sort_by: socket.assigns.sort_by)
+     |> push_prefs(view_mode: view)
      |> push_patch(to: tickets_path(socket, view: view))}
   end
 
@@ -132,13 +130,24 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     {:noreply, push_patch(socket, to: tickets_path(socket, status: status))}
   end
 
-  def handle_event("sort", %{"sort_by" => sort_by}, socket) do
-    view = if socket.assigns.view_mode == :list, do: "list", else: "board"
+  def handle_event("set_status_sort", %{"status" => status} = params, socket) do
+    case parse_status(status) do
+      nil ->
+        {:noreply, socket}
 
-    {:noreply,
-     socket
-     |> push_prefs(view_mode: view, sort_by: sort_by)
-     |> push_patch(to: tickets_path(socket, sort_by: sort_by))}
+      status ->
+        sort_preferences =
+          update_sort_preference(socket.assigns.sort_preferences, status, %{
+            sort_by: params["sort_by"],
+            sort_order: params["sort_order"]
+          })
+
+        {:noreply,
+         socket
+         |> assign(:sort_preferences, sort_preferences)
+         |> stream_tickets()
+         |> push_prefs()}
+    end
   end
 
   def handle_event("clear_filters", _p, socket) do
@@ -159,23 +168,14 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   def handle_event("restore_prefs", prefs, socket) do
-    overrides =
-      []
-      |> then(fn acc ->
-        if !socket.assigns.url_has_sort? && is_binary(prefs["sort_by"]),
-          do: [{:sort_by, prefs["sort_by"]} | acc],
-          else: acc
-      end)
-      |> then(fn acc ->
-        if !socket.assigns.url_has_view? && is_binary(prefs["view_mode"]),
-          do: [{:view, prefs["view_mode"]} | acc],
-          else: acc
-      end)
+    sort_preferences = restored_sort_preferences(prefs, socket.assigns.sort_preferences)
+    socket = maybe_assign_sort_preferences(socket, sort_preferences)
+    view_override = restored_view_mode(prefs, socket.assigns.url_has_view?)
 
-    if overrides == [] do
-      {:noreply, socket}
+    if view_override do
+      {:noreply, push_patch(socket, to: tickets_path(socket, view: view_override))}
     else
-      {:noreply, push_patch(socket, to: tickets_path(socket, overrides))}
+      {:noreply, socket}
     end
   end
 
@@ -195,14 +195,11 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   # -- PubSub --
 
   @impl true
-  def handle_info({:ticket_created, ticket}, socket) do
-    {:noreply, stream_insert_ticket(socket, ticket)}
+  def handle_info({:ticket_created, _ticket}, socket) do
+    {:noreply, stream_tickets(socket)}
   end
 
   def handle_info({:ticket_updated, ticket}, socket) do
-    socket = stream_update_ticket(socket, ticket)
-
-    # Refresh blocker data when the detail view is showing this ticket
     socket =
       if socket.assigns[:ticket] && socket.assigns.ticket.id == ticket.id do
         blocker_tickets = Tickets.get_tickets_by_ids(ticket.blocked_by || [])
@@ -220,11 +217,11 @@ defmodule AlgedoniaWeb.TicketLive.Index do
         socket
       end
 
-    {:noreply, socket}
+    {:noreply, stream_tickets(socket)}
   end
 
-  def handle_info({:ticket_deleted, ticket}, socket) do
-    {:noreply, stream_delete_ticket(socket, ticket)}
+  def handle_info({:ticket_deleted, _ticket}, socket) do
+    {:noreply, stream_tickets(socket)}
   end
 
   def handle_info({event, _comment}, socket)
@@ -253,6 +250,32 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   # -- Streams --
 
+  defp restored_sort_preferences(prefs, current_preferences) do
+    case Map.get(prefs, "sort_preferences") || Map.get(prefs, :sort_preferences) do
+      preferences when is_map(preferences) -> normalize_sort_preferences(preferences)
+      _ -> current_preferences
+    end
+  end
+
+  defp maybe_assign_sort_preferences(socket, sort_preferences) do
+    if sort_preferences == socket.assigns.sort_preferences do
+      socket
+    else
+      socket
+      |> assign(:sort_preferences, sort_preferences)
+      |> stream_tickets()
+    end
+  end
+
+  defp restored_view_mode(_prefs, true), do: nil
+
+  defp restored_view_mode(prefs, false) do
+    case Map.get(prefs, "view_mode") || Map.get(prefs, :view_mode) do
+      view when view in ["board", "list"] -> view
+      _ -> nil
+    end
+  end
+
   defp stream_tickets(socket) do
     a = socket.assigns
 
@@ -260,8 +283,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       Tickets.search_tickets_grouped(
         status: a.filter_status,
         assignee: a.filter_assignee,
-        sort_by: a.sort_by,
-        sort_order: a.sort_order,
+        sort_preferences: a.sort_preferences,
         workspace_id: a.current_workspace_id,
         query: a.filter_query,
         prefix: a.workspace_prefix
@@ -283,93 +305,13 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     )
   end
 
-  defp stream_insert_ticket(socket, ticket) do
-    loop_info = Loops.active_loop_info_for_tickets([ticket.id])
-
-    socket
-    |> stream_insert(stream_name(ticket.status), ticket)
-    |> update(:loop_info, &Map.merge(&1, loop_info))
-    |> update_ticket_count(ticket.status, +1)
-  end
-
-  defp stream_update_ticket(socket, ticket) do
-    old_status = find_old_status(socket.assigns.tickets_by_status, ticket.id)
-    loop_info = Loops.active_loop_info_for_tickets([ticket.id])
-
-    socket =
-      if old_status && old_status != ticket.status do
-        socket
-        |> stream_delete(stream_name(old_status), ticket)
-        |> update_ticket_count(old_status, -1)
-        |> stream_insert(stream_name(ticket.status), ticket)
-        |> update_ticket_count(ticket.status, +1)
-      else
-        stream_insert(socket, stream_name(ticket.status), ticket)
-      end
-
-    socket
-    |> update(:loop_info, &Map.merge(&1, loop_info))
-    |> update_tickets_by_status(old_status, ticket)
-  end
-
-  defp stream_delete_ticket(socket, ticket) do
-    socket
-    |> stream_delete(stream_name(ticket.status), ticket)
-    |> update(:loop_info, &Map.delete(&1, ticket.id))
-    |> update_ticket_count(ticket.status, -1)
-    |> update(:tickets_by_status, fn grouped ->
-      Map.update(grouped, ticket.status, [], fn tickets ->
-        Enum.reject(tickets, &(&1.id == ticket.id))
-      end)
-    end)
-  end
-
-  defp find_old_status(tickets_by_status, ticket_id) do
-    Enum.find_value(tickets_by_status, fn {status, tickets} ->
-      if Enum.any?(tickets, &(&1.id == ticket_id)), do: status
-    end)
-  end
-
-  defp update_ticket_count(socket, status, delta) do
-    countable = [:planning, :in_progress, :in_review, :backlog, :halted]
-
-    if status in countable do
-      update(socket, :ticket_count, &max(&1 + delta, 0))
-    else
-      socket
-    end
-  end
-
-  defp update_tickets_by_status(socket, old_status, ticket) do
-    update(socket, :tickets_by_status, &do_update_grouped(&1, old_status, ticket))
-  end
-
-  defp do_update_grouped(grouped, old_status, ticket) do
-    grouped
-    |> maybe_remove_from_old(old_status, ticket)
-    |> upsert_in_status(ticket)
-  end
-
-  defp maybe_remove_from_old(grouped, old_status, ticket)
-       when is_atom(old_status) and old_status != nil and old_status != ticket.status do
-    Map.update(grouped, old_status, [], &Enum.reject(&1, fn t -> t.id == ticket.id end))
-  end
-
-  defp maybe_remove_from_old(grouped, _old_status, _ticket), do: grouped
-
-  defp upsert_in_status(grouped, ticket) do
-    Map.update(grouped, ticket.status, [ticket], fn tickets ->
-      case Enum.find_index(tickets, &(&1.id == ticket.id)) do
-        nil -> [ticket | tickets]
-        idx -> List.replace_at(tickets, idx, ticket)
-      end
-    end)
-  end
-
-  defp push_prefs(socket, opts) do
+  defp push_prefs(socket, opts \\ []) do
     push_event(socket, "persist_prefs", %{
-      sort_by: to_string(opts[:sort_by]),
-      view_mode: to_string(opts[:view_mode])
+      view_mode: to_string(Keyword.get(opts, :view_mode, socket.assigns.view_mode)),
+      sort_preferences:
+        encode_sort_preferences(
+          Keyword.get(opts, :sort_preferences, socket.assigns.sort_preferences)
+        )
     })
   end
 end
