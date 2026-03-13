@@ -219,14 +219,19 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_event("pull_comments", _params, socket) do
-    case socket.assigns[:ticket] do
-      %{status: :in_review} = ticket ->
-        ReviewLoop.pull_comments(ticket)
-        {:noreply, put_flash(socket, :info, "Fetching latest review comments...")}
+    ticket = socket.assigns[:ticket]
 
-      _ ->
+    cond do
+      !match?(%{status: :in_review}, ticket) ->
         {:noreply,
          put_flash(socket, :error, "Pull Comments is only available in the In Review phase")}
+
+      !review_pr_linked?(ticket) ->
+        {:noreply, put_flash(socket, :error, missing_review_pr_flash())}
+
+      true ->
+        ReviewLoop.pull_comments(ticket)
+        {:noreply, put_flash(socket, :info, "Fetching latest review comments...")}
     end
   end
 
@@ -237,8 +242,8 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       !match?(%{status: :in_review}, ticket) ->
         {:noreply, put_flash(socket, :error, "Merge is only available in the In Review phase")}
 
-      !is_integer(ticket.review_pr_number) ->
-        {:noreply, put_flash(socket, :error, "No pull request is linked to this ticket yet")}
+      !review_pr_linked?(ticket) ->
+        {:noreply, put_flash(socket, :error, missing_review_pr_flash())}
 
       true ->
         case resolve_daemon(socket) do
@@ -587,6 +592,16 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       put_flash(socket, :error, "Daemon repository is not ready yet")
     end
   end
+
+  defp review_pr_linked?(%{review_pr_number: review_pr_number}) when is_integer(review_pr_number),
+    do: true
+
+  defp review_pr_linked?(_), do: false
+
+  defp missing_review_pr_flash, do: "No pull request is linked to this ticket yet"
+
+  defp review_pr_link_required_message,
+    do: "Available after a pull request is linked to this ticket."
 
   defp list_ticket_comments(%{id: id}), do: Tickets.list_comments(id)
   defp list_ticket_comments(_), do: []
