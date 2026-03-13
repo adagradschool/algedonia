@@ -69,6 +69,38 @@ defmodule AlgedoniaWeb.LayoutsTest do
       assert links["Monitor"] =~ "text-fg-muted"
       refute links["Inbox"] =~ "text-fg-muted"
     end
+
+    test "renders daemon badge on avatar with online status color" do
+      html =
+        render_sidebar(
+          current_user: %{name: "Ada", github_username: "ada", avatar_url: nil},
+          workspace_daemon_status: :online
+        )
+
+      assert html =~ ~s(data-testid="workspace-daemon-badge")
+      assert html =~ ~s(data-state="online")
+      assert html =~ "bg-status-green"
+    end
+
+    test "renders daemon badge with unhealthy and offline colors" do
+      unhealthy_html =
+        render_sidebar(
+          current_user: %{name: "Ada", github_username: "ada", avatar_url: nil},
+          workspace_daemon_status: :unhealthy
+        )
+
+      assert unhealthy_html =~ ~s(data-state="unhealthy")
+      assert unhealthy_html =~ "bg-status-yellow"
+
+      offline_html =
+        render_sidebar(
+          current_user: %{name: "Ada", github_username: "ada", avatar_url: nil},
+          workspace_daemon_status: :offline
+        )
+
+      assert offline_html =~ ~s(data-state="offline")
+      assert offline_html =~ "bg-fg-muted"
+    end
   end
 
   describe "nav_active? integration via app component" do
@@ -188,6 +220,7 @@ defmodule AlgedoniaWeb.LayoutsTest do
       current_scope: nil,
       current_workspace: @workspace,
       current_user: nil,
+      workspace_daemon_status: Keyword.get(opts, :workspace_daemon_status, :offline),
       nav_section: Keyword.get(opts, :nav_section),
       current_path: Keyword.get(opts, :current_path),
       inner_block: [%{__slot__: :inner_block, inner_block: fn _, _ -> "" end}]
@@ -199,7 +232,8 @@ defmodule AlgedoniaWeb.LayoutsTest do
   defp render_sidebar(opts) do
     assigns = %{
       current_workspace: @workspace,
-      current_user: nil,
+      current_user: Keyword.get(opts, :current_user, nil),
+      workspace_daemon_status: Keyword.get(opts, :workspace_daemon_status, :offline),
       inbox_active: Keyword.get(opts, :inbox_active, false),
       issues_active: Keyword.get(opts, :issues_active, false),
       monitor_active: Keyword.get(opts, :monitor_active, false),

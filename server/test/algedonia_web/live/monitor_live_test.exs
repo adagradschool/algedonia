@@ -59,5 +59,42 @@ defmodule AlgedoniaWeb.MonitorLiveTest do
       html = render(view)
       assert html =~ "10"
     end
+
+    test "avatar badge updates on monitor page", %{conn: conn, workspace: workspace, user: user} do
+      daemon =
+        Factory.insert_daemon!(%{
+          name: "monitor-badge-daemon",
+          display_name: "Monitor Badge Daemon",
+          status: :offline,
+          user_id: user.id
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/monitor")
+
+      assert has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="offline"]))
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.monitor(workspace.id),
+        {:daemon_status_changed, %{daemon | status: :online}}
+      )
+
+      assert_eventually(fn ->
+        has_element?(view, ~s([data-testid="workspace-daemon-badge"][data-state="online"]))
+      end)
+    end
+  end
+
+  defp assert_eventually(func, attempts \\ 50) do
+    if func.() do
+      :ok
+    else
+      if attempts > 0 do
+        Process.sleep(50)
+        assert_eventually(func, attempts - 1)
+      else
+        flunk("Condition was not met after retries")
+      end
+    end
   end
 end

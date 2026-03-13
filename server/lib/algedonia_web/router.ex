@@ -46,10 +46,10 @@ defmodule AlgedoniaWeb.Router do
   scope "/w/:workspace", AlgedoniaWeb do
     pipe_through [:browser, AlgedoniaWeb.Plugs.RequireUser, AlgedoniaWeb.Plugs.RequireWorkspace]
 
-    get "/", PageController, :workspace_home
     get "/tickets/:ticket_ref/export/markdown", TicketExportController, :export_markdown
 
     live_session :default, on_mount: [AlgedoniaWeb.PresenceHook] do
+      live "/", HomeLive.Index, :index
       live "/monitor", MonitorLive.Index, :index
 
       live "/tickets", TicketLive.Index, :index

@@ -90,6 +90,34 @@ defmodule AlgedoniaWeb.Helpers do
   end
 
   @doc """
+  Returns aggregate workspace daemon health using priority:
+  `:online > :unhealthy > :offline`.
+  """
+  @spec aggregate_daemon_status([atom() | %{status: atom()}]) :: :online | :unhealthy | :offline
+  def aggregate_daemon_status(daemons_or_statuses) when is_list(daemons_or_statuses) do
+    statuses =
+      Enum.map(daemons_or_statuses, fn
+        %{status: status} -> status
+        status -> status
+      end)
+
+    cond do
+      Enum.any?(statuses, &(&1 == :online)) -> :online
+      Enum.any?(statuses, &(&1 == :unhealthy)) -> :unhealthy
+      true -> :offline
+    end
+  end
+
+  @doc """
+  Maps daemon health to existing status badge colors.
+  """
+  @spec daemon_status_color(atom()) :: String.t()
+  def daemon_status_color(:online), do: "bg-status-green"
+  def daemon_status_color(:unhealthy), do: "bg-status-yellow"
+  def daemon_status_color(:offline), do: "bg-fg-muted"
+  def daemon_status_color(_), do: "bg-fg-muted"
+
+  @doc """
   Formats a `DateTime` as a human-readable relative time string.
 
   Returns `""` for `nil`.
