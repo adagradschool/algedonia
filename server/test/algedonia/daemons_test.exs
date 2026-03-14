@@ -267,8 +267,7 @@ defmodule Algedonia.DaemonsTest do
           role: :review,
           status: :running,
           current_attempt: 1,
-          assigned_daemon_id: daemon.id,
-          branch_name: "review/alg-#{ticket.number}-recover-review-session"
+          assigned_daemon_id: daemon.id
         })
 
       assert :ok = Daemons.reconcile_running_loops(daemon, [])

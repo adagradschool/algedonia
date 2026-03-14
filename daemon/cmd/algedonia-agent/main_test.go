@@ -119,31 +119,33 @@ func TestWriteAttemptCompleteMarker_WritesForWorkRoles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	workspace := "scope"
-	loopID := "loop-work-role"
+	for _, role := range []string{"maker", "review"} {
+		loopID := "loop-" + role
 
-	if err := writeAttemptCompleteMarker(workspace, loopID, "maker", "test-source", map[string]interface{}{"k": "v"}); err != nil {
-		t.Fatalf("writeAttemptCompleteMarker returned error: %v", err)
-	}
+		if err := writeAttemptCompleteMarker(workspace, loopID, role, "test-source", map[string]interface{}{"k": "v"}); err != nil {
+			t.Fatalf("writeAttemptCompleteMarker(%s) returned error: %v", role, err)
+		}
 
-	markerPath := filepath.Join(home, ".algedonia", "workspaces", workspace, "runtime", loopID, "attempt_complete.json")
-	raw, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatalf("expected marker file at %s: %v", markerPath, err)
-	}
+		markerPath := filepath.Join(home, ".algedonia", "workspaces", workspace, "runtime", loopID, "attempt_complete.json")
+		raw, err := os.ReadFile(markerPath)
+		if err != nil {
+			t.Fatalf("expected marker file at %s: %v", markerPath, err)
+		}
 
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("marker payload is not valid json: %v", err)
-	}
+		var payload map[string]interface{}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatalf("marker payload is not valid json: %v", err)
+		}
 
-	if payload["loop_id"] != loopID {
-		t.Fatalf("loop_id = %v, want %s", payload["loop_id"], loopID)
-	}
-	if payload["role"] != "maker" {
-		t.Fatalf("role = %v, want maker", payload["role"])
-	}
-	if payload["source"] != "test-source" {
-		t.Fatalf("source = %v, want test-source", payload["source"])
+		if payload["loop_id"] != loopID {
+			t.Fatalf("loop_id = %v, want %s", payload["loop_id"], loopID)
+		}
+		if payload["role"] != role {
+			t.Fatalf("role = %v, want %s", payload["role"], role)
+		}
+		if payload["source"] != "test-source" {
+			t.Fatalf("source = %v, want test-source", payload["source"])
+		}
 	}
 }
 

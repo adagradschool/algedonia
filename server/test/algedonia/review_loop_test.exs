@@ -66,13 +66,12 @@ defmodule Algedonia.ReviewLoopTest do
       assert loop.role == :review
       assert loop.status == :running
       assert loop.assigned_daemon_id == daemon.id
-      assert loop.branch_name == "review/alg-#{ticket.number}-fix-login-bug"
 
       daemon_name = daemon.name
       assert_receive {:push_start_loop, ^daemon_name, _, payload}, @push_timeout
       assert payload["role"] == "review"
       assert payload["task"] =~ "review and PR shepherd agent"
-      assert payload["task"] =~ "review/alg-#{ticket.number}-fix-login-bug"
+      assert payload["task"] =~ "feature/ALG-#{ticket.number}"
       assert payload["task"] =~ "ALG-#{ticket.number}: Fix login bug"
     end
 
@@ -105,8 +104,7 @@ defmodule Algedonia.ReviewLoopTest do
           role: :review,
           status: :running,
           assigned_daemon_id: daemon.id,
-          current_attempt: 1,
-          branch_name: "review/alg-#{ticket.number}-resume-review"
+          current_attempt: 1
         })
 
       {:ok, step} =
@@ -204,8 +202,7 @@ defmodule Algedonia.ReviewLoopTest do
           role: :review,
           status: :running,
           assigned_daemon_id: daemon.id,
-          current_attempt: 1,
-          branch_name: "review/alg-#{ticket.number}-poll-reviews"
+          current_attempt: 1
         })
 
       :sys.replace_state(ctx.review_loop, fn state ->
@@ -226,7 +223,7 @@ defmodule Algedonia.ReviewLoopTest do
       assert payload["ticket_id"] == ticket.id
       assert payload["pr_number"] == ticket.review_pr_number
       assert payload["workspace_slug"] == workspace.slug
-      assert payload["branch_name"] == loop.branch_name
+      assert payload["branch_name"] == Tickets.worktree_branch_name(ticket, workspace)
     end
 
     test "poll still asks the daemon to resolve the PR by branch when linkage is missing",
@@ -248,8 +245,7 @@ defmodule Algedonia.ReviewLoopTest do
           role: :review,
           status: :running,
           assigned_daemon_id: daemon.id,
-          current_attempt: 1,
-          branch_name: "review/alg-#{ticket.number}-discover-review-pr"
+          current_attempt: 1
         })
 
       :sys.replace_state(ctx.review_loop, fn state ->
@@ -269,7 +265,7 @@ defmodule Algedonia.ReviewLoopTest do
       assert_receive {:poll_review_pr, ^daemon_name, ^loop_id, payload}, @push_timeout
       assert payload["ticket_id"] == ticket.id
       assert payload["workspace_slug"] == workspace.slug
-      assert payload["branch_name"] == loop.branch_name
+      assert payload["branch_name"] == Tickets.worktree_branch_name(ticket, workspace)
       refute Map.has_key?(payload, "pr_number")
     end
   end
@@ -298,9 +294,10 @@ defmodule Algedonia.ReviewLoopTest do
   end
 
   describe "server->daemon poll request behavior" do
-    test "after attempt_complete, polling is scheduled", ctx do
+    test "after attempt_complete, review polling runs through canonical branch lookup", ctx do
       daemon = insert_daemon!(%{status: :online})
-      ticket = insert_ticket!(%{status: :in_review})
+      workspace = insert_workspace!(%{slug: "refresh-ws", name: "Refresh", prefix: "ALG"})
+      ticket = insert_ticket!(%{status: :in_review, workspace_id: workspace.id})
 
       loop =
         insert_loop!(%{
@@ -345,10 +342,16 @@ defmodule Algedonia.ReviewLoopTest do
                  name: :test_review_loop
                )
 
-      # Verify PR linkage was recorded
+      daemon_name = daemon.name
+      loop_id = loop.id
+      assert_receive {:poll_review_pr, ^daemon_name, ^loop_id, poll_payload}, @push_timeout
+      assert poll_payload["ticket_id"] == ticket.id
+      assert poll_payload["workspace_slug"] == workspace.slug
+      assert poll_payload["branch_name"] == Tickets.worktree_branch_name(ticket, workspace)
+      refute Map.has_key?(poll_payload, "pr_number")
+
       updated_ticket = Tickets.get_ticket!(ticket.id)
-      assert updated_ticket.review_pr_url == "https://github.com/test/repo/pull/42"
-      assert updated_ticket.review_pr_number == 42
+      assert is_nil(updated_ticket.review_pr_number)
     end
   end
 
@@ -410,8 +413,7 @@ defmodule Algedonia.ReviewLoopTest do
           role: :review,
           status: :running,
           assigned_daemon_id: daemon.id,
-          current_attempt: 1,
-          branch_name: "review/alg-#{ticket.number}-backfill-pr"
+          current_attempt: 1
         })
 
       :sys.replace_state(ctx.review_loop, fn state ->
@@ -440,14 +442,13 @@ defmodule Algedonia.ReviewLoopTest do
 
       updated_ticket = Tickets.get_ticket!(ticket.id)
       assert updated_ticket.review_pr_number == 94
-      assert updated_ticket.review_pr_url == "https://github.com/test/repo/pull/94"
     end
   end
 
   describe "manual resume via pull_comments" do
     test "pull_comments nudges the active review agent", ctx do
       daemon = insert_daemon!(%{status: :online})
-      ticket = insert_ticket!(%{status: :in_review, review_paused: true})
+      ticket = insert_ticket!(%{status: :in_review})
 
       loop =
         insert_loop!(%{
@@ -503,9 +504,10 @@ defmodule Algedonia.ReviewLoopTest do
       assert updated_ticket.status == :completed
     end
 
-    test "merge via attempt_complete also transitions to completed", ctx do
+    test "merge via attempt_complete defers ticket completion to pr_status", ctx do
       daemon = insert_daemon!(%{status: :online})
-      ticket = insert_ticket!(%{status: :in_review})
+      workspace = insert_workspace!(%{slug: "merged-ws", name: "Merged", prefix: "ALG"})
+      ticket = insert_ticket!(%{status: :in_review, workspace_id: workspace.id})
 
       loop =
         insert_loop!(%{
@@ -535,11 +537,7 @@ defmodule Algedonia.ReviewLoopTest do
         })
       end)
 
-      payload = %{
-        "session_id" => "sess-1",
-        "exit_code" => 0,
-        "merged" => true
-      }
+      payload = %{"session_id" => "sess-1", "exit_code" => 0, "merged" => true}
 
       assert :ok =
                ReviewLoop.handle_attempt_complete(loop.id, payload,
@@ -548,11 +546,17 @@ defmodule Algedonia.ReviewLoopTest do
                  name: :test_review_loop
                )
 
+      daemon_name = daemon.name
+      loop_id = loop.id
+      assert_receive {:poll_review_pr, ^daemon_name, ^loop_id, poll_payload}, @push_timeout
+      assert poll_payload["workspace_slug"] == workspace.slug
+      assert poll_payload["branch_name"] == Tickets.worktree_branch_name(ticket, workspace)
+
       updated_loop = Loops.get_loop!(loop.id)
-      assert updated_loop.status == :passed
+      assert updated_loop.status == :running
 
       updated_ticket = Tickets.get_ticket!(ticket.id)
-      assert updated_ticket.status == :completed
+      assert updated_ticket.status == :in_review
     end
   end
 
@@ -643,8 +647,7 @@ defmodule Algedonia.ReviewLoopTest do
           role: :review,
           status: :running,
           title: "Review: test",
-          current_attempt: 1,
-          branch_name: "review/alg-#{ticket.number}-refine-review-flow"
+          current_attempt: 1
         })
 
       loop = Loops.preload_with_workspace(loop)
@@ -656,7 +659,7 @@ defmodule Algedonia.ReviewLoopTest do
           "",
           %{
             ticket_code: "ALG-#{ticket.number}",
-            branch_name: "review/alg-#{ticket.number}-refine-review-flow",
+            branch_name: "feature/ALG-#{ticket.number}",
             pr_title: "ALG-#{ticket.number}: Refine review flow",
             pr_description:
               "## Summary\n- Refine the review loop.\n\n## Links\n- Algedonia ticket: /w/ws/tickets/#{ticket.number}\n\n- Review agent loop: /w/ws/tickets/#{ticket.number}/loops/abc12345",
@@ -675,7 +678,7 @@ defmodule Algedonia.ReviewLoopTest do
       assert prompt =~ "Do not exit while required CI checks are still pending"
       assert prompt =~ "Human review is required for now"
       assert prompt =~ "Do not merge the PR or enable GitHub auto-merge"
-      assert prompt =~ "review/alg-#{ticket.number}-refine-review-flow"
+      assert prompt =~ "feature/ALG-#{ticket.number}"
       assert prompt =~ "algedonia-agent-link"
       assert prompt =~ "/w/ws/tickets/#{ticket.number}"
       assert prompt =~ "/w/ws/tickets/#{ticket.number}/loops/abc12345"

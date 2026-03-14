@@ -30,9 +30,6 @@ defmodule Algedonia.Tickets.Ticket do
     field :overview, :string
     field :blocked_by, {:array, :binary_id}, default: []
     field :review_pr_number, :integer
-    field :review_pr_url, :string
-    field :review_last_activity_at, :utc_datetime_usec
-    field :review_paused, :boolean, default: false
 
     has_many :comments, Algedonia.Tickets.Comment
 
@@ -57,9 +54,6 @@ defmodule Algedonia.Tickets.Ticket do
           overview: String.t() | nil,
           blocked_by: [Algedonia.Types.id()],
           review_pr_number: integer() | nil,
-          review_pr_url: String.t() | nil,
-          review_last_activity_at: DateTime.t() | nil,
-          review_paused: boolean(),
           comments: [Comment.t()] | Ecto.Association.NotLoaded.t(),
           inserted_at: DateTime.t(),
           updated_at: DateTime.t()
@@ -85,10 +79,7 @@ defmodule Algedonia.Tickets.Ticket do
       :rubric,
       :overview,
       :blocked_by,
-      :review_pr_number,
-      :review_pr_url,
-      :review_last_activity_at,
-      :review_paused
+      :review_pr_number
     ])
     |> maybe_put_default_coding_agent()
     |> validate_required([:workspace_id, :title, :type, :priority])

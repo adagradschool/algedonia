@@ -426,7 +426,7 @@ func writeAttemptCompleteMarker(
 
 func roleSupportsCompletionMarker(role string) bool {
 	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "maker", "checker", "task", "hook":
+	case "maker", "checker", "task", "hook", "review":
 		return true
 	default:
 		return false

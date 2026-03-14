@@ -69,6 +69,10 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
     socket = maybe_queue_scrollback(socket)
 
+    if connected?(socket) && should_refresh_review_pr?(socket) do
+      send(self(), :refresh_review_pr)
+    end
+
     {:ok, socket}
   end
 
@@ -267,6 +271,16 @@ defmodule AlgedoniaWeb.LoopLive.Show do
           {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_info(:auto_start_loop, socket) do
     {:noreply, start_loop_on_daemon(socket)}
+  end
+
+  def handle_info(:refresh_review_pr, socket) do
+    ticket = socket.assigns[:ticket]
+
+    if match?(%{status: :in_review}, ticket) do
+      ReviewLoop.refresh_pr_status(ticket)
+    end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -600,23 +614,15 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   defp review_pr_linked?(%{review_pr_number: review_pr_number}) when is_integer(review_pr_number),
-    do: true
+    do: review_pr_number > 0
 
   defp review_pr_linked?(_), do: false
-
-  defp review_pr_url(%{review_pr_url: review_pr_url}, _workspace)
-       when is_binary(review_pr_url) do
-    case String.trim(review_pr_url) do
-      "" -> nil
-      url -> url
-    end
-  end
 
   defp review_pr_url(
          %{review_pr_number: review_pr_number},
          %{github_repo_url: github_repo_url}
        )
-       when is_integer(review_pr_number) and is_binary(github_repo_url) do
+       when is_integer(review_pr_number) and review_pr_number > 0 and is_binary(github_repo_url) do
     case String.trim(github_repo_url) do
       "" -> nil
       repo_url -> String.trim_trailing(repo_url, "/") <> "/pull/#{review_pr_number}"
@@ -626,9 +632,6 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp review_pr_url(_, _), do: nil
 
   defp missing_review_pr_flash, do: "No pull request is linked to this ticket yet"
-
-  defp review_pr_link_required_message,
-    do: "Available after a pull request is linked to this ticket."
 
   defp list_ticket_comments(%{id: id}), do: Tickets.list_comments(id)
   defp list_ticket_comments(_), do: []
@@ -644,6 +647,14 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   defp ticket_worktree_payload(nil, _workspace), do: %{}
   defp ticket_worktree_payload(ticket, workspace), do: Tickets.worktree_payload(ticket, workspace)
+
+  defp should_refresh_review_pr?(socket) do
+    socket.assigns[:ticket]
+    |> case do
+      %{status: :in_review} = ticket -> !review_pr_linked?(ticket)
+      _ -> false
+    end
+  end
 
   defp ensure_planning_loop(%{assigns: %{loop_record: %{role: :planning}}} = socket), do: socket
 

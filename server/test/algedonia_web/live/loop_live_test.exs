@@ -227,12 +227,10 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute render(view) =~ "Merge"
     end
 
-    test "review loop disables pull comments and view pr controls until a PR is linked", %{
+    test "review loop hides pull comments and view pr controls until a PR is linked", %{
       conn: conn,
       workspace: workspace
     } do
-      tooltip = "Available after a pull request is linked to this ticket."
-
       ticket =
         Factory.insert_ticket!(%{
           workspace_id: workspace.id,
@@ -252,21 +250,11 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       {:ok, view, _html} =
         live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{loop.id}")
 
-      assert has_element?(
-               view,
-               "#loop-terminal-panel span[title='#{tooltip}'] button[disabled]",
-               "Pull Comments"
-             )
-
-      assert has_element?(
-               view,
-               "#loop-terminal-panel span[title='#{tooltip}'] span[aria-disabled='true']",
-               "View PR"
-             )
-
       refute has_element?(view, "#loop-terminal-panel button[phx-click='pull_comments']")
       refute has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr']")
       refute has_element?(view, "#loop-terminal-panel a[target='_blank']", "View PR")
+      refute render(view) =~ "Pull Comments"
+      refute render(view) =~ "View PR"
       refute render(view) =~ "Merge"
     end
 
