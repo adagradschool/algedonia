@@ -1,9 +1,11 @@
 package loopmanager
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,12 +20,12 @@ import (
 
 type testWorktreeManager struct{}
 
-func (testWorktreeManager) EnsureWorktree(_ context.Context, workspaceDir string, spec repo.WorktreeSpec) (string, error) {
+func (testWorktreeManager) EnsureWorktree(_ context.Context, workspaceDir string, spec repo.WorktreeSpec) (repo.EnsureWorktreeResult, error) {
 	wtPath := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
 	if err := os.MkdirAll(wtPath, 0o755); err != nil {
-		return "", err
+		return repo.EnsureWorktreeResult{}, err
 	}
-	return wtPath, nil
+	return repo.EnsureWorktreeResult{Path: wtPath, CreatedNew: true}, nil
 }
 
 func (testWorktreeManager) RemoveWorktree(_ context.Context, workspaceDir, ticketPrefix string) error {
@@ -54,6 +56,22 @@ func collectingSendFunc(mu *sync.Mutex, events *[]sentEvent) func(string, map[st
 		*events = append(*events, sentEvent{Event: event, Payload: payload})
 		return nil
 	}
+}
+
+type scriptedWorktreeManager struct {
+	createdNew bool
+}
+
+func (m scriptedWorktreeManager) EnsureWorktree(_ context.Context, workspaceDir string, spec repo.WorktreeSpec) (repo.EnsureWorktreeResult, error) {
+	wtPath := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
+	if err := os.MkdirAll(wtPath, 0o755); err != nil {
+		return repo.EnsureWorktreeResult{}, err
+	}
+	return repo.EnsureWorktreeResult{Path: wtPath, CreatedNew: m.createdNew}, nil
+}
+
+func (scriptedWorktreeManager) RemoveWorktree(_ context.Context, workspaceDir, ticketPrefix string) error {
+	return os.RemoveAll(filepath.Join(workspaceDir, "worktrees", ticketPrefix))
 }
 
 func TestManagerStartAndWait(t *testing.T) {
@@ -225,6 +243,169 @@ func TestHandleStartLoopMissingID(t *testing.T) {
 	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{})
 	if err == nil {
 		t.Fatal("expected error for missing loop_id")
+	}
+}
+
+func TestHandleStartLoopRunsBootstrapOnlyForNewWorktree(t *testing.T) {
+	script := "#!/bin/sh\necho 'done'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	for _, tt := range []struct {
+		name       string
+		createdNew bool
+		wantFile   bool
+	}{
+		{name: "new worktree", createdNew: true, wantFile: true},
+		{name: "reused worktree", createdNew: false, wantFile: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var events []sentEvent
+
+			mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+			baseDir := t.TempDir()
+			workspaceSlug := "scope"
+			workspaceDir := filepath.Join(baseDir, workspaceSlug)
+			if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+				t.Fatalf("mkdir workspace: %v", err)
+			}
+			mgr.SetWorkspaceBaseDir(baseDir)
+			mgr.SetWorktreeManager(scriptedWorktreeManager{createdNew: tt.createdNew})
+
+			loopID := "ffffffff-ffff-4fff-8fff-ffffffffffff"
+			ticketID := "12121212-1212-4212-8212-121212121212"
+
+			err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{
+				"loop_id":                   loopID,
+				"role":                      "maker",
+				"agent_type":                "claude_code",
+				"task":                      "do something",
+				"workspace_slug":            workspaceSlug,
+				"ticket_id":                 ticketID,
+				"ticket_type":               "feature",
+				"ticket_code":               "ALG-121",
+				"worktree_bootstrap_script": "printf 'bootstrapped' > bootstrap.txt",
+			})
+			if err != nil {
+				t.Fatalf("HandleStartLoop: %v", err)
+			}
+
+			deadline := time.After(10 * time.Second)
+			for {
+				select {
+				case <-deadline:
+					t.Fatal("timed out")
+				default:
+				}
+				if mgr.RunningCount() == 0 {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+
+			bootstrapFile := filepath.Join(workspaceDir, "worktrees", repo.TicketPrefix(ticketID), "bootstrap.txt")
+			_, statErr := os.Stat(bootstrapFile)
+			if tt.wantFile && statErr != nil {
+				t.Fatalf("expected bootstrap file: %v", statErr)
+			}
+			if !tt.wantFile && !os.IsNotExist(statErr) {
+				t.Fatalf("bootstrap file should not exist, stat err=%v", statErr)
+			}
+		})
+	}
+}
+
+func TestHandleStartLoopBootstrapFailureWarnsWithoutFailing(t *testing.T) {
+	script := "#!/bin/sh\necho 'done'\n"
+	reg, dir := setupMockAgent(t, "claude", script)
+
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), reg, dir)
+	baseDir := t.TempDir()
+	workspaceSlug := "scope"
+	workspaceDir := filepath.Join(baseDir, workspaceSlug)
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	mgr.SetWorkspaceBaseDir(baseDir)
+	mgr.SetWorktreeManager(scriptedWorktreeManager{createdNew: true})
+
+	var logBuf bytes.Buffer
+	origLogWriter := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(origLogWriter)
+
+	loopID := "abababab-abab-4bab-8bab-abababababab"
+	err := mgr.HandleStartLoop(context.Background(), map[string]interface{}{
+		"loop_id":                   loopID,
+		"role":                      "maker",
+		"agent_type":                "claude_code",
+		"task":                      "do something",
+		"workspace_slug":            workspaceSlug,
+		"ticket_id":                 "23232323-2323-4232-8232-232323232323",
+		"ticket_type":               "feature",
+		"ticket_code":               "ALG-232",
+		"worktree_bootstrap_script": "echo bootstrap stderr >&2; echo bootstrap stdout; exit 7",
+	})
+	if err != nil {
+		t.Fatalf("HandleStartLoop: %v", err)
+	}
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out")
+		default:
+		}
+		if mgr.RunningCount() == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var warningOutput string
+	foundCompletion := false
+	for _, e := range events {
+		switch e.Event {
+		case "terminal_output":
+			if e.Payload["loop_id"] != loopID {
+				continue
+			}
+			encoded, _ := e.Payload["data"].(string)
+			decoded, _ := base64.StdEncoding.DecodeString(encoded)
+			warningOutput += string(decoded)
+		case "attempt_complete":
+			if e.Payload["loop_id"] == loopID {
+				foundCompletion = true
+			}
+		}
+	}
+
+	if !strings.Contains(warningOutput, "[worktree bootstrap warning]") {
+		t.Fatalf("terminal output missing bootstrap warning: %q", warningOutput)
+	}
+	if !strings.Contains(warningOutput, "exit code 7") {
+		t.Fatalf("terminal output missing exit code: %q", warningOutput)
+	}
+	if !foundCompletion {
+		t.Fatal("expected loop startup to continue to attempt_complete")
+	}
+
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, "worktree bootstrap failed") {
+		t.Fatalf("log output missing bootstrap failure: %q", logOutput)
+	}
+	if !strings.Contains(logOutput, "exit_code=7") {
+		t.Fatalf("log output missing exit code: %q", logOutput)
+	}
+	if !strings.Contains(logOutput, "bootstrap stdout") || !strings.Contains(logOutput, "bootstrap stderr") {
+		t.Fatalf("log output missing stdout/stderr summary: %q", logOutput)
 	}
 }
 

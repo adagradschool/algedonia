@@ -82,7 +82,7 @@ func TestEnsureWorktree(t *testing.T) {
 			}
 
 			wm := NewWorktreeManager("")
-			path, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: tt.ticketPrefix})
+			result, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: tt.ticketPrefix})
 
 			if tt.wantErr {
 				if err == nil {
@@ -95,9 +95,13 @@ func TestEnsureWorktree(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
+			path := result.Path
 			expected := filepath.Join(wsDir, "worktrees", tt.ticketPrefix)
 			if path != expected {
 				t.Errorf("got path %q, want %q", path, expected)
+			}
+			if got, want := result.CreatedNew, tt.name != "reuse existing worktree"; got != want {
+				t.Errorf("CreatedNew = %v, want %v", got, want)
 			}
 
 			// Verify .git file exists (worktree marker)
@@ -120,10 +124,11 @@ func TestRemoveWorktree(t *testing.T) {
 	wm := NewWorktreeManager("")
 
 	// Create a worktree first
-	path, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "remove01"})
+	result, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "remove01"})
 	if err != nil {
 		t.Fatalf("creating worktree: %v", err)
 	}
+	path := result.Path
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("worktree dir should exist: %v", err)
@@ -200,10 +205,11 @@ func TestEnsureWorktreeMismatchedHEAD(t *testing.T) {
 	}
 
 	wm := NewWorktreeManager("")
-	path, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "mismatch1"})
+	result, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "mismatch1"})
 	if err != nil {
 		t.Fatalf("EnsureWorktree with mismatched HEAD should succeed: %v", err)
 	}
+	path := result.Path
 
 	// Verify worktree was created
 	gitFile := filepath.Join(path, ".git")
@@ -237,9 +243,13 @@ func TestEnsureWorktreeIdempotent(t *testing.T) {
 	wm := NewWorktreeManager("")
 
 	// Create twice — should return same path without error
-	path1, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "idem1234"})
+	result1, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "idem1234"})
 	if err != nil {
 		t.Fatalf("first create: %v", err)
+	}
+	path1 := result1.Path
+	if !result1.CreatedNew {
+		t.Fatal("first EnsureWorktree should mark CreatedNew")
 	}
 
 	// Write a file to verify it's preserved on second call
@@ -248,13 +258,17 @@ func TestEnsureWorktreeIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path2, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "idem1234"})
+	result2, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "idem1234"})
 	if err != nil {
 		t.Fatalf("second create: %v", err)
 	}
+	path2 := result2.Path
 
 	if path1 != path2 {
 		t.Errorf("paths differ: %q vs %q", path1, path2)
+	}
+	if result2.CreatedNew {
+		t.Fatal("second EnsureWorktree should reuse existing worktree")
 	}
 
 	// File should still be there
@@ -291,7 +305,7 @@ func TestEnsureWorktreeUsesLatestOriginDefaultBranch(t *testing.T) {
 		t.Fatalf("committing in origin worktree: %v\n%s", err, out)
 	}
 
-	path, err := wm.EnsureWorktree(
+	result, err := wm.EnsureWorktree(
 		context.Background(),
 		wsDir,
 		WorktreeSpec{TicketPrefix: "latest01", TicketType: "feature", TicketCode: "ALG-108"},
@@ -299,6 +313,7 @@ func TestEnsureWorktreeUsesLatestOriginDefaultBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureWorktree: %v", err)
 	}
+	path := result.Path
 
 	worktreeHead, err := revParse(t, path, "HEAD")
 	if err != nil {

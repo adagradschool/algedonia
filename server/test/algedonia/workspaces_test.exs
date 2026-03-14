@@ -62,12 +62,13 @@ defmodule Algedonia.WorkspacesTest do
   end
 
   describe "workspace config fields" do
-    test "persists tracker/playback/defaults, max_iterations, and planning mode" do
+    test "persists tracker/playback/defaults, max_iterations, planning mode, and worktree bootstrap script" do
       attrs = %{
         name: "Acme",
         slug: "acme-ws",
         prefix: "ACM",
         github_repo_url: "https://github.com/acme/repo",
+        worktree_bootstrap_script: "bin/setup-worktree",
         tracker_config: %{"planning_states" => ["planning"]},
         playback_config: %{"concurrency" => 2},
         defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
@@ -81,13 +82,15 @@ defmodule Algedonia.WorkspacesTest do
       assert workspace.defaults == %{"base_pipeline" => ["compile", "test", "lint"]}
       assert workspace.max_iterations == 7
       assert workspace.planning_mode == :always_review
+      assert workspace.worktree_bootstrap_script == "bin/setup-worktree"
     end
 
-    test "updates tracker/playback/defaults, max_iterations, and planning mode" do
+    test "updates tracker/playback/defaults, max_iterations, planning mode, and worktree bootstrap script" do
       workspace = insert_workspace!()
 
       assert {:ok, updated} =
                Workspaces.update_workspace(workspace, %{
+                 worktree_bootstrap_script: "scripts/bootstrap.sh",
                  tracker_config: %{"planning_states" => ["ready"]},
                  playback_config: %{"concurrency" => 4},
                  defaults: %{"coding_agent" => "codex"},
@@ -100,6 +103,7 @@ defmodule Algedonia.WorkspacesTest do
       assert updated.defaults == %{"coding_agent" => "codex"}
       assert updated.max_iterations == 9
       assert updated.planning_mode == :always_approve
+      assert updated.worktree_bootstrap_script == "scripts/bootstrap.sh"
     end
 
     test "rejects invalid planning mode in changeset" do

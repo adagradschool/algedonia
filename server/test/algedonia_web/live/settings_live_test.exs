@@ -9,6 +9,7 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       assert html =~ "Settings"
       assert html =~ workspace.name
       assert html =~ "Default iteration budget"
+      assert html =~ "Worktree bootstrap script"
     end
   end
 
@@ -49,13 +50,17 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
           workspace: %{
             name: workspace.name,
             github_repo_url: "https://github.com/org/repo",
-            max_iterations: 9
+            max_iterations: 9,
+            worktree_bootstrap_script: "scripts/bootstrap.sh"
           }
         )
         |> render_submit()
 
       assert html =~ "https://github.com/org/repo"
       assert Algedonia.Workspaces.get_workspace!(workspace.id).max_iterations == 9
+
+      assert Algedonia.Workspaces.get_workspace!(workspace.id).worktree_bootstrap_script ==
+               "scripts/bootstrap.sh"
     end
   end
 

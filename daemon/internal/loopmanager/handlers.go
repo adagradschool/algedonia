@@ -48,11 +48,20 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	ticketID := payloadStr(payload, "ticket_id")
 	ticketType := payloadStr(payload, "ticket_type")
 	ticketCode := payloadStr(payload, "ticket_code")
+	bootstrapScript := payloadStr(payload, "worktree_bootstrap_script")
 
-	workdir, workspaceDir, err := m.ensureStartLoopWorkdir(ctx, wsSlug, ticketID, ticketType, ticketCode)
+	workdir, workspaceDir, createdNewWorktree, err := m.ensureStartLoopWorkdir(
+		ctx,
+		wsSlug,
+		ticketID,
+		ticketType,
+		ticketCode,
+	)
 	if err != nil {
 		return fmt.Errorf("invalid start_loop scope: %w", err)
 	}
+
+	m.maybeRunWorktreeBootstrap(ctx, loopID, wsSlug, workdir, createdNewWorktree, bootstrapScript)
 
 	return m.StartLoopWithAdapter(ctx, loopID, agentType, role, workdir, workspaceDir, wsSlug,
 		ticketID, task, payloadStr(payload, "model"), payloadStr(payload, "effort"), attempt)
@@ -532,20 +541,20 @@ func runGitOutput(
 func (m *Manager) ensureStartLoopWorkdir(
 	ctx context.Context,
 	workspaceSlug, ticketID, ticketType, ticketCode string,
-) (string, string, error) {
+) (string, string, bool, error) {
 	if strings.TrimSpace(workspaceSlug) == "" || strings.TrimSpace(ticketID) == "" {
-		return "", "", fmt.Errorf("missing workspace_slug or ticket_id")
+		return "", "", false, fmt.Errorf("missing workspace_slug or ticket_id")
 	}
 	if strings.TrimSpace(ticketType) == "" || strings.TrimSpace(ticketCode) == "" {
-		return "", "", fmt.Errorf("missing ticket_type or ticket_code")
+		return "", "", false, fmt.Errorf("missing ticket_type or ticket_code")
 	}
 	if m.worktreeMgr == nil {
-		return "", "", fmt.Errorf("worktree manager not configured")
+		return "", "", false, fmt.Errorf("worktree manager not configured")
 	}
 
 	workspaceDir := m.workdirForWorkspace(workspaceSlug)
 	if workspaceDir == m.repoRoot {
-		return "", "", fmt.Errorf("workspace base dir not configured for workspace %q", workspaceSlug)
+		return "", "", false, fmt.Errorf("workspace base dir not configured for workspace %q", workspaceSlug)
 	}
 
 	spec := repo.WorktreeSpec{
@@ -554,15 +563,16 @@ func (m *Manager) ensureStartLoopWorkdir(
 		TicketCode:   ticketCode,
 	}
 	expectedWorkdir := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
-	workdir, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, spec)
+	result, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, spec)
 	if err != nil {
-		return "", "", fmt.Errorf("ensuring ticket worktree: %w", err)
+		return "", "", false, fmt.Errorf("ensuring ticket worktree: %w", err)
 	}
+	workdir := result.Path
 	if filepath.Clean(workdir) != filepath.Clean(expectedWorkdir) {
-		return "", "", fmt.Errorf("failed to resolve ticket worktree at %s", expectedWorkdir)
+		return "", "", false, fmt.Errorf("failed to resolve ticket worktree at %s", expectedWorkdir)
 	}
 
-	return workdir, workspaceDir, nil
+	return workdir, workspaceDir, result.CreatedNew, nil
 }
 
 func (m *Manager) resolveScopedTicketWorkdir(ctx context.Context, workspaceSlug, ticketID string) (string, string, error) {
@@ -580,15 +590,128 @@ func (m *Manager) resolveScopedTicketWorkdir(ctx context.Context, workspaceSlug,
 
 	spec := repo.WorktreeSpec{TicketPrefix: repo.TicketPrefix(ticketID)}
 	expectedWorkdir := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
-	workdir, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, spec)
+	result, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, spec)
 	if err != nil {
 		return "", "", fmt.Errorf("ensuring ticket worktree: %w", err)
 	}
+	workdir := result.Path
 	if filepath.Clean(workdir) != filepath.Clean(expectedWorkdir) {
 		return "", "", fmt.Errorf("failed to resolve ticket worktree at %s", expectedWorkdir)
 	}
 
 	return workdir, workspaceDir, nil
+}
+
+func (m *Manager) maybeRunWorktreeBootstrap(
+	ctx context.Context,
+	loopID, workspaceSlug, workdir string,
+	createdNewWorktree bool,
+	script string,
+) {
+	if !createdNewWorktree || strings.TrimSpace(script) == "" {
+		return
+	}
+
+	stdout, stderr, exitCode, err := runWorktreeBootstrap(ctx, workdir, script)
+	if err == nil {
+		return
+	}
+
+	summary := bootstrapOutputSummary(stdout, stderr)
+	message := "[worktree bootstrap warning] bootstrap script failed"
+	if exitCode >= 0 {
+		message += fmt.Sprintf(" with exit code %d", exitCode)
+	}
+	if summary != "" {
+		message += ": " + summary
+	}
+	m.sendTerminalMessage(loopID, workspaceSlug, message+"\n")
+
+	if exitCode >= 0 {
+		log.Printf(
+			"worktree bootstrap failed for loop %s in %s (workspace_slug=%s exit_code=%d): %s",
+			loopID,
+			workdir,
+			workspaceSlug,
+			exitCode,
+			summaryOrFallback(summary),
+		)
+		return
+	}
+
+	log.Printf(
+		"worktree bootstrap failed for loop %s in %s (workspace_slug=%s): %v; %s",
+		loopID,
+		workdir,
+		workspaceSlug,
+		err,
+		summaryOrFallback(summary),
+	)
+}
+
+func runWorktreeBootstrap(ctx context.Context, workdir, script string) (string, string, int, error) {
+	cmd := exec.CommandContext(ctx, "bash", "-lc", script)
+	cmd.Dir = workdir
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return stdout.String(), stderr.String(), 0, nil
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return stdout.String(), stderr.String(), exitErr.ExitCode(), err
+	}
+
+	return stdout.String(), stderr.String(), -1, err
+}
+
+func (m *Manager) sendTerminalMessage(loopID, workspaceSlug, message string) {
+	payload := map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": workspaceSlug,
+		"data":           base64.StdEncoding.EncodeToString([]byte(message)),
+	}
+	m.sendEvent("terminal_output", payload)
+}
+
+func bootstrapOutputSummary(stdout, stderr string) string {
+	parts := make([]string, 0, 2)
+
+	if summary := trimBootstrapOutput(stdout); summary != "" {
+		parts = append(parts, "stdout="+strconv.Quote(summary))
+	}
+	if summary := trimBootstrapOutput(stderr); summary != "" {
+		parts = append(parts, "stderr="+strconv.Quote(summary))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func trimBootstrapOutput(output string) string {
+	summary := strings.Join(strings.Fields(strings.TrimSpace(output)), " ")
+	if summary == "" {
+		return ""
+	}
+
+	const maxLen = 160
+	if len(summary) <= maxLen {
+		return summary
+	}
+
+	return summary[:maxLen-3] + "..."
+}
+
+func summaryOrFallback(summary string) string {
+	if summary == "" {
+		return "no stdout/stderr output"
+	}
+	return summary
 }
 
 // HandleCleanupWorktree is a command handler for "cleanup_worktree" events.

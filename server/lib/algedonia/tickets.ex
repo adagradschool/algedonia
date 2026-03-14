@@ -49,14 +49,21 @@ defmodule Algedonia.Tickets do
   @doc """
   Returns the daemon payload fields required to create a deterministic ticket worktree branch.
   """
-  @spec worktree_payload(%{type: atom() | String.t()}, %{prefix: String.t()} | String.t() | nil) ::
+  @spec worktree_payload(
+          %{type: atom() | String.t()},
+          %{prefix: String.t(), worktree_bootstrap_script: String.t() | nil} | String.t() | nil
+        ) ::
           map()
   def worktree_payload(ticket, workspace_or_prefix) do
     %{
       "ticket_type" => ticket_type(ticket),
-      "ticket_code" => ticket_code(ticket, workspace_or_prefix)
+      "ticket_code" => ticket_code(ticket, workspace_or_prefix),
+      "worktree_bootstrap_script" => worktree_bootstrap_script(workspace_or_prefix)
     }
   end
+
+  defp worktree_bootstrap_script(%{worktree_bootstrap_script: script}), do: script
+  defp worktree_bootstrap_script(_), do: nil
 
   @doc """
   Lists tickets with optional filtering and sorting.
