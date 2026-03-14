@@ -245,8 +245,18 @@
               <div class="flex items-center gap-2 text-[11px] text-fg-muted">
                 <.icon name="hero-link-mini" class="size-3.5" /> Depends On
               </div>
+              <% filtered_blocked_by_options =
+                if String.trim(@blocked_by_search) == "" do
+                  []
+                else
+                  AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
+                    @blocked_by_options,
+                    @blocked_by_search
+                  )
+                end %>
               <div :if={@blocked_by_options != []} class="space-y-1">
                 <input
+                  id="detail-blocked-by-search"
                   type="text"
                   placeholder="Search tickets..."
                   value={@blocked_by_search}
@@ -254,28 +264,16 @@
                   class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
                 />
                 <select
+                  :if={filtered_blocked_by_options != []}
                   id="detail-blocked-by"
                   name="ticket[blocked_by][]"
                   multiple
-                  size={
-                    min(
-                      length(
-                        AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
-                          @blocked_by_options,
-                          @blocked_by_search
-                        )
-                      ),
-                      6
-                    )
-                  }
+                  size={min(length(filtered_blocked_by_options), 6)}
                   class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
                   phx-debounce="600"
                 >
                   {Phoenix.HTML.Form.options_for_select(
-                    AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
-                      @blocked_by_options,
-                      @blocked_by_search
-                    ),
+                    filtered_blocked_by_options,
                     @ticket_form[:blocked_by].value || []
                   )}
                 </select>
