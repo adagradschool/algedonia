@@ -1142,17 +1142,38 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert html =~ "No other tickets available"
     end
 
-    test "detail sidebar shows editable blocked_by picker", %{
+    test "detail sidebar hides blocker options until searched and hides them again on clear", %{
       conn: conn,
       workspace: workspace
     } do
-      _other = insert_ticket!(%{title: "Available blocker", workspace_id: workspace.id})
+      insert_ticket!(%{title: "Alpha blocker", workspace_id: workspace.id})
+      insert_ticket!(%{title: "Beta blocker", workspace_id: workspace.id})
       ticket = insert_ticket!(%{title: "Ticket under test", workspace_id: workspace.id})
-      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
 
       assert html =~ "Depends On"
-      assert html =~ "detail-blocked-by"
-      assert html =~ "Available blocker"
+      assert has_element?(view, "#detail-blocked-by-search")
+      refute has_element?(view, "#detail-blocked-by")
+      refute html =~ "Alpha blocker"
+      refute html =~ "Beta blocker"
+
+      html =
+        view
+        |> element("#detail-blocked-by-search")
+        |> render_keyup(%{"value" => "alp"})
+
+      assert has_element?(view, "#detail-blocked-by")
+      assert html =~ "Alpha blocker"
+      refute html =~ "Beta blocker"
+
+      html =
+        view
+        |> element("#detail-blocked-by-search")
+        |> render_keyup(%{"value" => ""})
+
+      refute has_element?(view, "#detail-blocked-by")
+      refute html =~ "Alpha blocker"
+      refute html =~ "Beta blocker"
     end
 
     test "detail sidebar persists blocked_by via autosave", %{
@@ -1162,6 +1183,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       blocker = insert_ticket!(%{title: "New blocker", workspace_id: workspace.id})
       ticket = insert_ticket!(%{title: "Will be blocked", workspace_id: workspace.id})
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#detail-blocked-by-search")
+      |> render_keyup(%{"value" => "new"})
 
       view
       |> form("#ticket-detail-form", ticket: %{blocked_by: [blocker.id]})
@@ -1178,6 +1203,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       blocker = insert_ticket!(%{title: "New blocker", workspace_id: workspace.id})
       ticket = insert_ticket!(%{title: "Will be blocked", workspace_id: workspace.id})
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#detail-blocked-by-search")
+      |> render_keyup(%{"value" => "new"})
 
       view
       |> form("#ticket-detail-form", ticket: %{blocked_by: [blocker.id]})
@@ -1210,6 +1239,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket_a}")
 
+      view
+      |> element("#detail-blocked-by-search")
+      |> render_keyup(%{"value" => "ticket b"})
+
       html =
         view
         |> form("#ticket-detail-form", ticket: %{blocked_by: [ticket_b.id]})
@@ -1239,6 +1272,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
         })
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#detail-blocked-by-search")
+      |> render_keyup(%{"value" => "cycle"})
 
       # Attempt a cycle — should show error
       html =
