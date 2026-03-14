@@ -163,7 +163,7 @@ defmodule AlgedoniaWeb.TicketComponents do
           data-role="loop-stage-link"
           class="inline-flex items-center px-2 py-0.5 rounded-md border border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo text-[11px] font-medium hover:bg-accent-indigo/20 transition-colors"
         >
-          {stage_label(@stage || "review", @attempt || 1)}
+          Review
         </a>
       </div>
     </div>
