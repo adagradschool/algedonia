@@ -598,6 +598,27 @@ defmodule AlgedoniaWeb.LoopLive.Show do
 
   defp review_pr_linked?(_), do: false
 
+  defp review_pr_url(%{review_pr_url: review_pr_url}, _workspace)
+       when is_binary(review_pr_url) do
+    case String.trim(review_pr_url) do
+      "" -> nil
+      url -> url
+    end
+  end
+
+  defp review_pr_url(
+         %{review_pr_number: review_pr_number},
+         %{github_repo_url: github_repo_url}
+       )
+       when is_integer(review_pr_number) and is_binary(github_repo_url) do
+    case String.trim(github_repo_url) do
+      "" -> nil
+      repo_url -> String.trim_trailing(repo_url, "/") <> "/pull/#{review_pr_number}"
+    end
+  end
+
+  defp review_pr_url(_, _), do: nil
+
   defp missing_review_pr_flash, do: "No pull request is linked to this ticket yet"
 
   defp review_pr_link_required_message,
