@@ -12,10 +12,15 @@ import (
 type WorktreeManager interface {
 	// EnsureWorktree creates or reuses a worktree at workspaceDir/worktrees/ticketPrefix.
 	// The bare repo is expected at workspaceDir/root.
-	EnsureWorktree(ctx context.Context, workspaceDir string, spec WorktreeSpec) (string, error)
+	EnsureWorktree(ctx context.Context, workspaceDir string, spec WorktreeSpec) (EnsureWorktreeResult, error)
 
 	// RemoveWorktree removes a worktree for the given ticket prefix.
 	RemoveWorktree(ctx context.Context, workspaceDir, ticketPrefix string) error
+}
+
+type EnsureWorktreeResult struct {
+	Path       string
+	CreatedNew bool
 }
 
 // WorktreeSpec describes the worktree path plus optional ticket metadata used
@@ -42,9 +47,9 @@ func NewWorktreeManager(gitBin string) *GitWorktreeManager {
 // EnsureWorktree creates a worktree at workspaceDir/worktrees/ticketPrefix
 // from the bare repo at workspaceDir/root. Returns the worktree path.
 // If the worktree already exists and is valid, it returns the existing path.
-func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir string, spec WorktreeSpec) (string, error) {
+func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir string, spec WorktreeSpec) (EnsureWorktreeResult, error) {
 	if strings.TrimSpace(spec.TicketPrefix) == "" {
-		return "", fmt.Errorf("missing ticket prefix")
+		return EnsureWorktreeResult{}, fmt.Errorf("missing ticket prefix")
 	}
 
 	bareRepo := filepath.Join(workspaceDir, "root")
@@ -53,9 +58,9 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir s
 	// Check if worktree already exists and is valid
 	if info, err := os.Stat(filepath.Join(wtPath, ".git")); err == nil && !info.IsDir() {
 		if err := ensureSharedSkillLinks(wtPath); err != nil {
-			return "", err
+			return EnsureWorktreeResult{}, err
 		}
-		return wtPath, nil
+		return EnsureWorktreeResult{Path: wtPath, CreatedNew: false}, nil
 	}
 
 	// If directory exists but is corrupted (no .git file), remove and recreate
@@ -71,7 +76,7 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir s
 	// Detect default branch (validates either local or remote refs exist)
 	branch, err := wm.defaultBranch(ctx, bareRepo)
 	if err != nil {
-		return "", fmt.Errorf("detecting default branch: %w", err)
+		return EnsureWorktreeResult{}, fmt.Errorf("detecting default branch: %w", err)
 	}
 	remoteRef := fmt.Sprintf("refs/remotes/origin/%s", branch)
 	remoteRefspec := fmt.Sprintf("refs/heads/%s:%s", branch, remoteRef)
@@ -81,21 +86,21 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir s
 
 	baseRef, err := wm.worktreeBaseRef(ctx, bareRepo, branch)
 	if err != nil {
-		return "", fmt.Errorf("resolving worktree base ref: %w", err)
+		return EnsureWorktreeResult{}, fmt.Errorf("resolving worktree base ref: %w", err)
 	}
 
 	branchName, err := TicketBranchName(spec.TicketType, spec.TicketCode)
 	if err != nil {
-		return "", fmt.Errorf("building ticket branch name: %w", err)
+		return EnsureWorktreeResult{}, fmt.Errorf("building ticket branch name: %w", err)
 	}
 	if branchName != "" {
 		if err := wm.ensureBranchAvailable(ctx, bareRepo, branchName); err != nil {
-			return "", err
+			return EnsureWorktreeResult{}, err
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
-		return "", fmt.Errorf("creating worktrees dir: %w", err)
+		return EnsureWorktreeResult{}, fmt.Errorf("creating worktrees dir: %w", err)
 	}
 
 	// Prune stale worktree entries before adding
@@ -110,14 +115,14 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir s
 
 	_, _, err = runGitCmd(ctx, wm.GitBin, bareRepo, args...)
 	if err != nil {
-		return "", fmt.Errorf("creating worktree: %w", err)
+		return EnsureWorktreeResult{}, fmt.Errorf("creating worktree: %w", err)
 	}
 
 	if err := ensureSharedSkillLinks(wtPath); err != nil {
-		return "", err
+		return EnsureWorktreeResult{}, err
 	}
 
-	return wtPath, nil
+	return EnsureWorktreeResult{Path: wtPath, CreatedNew: true}, nil
 }
 
 // RemoveWorktree removes a worktree for the given ticket prefix.

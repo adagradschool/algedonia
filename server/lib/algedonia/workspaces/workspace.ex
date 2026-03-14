@@ -14,6 +14,7 @@ defmodule Algedonia.Workspaces.Workspace do
           slug: String.t(),
           prefix: String.t(),
           github_repo_url: String.t() | nil,
+          worktree_bootstrap_script: String.t() | nil,
           tracker_config: map(),
           playback_config: map(),
           defaults: map(),
@@ -37,6 +38,7 @@ defmodule Algedonia.Workspaces.Workspace do
     field :slug, :string
     field :prefix, :string
     field :github_repo_url, :string
+    field :worktree_bootstrap_script, :string
     field :tracker_config, :map, default: %{}
     field :playback_config, :map, default: %{}
     field :defaults, :map, default: %{}
@@ -68,6 +70,7 @@ defmodule Algedonia.Workspaces.Workspace do
       :prefix,
       :next_ticket_number,
       :github_repo_url,
+      :worktree_bootstrap_script,
       :tracker_config,
       :playback_config,
       :defaults,

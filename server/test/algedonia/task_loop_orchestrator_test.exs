@@ -285,6 +285,45 @@ defmodule Algedonia.TaskLoopOrchestratorTest do
     end
   end
 
+  describe "start_task_loop includes worktree bootstrap script" do
+    test "push payload contains workspace worktree bootstrap script", %{
+      orchestrator: pid,
+      workspace: workspace
+    } do
+      {:ok, workspace} =
+        Workspaces.update_workspace(workspace, %{
+          worktree_bootstrap_script: "scripts/bootstrap.sh"
+        })
+
+      ticket =
+        insert_ticket!(%{
+          status: :in_progress,
+          workspace_id: workspace.id
+        })
+
+      loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          workspace_id: ticket.workspace_id,
+          role: :task,
+          status: :pending,
+          max_attempts: 3
+        })
+
+      loop_id = loop.id
+      daemon = insert_daemon!(%{status: :online})
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:start_task_loop, loop.id, daemon.name, [workspace_id: loop.workspace_id]}
+               )
+
+      assert_receive {:push, _, ^loop_id,
+                      %{"role" => "maker", "worktree_bootstrap_script" => "scripts/bootstrap.sh"}}
+    end
+  end
+
   describe "task context isolation" do
     test "maker task includes ticket comments", %{orchestrator: pid} do
       ticket =

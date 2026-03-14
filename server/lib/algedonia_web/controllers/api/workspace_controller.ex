@@ -16,6 +16,7 @@ defmodule AlgedoniaWeb.Api.WorkspaceController do
             slug: w.slug,
             prefix: w.prefix,
             github_repo_url: w.github_repo_url,
+            worktree_bootstrap_script: w.worktree_bootstrap_script,
             tracker_config: w.tracker_config,
             playback_config: w.playback_config,
             defaults: w.defaults,

@@ -561,7 +561,8 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
           "workspace_slug" => "my-workspace",
           "ticket_id" => "55555555-5555-4555-8555-555555555555",
           "ticket_type" => "feature",
-          "ticket_code" => "ALG-555"
+          "ticket_code" => "ALG-555",
+          "worktree_bootstrap_script" => "scripts/bootstrap.sh"
         }
       )
 
@@ -573,7 +574,8 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
         "workspace_slug" => "my-workspace",
         "ticket_id" => "55555555-5555-4555-8555-555555555555",
         "ticket_type" => "feature",
-        "ticket_code" => "ALG-555"
+        "ticket_code" => "ALG-555",
+        "worktree_bootstrap_script" => "scripts/bootstrap.sh"
       }
     end
   end
