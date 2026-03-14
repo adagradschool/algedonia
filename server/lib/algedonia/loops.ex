@@ -372,13 +372,51 @@ defmodule Algedonia.Loops do
   end
 
   @doc """
+  Returns the active review-loop ID for each ticket ID, falling back to the most recent review loop.
+  """
+  @spec first_review_loop_ids_for_tickets([Algedonia.Types.id()]) :: %{
+          Algedonia.Types.id() => Algedonia.Types.id()
+        }
+  def first_review_loop_ids_for_tickets([]), do: %{}
+
+  def first_review_loop_ids_for_tickets(ticket_ids) do
+    active_statuses = [:pending, :running]
+
+    from(l in Loop,
+      where: l.ticket_id in ^ticket_ids and l.role == :review,
+      order_by: [asc: l.ticket_id, asc: l.inserted_at],
+      select: {l.ticket_id, l.id, l.status}
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {ticket_id, loop_id, status}, acc ->
+      active? = status in active_statuses
+
+      case acc do
+        %{^ticket_id => {_existing_loop_id, true}} ->
+          acc
+
+        %{^ticket_id => {_existing_loop_id, false}} when active? ->
+          Map.put(acc, ticket_id, {loop_id, true})
+
+        %{^ticket_id => {_existing_loop_id, false}} ->
+          Map.put(acc, ticket_id, {loop_id, false})
+
+        %{} ->
+          Map.put(acc, ticket_id, {loop_id, active?})
+      end
+    end)
+    |> Map.new(fn {ticket_id, {loop_id, _active?}} -> {ticket_id, loop_id} end)
+  end
+
+  @doc """
   Returns active loop info for the given ticket IDs.
   """
   @spec active_loop_info_for_tickets([Algedonia.Types.id()]) :: %{
           Algedonia.Types.id() => %{
-            loop_id: Algedonia.Types.id(),
-            stage: String.t(),
-            attempt: integer()
+            required(:loop_id) => Algedonia.Types.id(),
+            required(:stage) => String.t(),
+            required(:attempt) => integer(),
+            optional(:review_loop_id) => Algedonia.Types.id()
           }
         }
   def active_loop_info_for_tickets([]), do: %{}
@@ -421,10 +459,17 @@ defmodule Algedonia.Loops do
 
     loop_ids = all_info |> Map.values() |> Enum.map(& &1.loop_id)
     step_roles = latest_step_roles_for_loops(loop_ids)
+    review_loop_ids = first_review_loop_ids_for_tickets(ticket_ids)
 
     Map.new(all_info, fn {tid, info} ->
       stage = Map.get(step_roles, info.loop_id, "pending")
-      {tid, Map.put(info, :stage, stage)}
+
+      enriched_info =
+        info
+        |> Map.put(:stage, stage)
+        |> maybe_put_review_loop_id(Map.get(review_loop_ids, tid))
+
+      {tid, enriched_info}
     end)
   end
 
@@ -471,6 +516,11 @@ defmodule Algedonia.Loops do
       loop -> loop.id
     end
   end
+
+  defp maybe_put_review_loop_id(info, nil), do: info
+
+  defp maybe_put_review_loop_id(info, review_loop_id),
+    do: Map.put(info, :review_loop_id, review_loop_id)
 
   @doc """
   Subscribes to loop-status events for a ticket.

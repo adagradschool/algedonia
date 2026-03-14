@@ -738,14 +738,23 @@ defmodule AlgedoniaWeb.TicketLiveTest do
              )
     end
 
-    test "board in_review card shows review link and not pull comments", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "board in_review card routes Review to the review loop when task and review loops are both active",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       ticket =
         insert_ticket!(%{title: "Review card", status: :in_review, workspace_id: workspace.id})
 
-      loop =
+      task_loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running,
+          current_attempt: 2
+        })
+
+      review_loop =
         insert_loop!(%{
           ticket_id: ticket.id,
           role: :review,
@@ -754,7 +763,15 @@ defmodule AlgedoniaWeb.TicketLiveTest do
         })
 
       Algedonia.Loops.create_step(%{
-        loop_id: loop.id,
+        loop_id: task_loop.id,
+        role: "maker",
+        attempt: 2,
+        status: "running",
+        started_at: DateTime.add(DateTime.utc_now(), -5, :second)
+      })
+
+      Algedonia.Loops.create_step(%{
+        loop_id: review_loop.id,
         role: "review",
         attempt: 1,
         status: "running",
@@ -763,7 +780,22 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert has_element?(view, ~s{a[data-role="loop-stage-link"]}, "Review #1")
+      review_href =
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(review_loop.id, 0, 8)}"
+
+      task_href =
+        ~p"/w/#{workspace.slug}/tickets/#{ticket.number}/loops/#{String.slice(task_loop.id, 0, 8)}"
+
+      review_link_html =
+        view
+        |> element(~s{a[data-role="loop-stage-link"][href="#{review_href}"]})
+        |> render()
+
+      assert review_link_html =~ ~s{href="#{review_href}"}
+      assert review_link_html =~ ~r/>\s*Review\s*</
+      refute review_link_html =~ "Review #"
+      refute review_link_html =~ "Maker #"
+      refute has_element?(view, ~s{a[data-role="loop-stage-link"][href="#{task_href}"]}, "Review")
       refute render(view) =~ "Pull Comments"
     end
 
