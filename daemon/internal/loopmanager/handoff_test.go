@@ -22,7 +22,7 @@ func setupWorkspaceHandoffPaths(t *testing.T, loopID string, attempt int) (strin
 }
 
 func TestLoadCheckerHandoff_RequiresWorkspaceDir(t *testing.T) {
-	_, _, _, err := loadCheckerHandoff("11111111-1111-4111-8111-111111111111", 1, "")
+	_, err := loadCheckerHandoff("11111111-1111-4111-8111-111111111111", 1, "", false)
 	if err == nil {
 		t.Fatal("expected error when workspaceDir is missing")
 	}
@@ -33,7 +33,7 @@ func TestLoadCheckerHandoff_Valid(t *testing.T) {
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
-	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: feedbackPath}
+	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: feedbackPath, CommitTitle: "checker: pass snapshot"}
 	data, _ := json.Marshal(handoff)
 	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -42,18 +42,21 @@ func TestLoadCheckerHandoff_Valid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	verdict, fbPath, feedback, err := loadCheckerHandoff(loopID, attempt, wsDir)
+	result, err := loadCheckerHandoff(loopID, attempt, wsDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if verdict != "pass" {
-		t.Errorf("verdict = %q, want %q", verdict, "pass")
+	if result.Verdict != "pass" {
+		t.Errorf("verdict = %q, want %q", result.Verdict, "pass")
 	}
-	if fbPath != filepath.Clean(feedbackPath) {
-		t.Errorf("feedback_path = %q, want %q", fbPath, filepath.Clean(feedbackPath))
+	if result.FeedbackPath != filepath.Clean(feedbackPath) {
+		t.Errorf("feedback_path = %q, want %q", result.FeedbackPath, filepath.Clean(feedbackPath))
 	}
-	if feedback != "All checks pass. Code looks good." {
-		t.Errorf("feedback = %q", feedback)
+	if result.Feedback != "All checks pass. Code looks good." {
+		t.Errorf("feedback = %q", result.Feedback)
+	}
+	if result.CommitTitle != "" {
+		t.Errorf("commit_title = %q, want empty when not required", result.CommitTitle)
 	}
 }
 
@@ -66,7 +69,7 @@ func TestLoadCheckerHandoff_InvalidJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, _, err := loadCheckerHandoff(loopID, attempt, wsDir)
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, false)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -77,13 +80,13 @@ func TestLoadCheckerHandoff_InvalidVerdict(t *testing.T) {
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
-	handoff := checkerHandoff{VERDICT: "maybe", FEEDBACK: feedbackPath}
+	handoff := checkerHandoff{VERDICT: "maybe", FEEDBACK: feedbackPath, CommitTitle: "checker: invalid verdict"}
 	data, _ := json.Marshal(handoff)
 	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, _, err := loadCheckerHandoff(loopID, attempt, wsDir)
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, false)
 	if err == nil {
 		t.Fatal("expected error for invalid verdict")
 	}
@@ -94,13 +97,13 @@ func TestLoadCheckerHandoff_MismatchedFeedbackPath(t *testing.T) {
 	attempt := 1
 	wsDir, jsonPath, _ := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
-	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: "/tmp/wrong/path.md"}
+	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: "/tmp/wrong/path.md", CommitTitle: "checker: wrong feedback path"}
 	data, _ := json.Marshal(handoff)
 	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, _, err := loadCheckerHandoff(loopID, attempt, wsDir)
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, false)
 	if err == nil {
 		t.Fatal("expected error for mismatched feedback path")
 	}
@@ -111,7 +114,7 @@ func TestLoadCheckerHandoff_EmptyFeedbackMarkdown(t *testing.T) {
 	attempt := 1
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
-	handoff := checkerHandoff{VERDICT: "fail", FEEDBACK: feedbackPath}
+	handoff := checkerHandoff{VERDICT: "fail", FEEDBACK: feedbackPath, CommitTitle: "checker: fail snapshot"}
 	data, _ := json.Marshal(handoff)
 	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -120,7 +123,7 @@ func TestLoadCheckerHandoff_EmptyFeedbackMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, _, err := loadCheckerHandoff(loopID, attempt, wsDir)
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, false)
 	if err == nil {
 		t.Fatal("expected error for empty feedback markdown")
 	}
@@ -132,7 +135,7 @@ func TestLoadCheckerHandoff_RelativeFeedbackPathResolvesInWorkspace(t *testing.T
 	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
 
 	relative := filepath.ToSlash(filepath.Join("handoffs", loopID, "attempt-1", "checker_feedback.md"))
-	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: relative}
+	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: relative, CommitTitle: "checker: relative feedback path"}
 	data, _ := json.Marshal(handoff)
 	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -141,17 +144,98 @@ func TestLoadCheckerHandoff_RelativeFeedbackPathResolvesInWorkspace(t *testing.T
 		t.Fatal(err)
 	}
 
-	verdict, fbPath, feedback, err := loadCheckerHandoff(loopID, attempt, wsDir)
+	result, err := loadCheckerHandoff(loopID, attempt, wsDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if verdict != "pass" {
-		t.Errorf("verdict = %q, want pass", verdict)
+	if result.Verdict != "pass" {
+		t.Errorf("verdict = %q, want pass", result.Verdict)
 	}
-	if fbPath != filepath.Clean(feedbackPath) {
-		t.Errorf("feedback_path = %q, want %q", fbPath, filepath.Clean(feedbackPath))
+	if result.FeedbackPath != filepath.Clean(feedbackPath) {
+		t.Errorf("feedback_path = %q, want %q", result.FeedbackPath, filepath.Clean(feedbackPath))
 	}
-	if feedback != "Workspace-relative feedback path works." {
-		t.Errorf("feedback = %q", feedback)
+	if result.Feedback != "Workspace-relative feedback path works." {
+		t.Errorf("feedback = %q", result.Feedback)
+	}
+}
+
+func TestLoadCheckerHandoff_RequiresCommitTitleOnlyWhenRequested(t *testing.T) {
+	loopID := "88888888-8888-4888-8888-888888888888"
+	attempt := 1
+	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
+
+	handoff := checkerHandoff{VERDICT: "pass", FEEDBACK: feedbackPath}
+	data, _ := json.Marshal(handoff)
+	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(feedbackPath, []byte("Feedback is present."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loadCheckerHandoff(loopID, attempt, wsDir, false); err != nil {
+		t.Fatalf("unexpected error without commit title requirement: %v", err)
+	}
+
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, true)
+	if err == nil {
+		t.Fatal("expected error when commit_title is required")
+	}
+	if err.Error() != "missing commit_title" {
+		t.Fatalf("error = %q, want missing commit_title", err)
+	}
+}
+
+func TestLoadCheckerHandoff_InvalidCommitTitleWhenRequired(t *testing.T) {
+	loopID := "99999999-9999-4999-8999-999999999999"
+	attempt := 1
+	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
+
+	handoff := checkerHandoff{
+		VERDICT:     "fail",
+		FEEDBACK:    feedbackPath,
+		CommitTitle: "checker: fail snapshot\nwith body",
+	}
+	data, _ := json.Marshal(handoff)
+	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(feedbackPath, []byte("Feedback is present."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, true)
+	if err == nil {
+		t.Fatal("expected error for invalid commit_title")
+	}
+	if err.Error() != "commit_title must be a single line" {
+		t.Fatalf("error = %q, want single-line validation", err)
+	}
+}
+
+func TestLoadCheckerHandoff_RejectsControlCharactersInCommitTitle(t *testing.T) {
+	loopID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	attempt := 1
+	wsDir, jsonPath, feedbackPath := setupWorkspaceHandoffPaths(t, loopID, attempt)
+
+	handoff := checkerHandoff{
+		VERDICT:     "pass",
+		FEEDBACK:    feedbackPath,
+		CommitTitle: "checker:\x07 invalid title",
+	}
+	data, _ := json.Marshal(handoff)
+	if err := os.WriteFile(jsonPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(feedbackPath, []byte("Feedback is present."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := loadCheckerHandoff(loopID, attempt, wsDir, true)
+	if err == nil {
+		t.Fatal("expected error for control-character commit_title")
+	}
+	if err.Error() != "commit_title contains invalid control characters" {
+		t.Fatalf("error = %q, want control-character validation", err)
 	}
 }

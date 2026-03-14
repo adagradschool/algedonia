@@ -175,6 +175,8 @@ defmodule Algedonia.PromptBuilderTest do
       assert result =~ "Ticket: Feature"
       assert result =~ "REQUIRED HANDOFF FORMAT"
       assert result =~ "VERDICT"
+      assert result =~ "\"commit_title\":\"<single-line summary>\""
+      assert result =~ "non-empty single-line plain-text summary"
       assert result =~ "Rubric:\n- quality check"
       refute result =~ "ag ticket comments"
     end
@@ -193,6 +195,8 @@ defmodule Algedonia.PromptBuilderTest do
       assert result =~ "missing json"
       assert result =~ "REPAIR-ONLY MODE"
       assert result =~ "REQUIRED HANDOFF FORMAT"
+      assert result =~ "\"commit_title\":\"<single-line summary>\""
+      assert result =~ "non-empty single-line plain-text summary"
     end
   end
 

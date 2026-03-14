@@ -7,13 +7,7 @@ import (
 	"strings"
 )
 
-const checkerSnapshotCommitMessageTemplate = "algedonia checker snapshot loop=%s attempt=%d"
-
-func checkerSnapshotCommitMessage(loopID string, attempt int) string {
-	return fmt.Sprintf(checkerSnapshotCommitMessageTemplate, loopID, attempt)
-}
-
-func snapshotCheckerCompletion(ctx context.Context, workdir, loopID string, attempt int) (string, bool, error) {
+func snapshotCheckerCompletion(ctx context.Context, workdir, commitTitle string) (string, bool, error) {
 	workdir = strings.TrimSpace(workdir)
 	if workdir == "" {
 		return "", false, fmt.Errorf("workdir is required for checker snapshot commit")
@@ -25,6 +19,11 @@ func snapshotCheckerCompletion(ctx context.Context, workdir, loopID string, atte
 	}
 	if !dirty {
 		return "", false, nil
+	}
+
+	commitTitle = strings.TrimSpace(commitTitle)
+	if commitTitle == "" {
+		return "", false, fmt.Errorf("commitTitle is required for checker snapshot commit")
 	}
 
 	if _, err := runGitOutput(ctx, workdir, false, "add", "-A"); err != nil {
@@ -39,8 +38,7 @@ func snapshotCheckerCompletion(ctx context.Context, workdir, loopID string, atte
 		return "", false, nil
 	}
 
-	commitMsg := checkerSnapshotCommitMessage(loopID, attempt)
-	if _, err := runGitCombined(ctx, workdir, "commit", "-m", commitMsg); err != nil {
+	if _, err := runGitCombined(ctx, workdir, "commit", "-m", commitTitle); err != nil {
 		return "", false, fmt.Errorf("git commit snapshot: %w", err)
 	}
 

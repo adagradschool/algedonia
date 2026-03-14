@@ -10,9 +10,10 @@ REPAIR-ONLY MODE:
 REQUIRED HANDOFF FORMAT (file IPC):
 1) Write markdown feedback to: <%= expected_feedback_path %>
 2) Write JSON to: <%= expected_json_path %>
-JSON exactly: {"VERDICT":"pass|fail","FEEDBACK":"<%= expected_feedback_path %>"}
+JSON exactly: {"VERDICT":"pass|fail","FEEDBACK":"<%= expected_feedback_path %>","commit_title":"<single-line summary>"}
 
 Rules:
 - Create parent directories if missing.
 - VERDICT must be lowercase pass/fail.
 - FEEDBACK must match the exact markdown path above.
+- `commit_title` must be a non-empty single-line plain-text summary with no newline or control characters.
