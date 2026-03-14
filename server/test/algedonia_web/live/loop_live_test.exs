@@ -177,10 +177,15 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute has_element?(view, "#loop-terminal-panel .h-12 span", "maker")
     end
 
-    test "review loop shows pull comments and merge buttons in top bar", %{
+    test "review loop shows pull comments button and external view pr link in top bar", %{
       conn: conn,
       workspace: workspace
     } do
+      {:ok, workspace} =
+        Algedonia.Workspaces.update_workspace(workspace, %{
+          github_repo_url: "https://github.com/test/repo"
+        })
+
       ticket =
         Factory.insert_ticket!(%{
           workspace_id: workspace.id,
@@ -211,11 +216,18 @@ defmodule AlgedoniaWeb.LoopLiveTest do
                "#loop-terminal-panel button[phx-click='pull_comments'][disabled]"
              )
 
-      assert has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr']", "Merge")
-      refute has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr'][disabled]")
+      assert has_element?(
+               view,
+               "#loop-terminal-panel a[href='https://github.com/test/repo/pull/42'][target='_blank'][rel='noopener noreferrer']",
+               "View PR"
+             )
+
+      refute has_element?(view, "#loop-terminal-panel a[phx-click='merge_pr']")
+      refute has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr']")
+      refute render(view) =~ "Merge"
     end
 
-    test "review loop disables pull comments and merge buttons until a PR is linked", %{
+    test "review loop disables pull comments and view pr controls until a PR is linked", %{
       conn: conn,
       workspace: workspace
     } do
@@ -248,12 +260,14 @@ defmodule AlgedoniaWeb.LoopLiveTest do
 
       assert has_element?(
                view,
-               "#loop-terminal-panel span[title='#{tooltip}'] button[disabled]",
-               "Merge"
+               "#loop-terminal-panel span[title='#{tooltip}'] span[aria-disabled='true']",
+               "View PR"
              )
 
       refute has_element?(view, "#loop-terminal-panel button[phx-click='pull_comments']")
       refute has_element?(view, "#loop-terminal-panel button[phx-click='merge_pr']")
+      refute has_element?(view, "#loop-terminal-panel a[target='_blank']", "View PR")
+      refute render(view) =~ "Merge"
     end
 
     test "review loop shows last polled timestamp subtly", %{conn: conn, workspace: workspace} do
