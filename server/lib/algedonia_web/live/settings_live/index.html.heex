@@ -32,13 +32,23 @@
             min="1"
             max="50"
           />
-          <.input
-            field={@form[:worktree_bootstrap_script]}
-            type="textarea"
-            label="Worktree bootstrap script"
-            rows="6"
-            placeholder="bash commands to run in each newly created ticket worktree"
-          />
+          <div class="space-y-4">
+            <div class="text-sm font-medium text-fg">Worktree scripts</div>
+            <.input
+              field={@form[:worktree_bootstrap_script]}
+              type="textarea"
+              label="Worktree bootstrap script"
+              rows="6"
+              placeholder="bash commands to run in each newly created ticket worktree"
+            />
+            <.input
+              field={@form[:worktree_run_script]}
+              type="textarea"
+              label="Worktree manual run script"
+              rows="6"
+              placeholder="bash commands to run manually in a ticket worktree"
+            />
+          </div>
 
           <div class="flex justify-end">
             <button

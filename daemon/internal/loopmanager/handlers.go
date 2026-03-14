@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/algedonia/daemon/internal/repo"
@@ -357,6 +358,120 @@ func (m *Manager) HandlePollReviewPR(ctx context.Context, payload map[string]int
 	result["ok"] = true
 	m.sendEvent("review_pr_status", result)
 	return nil
+}
+
+// HandleRunWorkspaceScript executes a trusted workspace-authored script inside
+// the ticket-scoped worktree and streams output over dedicated manual-run events.
+func (m *Manager) HandleRunWorkspaceScript(ctx context.Context, payload map[string]interface{}) error {
+	runID := payloadStr(payload, "run_id")
+	if runID == "" {
+		return fmt.Errorf("missing run_id in run_workspace_script payload")
+	}
+
+	workspaceSlug := payloadStr(payload, "workspace_slug")
+	ticketID := payloadStr(payload, "ticket_id")
+	script := payloadStr(payload, "worktree_run_script")
+	if script == "" {
+		return fmt.Errorf("missing worktree_run_script in run_workspace_script payload")
+	}
+
+	workdir, _, err := m.resolveScopedTicketWorkdir(ctx, workspaceSlug, ticketID)
+	if err != nil {
+		return fmt.Errorf("invalid run_workspace_script scope: %w", err)
+	}
+
+	key := manualRunKey(workspaceSlug, ticketID)
+	startedAt := time.Now().UTC()
+
+	if !m.beginManualRun(key) {
+		m.sendEvent("manual_run_complete", map[string]interface{}{
+			"run_id":         runID,
+			"workspace_slug": workspaceSlug,
+			"ticket_id":      ticketID,
+			"status":         "rejected",
+			"message":        "Manual run is already active for this ticket.",
+			"completed_at":   time.Now().UTC().Format(time.RFC3339Nano),
+		})
+
+		return fmt.Errorf("manual run already active for workspace=%s ticket=%s", workspaceSlug, ticketID)
+	}
+
+	defer m.endManualRun(key)
+
+	m.sendEvent("manual_run_started", map[string]interface{}{
+		"run_id":         runID,
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+		"started_at":     startedAt.Format(time.RFC3339Nano),
+	})
+
+	cmd := exec.CommandContext(ctx, "bash", "-lc", script)
+	cmd.Dir = workdir
+
+	writer := &manualRunWriter{
+		manager:       m,
+		runID:         runID,
+		workspaceSlug: workspaceSlug,
+		ticketID:      ticketID,
+	}
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+
+	err = cmd.Run()
+
+	result := map[string]interface{}{
+		"run_id":         runID,
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+		"started_at":     startedAt.Format(time.RFC3339Nano),
+		"completed_at":   time.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	if err == nil {
+		result["status"] = "succeeded"
+		result["exit_code"] = 0
+		m.sendEvent("manual_run_complete", result)
+		return nil
+	}
+
+	result["status"] = "failed"
+	result["message"] = err.Error()
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		result["exit_code"] = exitErr.ExitCode()
+	} else {
+		result["exit_code"] = -1
+	}
+
+	m.sendEvent("manual_run_complete", result)
+	return nil
+}
+
+type manualRunWriter struct {
+	mu            sync.Mutex
+	manager       *Manager
+	runID         string
+	workspaceSlug string
+	ticketID      string
+}
+
+func (w *manualRunWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.manager.sendEvent("manual_run_output", map[string]interface{}{
+		"run_id":         w.runID,
+		"workspace_slug": w.workspaceSlug,
+		"ticket_id":      w.ticketID,
+		"data":           base64.StdEncoding.EncodeToString(p),
+	})
+
+	return len(p), nil
 }
 
 func fetchPRJSON[T any](ctx context.Context, workdir, path string) (T, error) {
@@ -712,6 +827,28 @@ func summaryOrFallback(summary string) string {
 		return "no stdout/stderr output"
 	}
 	return summary
+}
+
+func (m *Manager) beginManualRun(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.manualRuns[key]; exists {
+		return false
+	}
+
+	m.manualRuns[key] = struct{}{}
+	return true
+}
+
+func (m *Manager) endManualRun(key string) {
+	m.mu.Lock()
+	delete(m.manualRuns, key)
+	m.mu.Unlock()
+}
+
+func manualRunKey(workspaceSlug, ticketID string) string {
+	return workspaceSlug + ":" + ticketID
 }
 
 // HandleCleanupWorktree is a command handler for "cleanup_worktree" events.

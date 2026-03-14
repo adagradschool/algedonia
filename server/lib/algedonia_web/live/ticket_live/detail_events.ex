@@ -6,7 +6,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   use Phoenix.VerifiedRoutes, endpoint: AlgedoniaWeb.Endpoint, router: AlgedoniaWeb.Router
 
   import Phoenix.LiveView
-  import Phoenix.Component, only: [assign: 2, to_form: 1]
+  import Phoenix.Component, only: [assign: 2, assign: 3, to_form: 1]
   import AlgedoniaWeb.Helpers, only: [ticket_ref: 1, short_id: 1]
 
   alias Algedonia.{Agents, Loops, Tickets, Workspaces}
@@ -42,11 +42,25 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       reply_form: nil,
       editing_comment_id: nil,
       edit_form: nil,
+      manual_run: empty_manual_run(),
       loop_id: Loops.first_inspect_loop_id(ticket.id),
       review_loop_id: Loops.first_review_loop_id(ticket.id),
       hook_loops: Loops.list_hook_loops_for_ticket(ticket.id),
       transition_hooks: Workspaces.list_transition_hooks(workspace_id)
     )
+  end
+
+  @spec empty_manual_run() :: map()
+  def empty_manual_run do
+    %{
+      run_id: nil,
+      status: :idle,
+      output: "",
+      exit_code: nil,
+      started_at: nil,
+      completed_at: nil,
+      message: nil
+    }
   end
 
   @doc false
@@ -205,6 +219,58 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "No online daemon available")}
+    end
+  end
+
+  def handle("run_workspace_script", %{"id" => ticket_id}, socket) do
+    alias AlgedoniaWeb.Helpers
+
+    ticket = Tickets.get_ticket!(ticket_id)
+    workspace = socket.assigns.current_workspace || Workspaces.get_workspace!(ticket.workspace_id)
+    script = workspace.worktree_run_script
+
+    cond do
+      ticket.status not in [:in_progress, :in_review] ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Workspace script is only available for in-progress or in-review tickets"
+         )}
+
+      socket.assigns.manual_run.status == :running ->
+        {:noreply, put_flash(socket, :error, "Workspace script is already running")}
+
+      is_nil(script) or String.trim(script) == "" ->
+        {:noreply,
+         put_flash(socket, :error, "Set a workspace run script in Settings before running it")}
+
+      true ->
+        case Helpers.resolve_daemon(socket) do
+          {:ok, daemon} ->
+            run_id = Ecto.UUID.generate()
+
+            AlgedoniaWeb.DaemonChannel.push_run_workspace_script(daemon.name, %{
+              "run_id" => run_id,
+              "workspace_slug" => workspace.slug,
+              "ticket_id" => ticket.id,
+              "worktree_run_script" => script
+            })
+
+            {:noreply,
+             assign(socket, :manual_run, %{
+               run_id: run_id,
+               status: :running,
+               output: "",
+               exit_code: nil,
+               started_at: DateTime.utc_now(),
+               completed_at: nil,
+               message: nil
+             })}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "No online daemon available")}
+        end
     end
   end
 

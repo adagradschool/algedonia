@@ -15,7 +15,7 @@ defmodule Algedonia.WorkspacesSettingsTest do
   end
 
   describe "update_workspace/2" do
-    test "updates name, slug, prefix, github_repo_url, max_iterations, and worktree bootstrap script" do
+    test "updates name, slug, prefix, github_repo_url, max_iterations, and worktree scripts" do
       workspace = insert_workspace!(%{name: "Old Name"})
 
       assert {:ok, updated} =
@@ -25,7 +25,8 @@ defmodule Algedonia.WorkspacesSettingsTest do
                  prefix: "NEW",
                  github_repo_url: "https://github.com/org/repo",
                  max_iterations: 8,
-                 worktree_bootstrap_script: "scripts/bootstrap.sh"
+                 worktree_bootstrap_script: "scripts/bootstrap.sh",
+                 worktree_run_script: "scripts/verify.sh"
                })
 
       assert updated.name == "New Name"
@@ -34,6 +35,7 @@ defmodule Algedonia.WorkspacesSettingsTest do
       assert updated.github_repo_url == "https://github.com/org/repo"
       assert updated.max_iterations == 8
       assert updated.worktree_bootstrap_script == "scripts/bootstrap.sh"
+      assert updated.worktree_run_script == "scripts/verify.sh"
     end
 
     test "rejects invalid github_repo_url" do

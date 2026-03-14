@@ -12,6 +12,7 @@ defmodule AlgedoniaWeb.Api.WorkspaceControllerTest do
         Workspaces.update_workspace(workspace, %{
           github_repo_url: "https://github.com/example/algedonia",
           worktree_bootstrap_script: "scripts/bootstrap.sh",
+          worktree_run_script: "scripts/verify.sh",
           tracker_config: %{"planning_states" => ["planning", "ready"]},
           playback_config: %{"concurrency" => 2},
           defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
@@ -35,6 +36,7 @@ defmodule AlgedoniaWeb.Api.WorkspaceControllerTest do
       assert ws["prefix"] == workspace.prefix
       assert ws["github_repo_url"] == workspace.github_repo_url
       assert ws["worktree_bootstrap_script"] == workspace.worktree_bootstrap_script
+      assert ws["worktree_run_script"] == workspace.worktree_run_script
       assert ws["tracker_config"] == workspace.tracker_config
       assert ws["playback_config"] == workspace.playback_config
       assert ws["defaults"] == workspace.defaults
