@@ -11,8 +11,8 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a status icon — a colored dot.
   """
-  attr :status, :atom, required: true
-  attr :class, :string, default: "size-2.5"
+  attr(:status, :atom, required: true)
+  attr(:class, :string, default: "size-2.5")
 
   def status_icon(assigns) do
     color = status_color(assigns.status)
@@ -26,8 +26,8 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a priority icon — bars with varying fill levels.
   """
-  attr :priority, :integer, required: true
-  attr :class, :string, default: ""
+  attr(:priority, :integer, required: true)
+  attr(:class, :string, default: "")
 
   def priority_icon(assigns) do
     ~H"""
@@ -56,7 +56,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a type badge — colored dot + label pill.
   """
-  attr :type, :atom, required: true
+  attr(:type, :atom, required: true)
 
   def type_badge(assigns) do
     {dot_color, label, badge_class} = type_meta(assigns.type)
@@ -95,20 +95,21 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a ticket card for board view.
   """
-  attr :ticket, :map, required: true
-  attr :id, :string, required: true
-  attr :prefix, :string, default: "AG"
-  attr :workspace_slug, :string, default: nil
-  attr :loop_info, :map, default: %{}
+  attr(:ticket, :map, required: true)
+  attr(:id, :string, required: true)
+  attr(:prefix, :string, default: "AG")
+  attr(:workspace_slug, :string, default: nil)
+  attr(:loop_info, :map, default: %{})
 
   def ticket_card(assigns) do
     info = Map.get(assigns.loop_info, assigns.ticket.id, %{})
+    action_loop_id = ticket_card_loop_id(assigns.ticket, info)
 
     assigns =
       assigns
-      |> assign(:loop_id, info[:loop_id])
+      |> assign(:loop_id, action_loop_id)
       |> assign(:ticket_ref, ticket_ref(assigns.ticket))
-      |> assign(:loop_ref, short_id(info[:loop_id]))
+      |> assign(:loop_ref, short_id(action_loop_id))
       |> assign(:stage, info[:stage])
       |> assign(:attempt, info[:attempt])
 
@@ -134,14 +135,19 @@ defmodule AlgedoniaWeb.TicketComponents do
     """
   end
 
-  attr :ticket, :map, required: true
-  attr :prefix, :string, required: true
-  attr :workspace_slug, :string, default: nil
-  attr :ticket_ref, :string, required: true
-  attr :loop_id, :string, default: nil
-  attr :loop_ref, :string, default: nil
-  attr :stage, :string, default: nil
-  attr :attempt, :integer, default: nil
+  defp ticket_card_loop_id(%{status: :in_review}, info),
+    do: info[:review_loop_id] || info[:loop_id]
+
+  defp ticket_card_loop_id(_ticket, info), do: info[:loop_id]
+
+  attr(:ticket, :map, required: true)
+  attr(:prefix, :string, required: true)
+  attr(:workspace_slug, :string, default: nil)
+  attr(:ticket_ref, :string, required: true)
+  attr(:loop_id, :string, default: nil)
+  attr(:loop_ref, :string, default: nil)
+  attr(:stage, :string, default: nil)
+  attr(:attempt, :integer, default: nil)
 
   defp ticket_card_bottom_row(%{ticket: %{status: :in_review}} = assigns) do
     ~H"""
@@ -265,11 +271,11 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a ticket row for list view.
   """
-  attr :ticket, :map, required: true
-  attr :id, :string, required: true
-  attr :prefix, :string, default: "AG"
-  attr :workspace_slug, :string, default: nil
-  attr :loop_info, :map, default: %{}
+  attr(:ticket, :map, required: true)
+  attr(:id, :string, required: true)
+  attr(:prefix, :string, default: "AG")
+  attr(:workspace_slug, :string, default: nil)
+  attr(:loop_info, :map, default: %{})
 
   def ticket_row(assigns) do
     info = Map.get(assigns.loop_info, assigns.ticket.id, %{})
@@ -389,14 +395,14 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a status column for board view with header and streamed ticket cards.
   """
-  attr :status, :atom, required: true
-  attr :count, :integer, required: true
-  attr :stream, :any, required: true
-  attr :sort, :map, required: true
-  attr :prefix, :string, default: "AG"
-  attr :workspace_slug, :string, default: nil
-  attr :loop_info, :map, default: %{}
-  attr :last, :boolean, default: false
+  attr(:status, :atom, required: true)
+  attr(:count, :integer, required: true)
+  attr(:stream, :any, required: true)
+  attr(:sort, :map, required: true)
+  attr(:prefix, :string, default: "AG")
+  attr(:workspace_slug, :string, default: nil)
+  attr(:loop_info, :map, default: %{})
+  attr(:last, :boolean, default: false)
 
   def status_column(assigns) do
     label = status_label(assigns.status)
@@ -438,9 +444,9 @@ defmodule AlgedoniaWeb.TicketComponents do
   @doc """
   Renders a status header for list view with per-status sorting controls.
   """
-  attr :status, :atom, required: true
-  attr :count, :integer, required: true
-  attr :sort, :map, required: true
+  attr(:status, :atom, required: true)
+  attr(:count, :integer, required: true)
+  attr(:sort, :map, required: true)
 
   def status_section_header(assigns) do
     ~H"""
@@ -455,8 +461,8 @@ defmodule AlgedoniaWeb.TicketComponents do
     """
   end
 
-  attr :status, :atom, required: true
-  attr :sort, :map, required: true
+  attr(:status, :atom, required: true)
+  attr(:sort, :map, required: true)
 
   def status_sort_menu(assigns) do
     ~H"""

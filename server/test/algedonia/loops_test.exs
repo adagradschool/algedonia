@@ -338,6 +338,32 @@ defmodule Algedonia.LoopsTest do
       assert %{stage: "maker", attempt: 1} = info[ticket.id]
     end
 
+    test "includes review_loop_id without changing task-first active loop selection" do
+      ticket = insert_ticket!(%{status: :in_review})
+
+      task_loop =
+        insert_loop!(%{ticket_id: ticket.id, role: :task, status: :running, current_attempt: 2})
+
+      review_loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :review,
+          status: :running,
+          current_attempt: 1
+        })
+
+      info = Loops.active_loop_info_for_tickets([ticket.id])
+      task_loop_id = task_loop.id
+      review_loop_id = review_loop.id
+
+      assert %{
+               loop_id: ^task_loop_id,
+               review_loop_id: ^review_loop_id,
+               stage: "pending",
+               attempt: 2
+             } = info[ticket.id]
+    end
+
     test "returns empty map for empty input" do
       assert Loops.active_loop_info_for_tickets([]) == %{}
     end

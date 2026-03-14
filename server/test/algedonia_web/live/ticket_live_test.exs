@@ -738,14 +738,21 @@ defmodule AlgedoniaWeb.TicketLiveTest do
              )
     end
 
-    test "board in_review card shows review link to the review loop and not pull comments", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "board in_review card routes Review to the review loop when task and review loops are both active",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       ticket =
         insert_ticket!(%{title: "Review card", status: :in_review, workspace_id: workspace.id})
 
-      task_loop = insert_loop!(%{ticket_id: ticket.id, role: :task, status: :passed})
+      task_loop =
+        insert_loop!(%{
+          ticket_id: ticket.id,
+          role: :task,
+          status: :running,
+          current_attempt: 2
+        })
 
       review_loop =
         insert_loop!(%{
@@ -754,6 +761,14 @@ defmodule AlgedoniaWeb.TicketLiveTest do
           status: :running,
           current_attempt: 1
         })
+
+      Algedonia.Loops.create_step(%{
+        loop_id: task_loop.id,
+        role: "maker",
+        attempt: 2,
+        status: "running",
+        started_at: DateTime.add(DateTime.utc_now(), -5, :second)
+      })
 
       Algedonia.Loops.create_step(%{
         loop_id: review_loop.id,
