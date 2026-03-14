@@ -35,7 +35,12 @@
           <div class="space-y-4">
             <div class="text-sm font-medium text-fg">Worktree scripts</div>
 
-            <div id="bootstrap-script-editor" class="fieldset mb-2" phx-hook="ScriptEditor">
+            <div
+              id="bootstrap-script-editor"
+              class="fieldset mb-2"
+              phx-hook="ScriptEditor"
+              data-script-field="worktree_bootstrap_script"
+            >
               <label for={@form[:worktree_bootstrap_script].id}>
                 <span class="label mb-1">Worktree bootstrap script</span>
               </label>
@@ -50,10 +55,23 @@
                   placeholder="bash commands to run in each newly created ticket worktree"
                 >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_bootstrap_script].value)}</textarea>
               </div>
-              <p data-role="drop-error" class="mt-1 text-xs text-status-red hidden"></p>
+              <p
+                data-role="drop-error"
+                class={[
+                  "mt-1 text-xs text-status-red",
+                  if(@script_drop_errors["worktree_bootstrap_script"], do: nil, else: "hidden")
+                ]}
+              >
+                {@script_drop_errors["worktree_bootstrap_script"]}
+              </p>
             </div>
 
-            <div id="run-script-editor" class="fieldset mb-2" phx-hook="ScriptEditor">
+            <div
+              id="run-script-editor"
+              class="fieldset mb-2"
+              phx-hook="ScriptEditor"
+              data-script-field="worktree_run_script"
+            >
               <label for={@form[:worktree_run_script].id}>
                 <span class="label mb-1">Worktree manual run script</span>
               </label>
@@ -68,7 +86,15 @@
                   placeholder="bash commands to run manually in a ticket worktree"
                 >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_run_script].value)}</textarea>
               </div>
-              <p data-role="drop-error" class="mt-1 text-xs text-status-red hidden"></p>
+              <p
+                data-role="drop-error"
+                class={[
+                  "mt-1 text-xs text-status-red",
+                  if(@script_drop_errors["worktree_run_script"], do: nil, else: "hidden")
+                ]}
+              >
+                {@script_drop_errors["worktree_run_script"]}
+              </p>
             </div>
           </div>
 

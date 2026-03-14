@@ -42,6 +42,8 @@ const ScriptEditor = {
     this.shell = this.el.querySelector(".script-editor-shell")
     this.errorEl = this.el.querySelector("[data-role='drop-error']")
     this.hl = null
+    this.field = this.el.dataset.scriptField || null
+    this.lastErrorMessage = null
 
     if (!this.textarea || !this.code || !this.shell) return
 
@@ -131,13 +133,21 @@ const ScriptEditor = {
     if (!this.errorEl) return
     this.errorEl.textContent = message
     this.errorEl.classList.remove("hidden")
+    this.reportError(message)
   },
 
   clearError() {
     if (!this.errorEl) return
     this.errorEl.textContent = ""
     this.errorEl.classList.add("hidden")
+    this.reportError(null)
   },
+
+  reportError(message) {
+    if (!this.field || this.lastErrorMessage === message) return
+    this.lastErrorMessage = message
+    this.pushEvent("script_drop_error", {field: this.field, message})
+  }
 }
 
 export default ScriptEditor

@@ -118,6 +118,119 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       assert reloaded.worktree_bootstrap_script == script_params.worktree_bootstrap_script
       assert reloaded.worktree_run_script == script_params.worktree_run_script
     end
+
+    test "single-file drop replacement syncs and persists exact script content", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      dropped_bootstrap = "#!/usr/bin/env bash\nset -euo pipefail\necho \"boot\"\n"
+      dropped_run = "#!/usr/bin/env bash\n./scripts/check.sh --fast\n"
+
+      html =
+        view
+        |> form("form[phx-submit=save]",
+          workspace: %{
+            worktree_bootstrap_script: dropped_bootstrap,
+            worktree_run_script: dropped_run
+          }
+        )
+        |> render_change()
+
+      assert html =~ "set -euo pipefail"
+      assert html =~ "./scripts/check.sh --fast"
+
+      view
+      |> form("form[phx-submit=save]",
+        workspace: %{
+          worktree_bootstrap_script: dropped_bootstrap,
+          worktree_run_script: dropped_run
+        }
+      )
+      |> render_submit()
+
+      reloaded = Algedonia.Workspaces.get_workspace!(workspace.id)
+      assert reloaded.worktree_bootstrap_script == dropped_bootstrap
+      assert reloaded.worktree_run_script == dropped_run
+
+      {:ok, reloaded_view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+      reloaded_html = render(reloaded_view)
+      assert reloaded_html =~ "set -euo pipefail"
+      assert reloaded_html =~ "./scripts/check.sh --fast"
+    end
+
+    test "rejects multi-file drop for bootstrap script and keeps save payload unchanged", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      assert has_element?(view, "#bootstrap-script-editor [data-role='drop-error'].hidden")
+
+      view
+      |> element("#bootstrap-script-editor")
+      |> render_hook("script_drop_error", %{
+        "field" => "worktree_bootstrap_script",
+        "message" => "Drop exactly one text file."
+      })
+
+      assert has_element?(
+               view,
+               "#bootstrap-script-editor [data-role='drop-error']:not(.hidden)",
+               "Drop exactly one text file."
+             )
+
+      original = Algedonia.Workspaces.get_workspace!(workspace.id)
+
+      view
+      |> form("form[phx-submit=save]",
+        workspace: %{
+          worktree_bootstrap_script: original.worktree_bootstrap_script || "",
+          worktree_run_script: original.worktree_run_script || ""
+        }
+      )
+      |> render_submit()
+
+      persisted = Algedonia.Workspaces.get_workspace!(workspace.id)
+      assert persisted.worktree_bootstrap_script == original.worktree_bootstrap_script
+      assert persisted.worktree_run_script == original.worktree_run_script
+    end
+
+    test "read failure drop error for run script keeps value unchanged", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      view
+      |> element("#run-script-editor")
+      |> render_hook("script_drop_error", %{
+        "field" => "worktree_run_script",
+        "message" => "Could not read dropped file as text."
+      })
+
+      assert has_element?(
+               view,
+               "#run-script-editor [data-role='drop-error']:not(.hidden)",
+               "Could not read dropped file as text."
+             )
+
+      original = Algedonia.Workspaces.get_workspace!(workspace.id)
+
+      view
+      |> form("form[phx-submit=save]",
+        workspace: %{
+          worktree_bootstrap_script: original.worktree_bootstrap_script || "",
+          worktree_run_script: original.worktree_run_script || ""
+        }
+      )
+      |> render_submit()
+
+      persisted = Algedonia.Workspaces.get_workspace!(workspace.id)
+      assert persisted.worktree_bootstrap_script == original.worktree_bootstrap_script
+      assert persisted.worktree_run_script == original.worktree_run_script
+    end
   end
 
   describe "invite" do
