@@ -34,20 +34,42 @@
           />
           <div class="space-y-4">
             <div class="text-sm font-medium text-fg">Worktree scripts</div>
-            <.input
-              field={@form[:worktree_bootstrap_script]}
-              type="textarea"
-              label="Worktree bootstrap script"
-              rows="6"
-              placeholder="bash commands to run in each newly created ticket worktree"
-            />
-            <.input
-              field={@form[:worktree_run_script]}
-              type="textarea"
-              label="Worktree manual run script"
-              rows="6"
-              placeholder="bash commands to run manually in a ticket worktree"
-            />
+
+            <div id="bootstrap-script-editor" class="fieldset mb-2" phx-hook="ScriptEditor">
+              <label for={@form[:worktree_bootstrap_script].id}>
+                <span class="label mb-1">Worktree bootstrap script</span>
+              </label>
+              <div class="script-editor-shell">
+                <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
+                <textarea
+                  id={@form[:worktree_bootstrap_script].id}
+                  name={@form[:worktree_bootstrap_script].name}
+                  rows="6"
+                  data-role="source"
+                  class="script-editor-input"
+                  placeholder="bash commands to run in each newly created ticket worktree"
+                >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_bootstrap_script].value)}</textarea>
+              </div>
+              <p data-role="drop-error" class="mt-1 text-xs text-status-red hidden"></p>
+            </div>
+
+            <div id="run-script-editor" class="fieldset mb-2" phx-hook="ScriptEditor">
+              <label for={@form[:worktree_run_script].id}>
+                <span class="label mb-1">Worktree manual run script</span>
+              </label>
+              <div class="script-editor-shell">
+                <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
+                <textarea
+                  id={@form[:worktree_run_script].id}
+                  name={@form[:worktree_run_script].name}
+                  rows="6"
+                  data-role="source"
+                  class="script-editor-input"
+                  placeholder="bash commands to run manually in a ticket worktree"
+                >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_run_script].value)}</textarea>
+              </div>
+              <p data-role="drop-error" class="mt-1 text-xs text-status-red hidden"></p>
+            </div>
           </div>
 
           <div class="flex justify-end">
