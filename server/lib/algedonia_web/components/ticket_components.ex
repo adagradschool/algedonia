@@ -474,6 +474,7 @@ defmodule AlgedoniaWeb.TicketComponents do
         id={"ticket-sort-#{@status}"}
         type="button"
         class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
+        aria-label={"Sort #{status_label(@status)}: #{sort_summary_for_aria(@sort)}"}
         title={"Sort #{status_label(@status)}"}
       >
         <.icon name="hero-arrows-up-down" class="size-3" />
@@ -588,10 +589,16 @@ defmodule AlgedoniaWeb.TicketComponents do
   defp sort_field_label(:title), do: "Title"
 
   defp sort_summary(%{sort_by: sort_by, sort_order: sort_order}),
-    do: "#{sort_field_label(sort_by)} #{sort_direction_label(sort_order)}"
+    do: "#{sort_field_label(sort_by)} #{sort_direction_symbol(sort_order)}"
 
-  defp sort_direction_label(:desc), do: "desc"
-  defp sort_direction_label(_), do: "asc"
+  defp sort_summary_for_aria(%{sort_by: sort_by, sort_order: sort_order}),
+    do: "#{sort_field_label(sort_by)} #{sort_direction_word(sort_order)}"
+
+  defp sort_direction_symbol(:desc), do: "↓"
+  defp sort_direction_symbol(_), do: "↑"
+
+  defp sort_direction_word(:desc), do: "descending"
+  defp sort_direction_word(_), do: "ascending"
 
   defp workspace_path(nil, path), do: path
   defp workspace_path(slug, path), do: "/w/#{slug}#{path}"
