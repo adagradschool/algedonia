@@ -263,14 +263,16 @@ defmodule Algedonia.ReviewLoop do
             started_at: DateTime.utc_now()
           })
 
-        payload = %{
-          "role" => "review",
-          "task" => task,
-          "agent_type" => Agents.ticket_agent_type(ticket),
-          "workspace_slug" => ws_slug,
-          "ticket_id" => ticket.id,
-          "workspace_id" => ticket.workspace_id
-        }
+        payload =
+          %{
+            "role" => "review",
+            "task" => task,
+            "agent_type" => Agents.ticket_agent_type(ticket),
+            "workspace_slug" => ws_slug,
+            "ticket_id" => ticket.id,
+            "workspace_id" => ticket.workspace_id
+          }
+          |> Map.merge(Tickets.worktree_payload(ticket, loop.ticket.workspace))
 
         info = %{
           workspace_id: ticket.workspace_id,
@@ -529,14 +531,16 @@ defmodule Algedonia.ReviewLoop do
             started_at: DateTime.utc_now()
           })
 
-        payload = %{
-          "role" => "review",
-          "task" => task,
-          "agent_type" => Agents.ticket_agent_type(ticket),
-          "workspace_slug" => loop.ticket.workspace.slug,
-          "ticket_id" => ticket.id,
-          "workspace_id" => ticket.workspace_id
-        }
+        payload =
+          %{
+            "role" => "review",
+            "task" => task,
+            "agent_type" => Agents.ticket_agent_type(ticket),
+            "workspace_slug" => loop.ticket.workspace.slug,
+            "ticket_id" => ticket.id,
+            "workspace_id" => ticket.workspace_id
+          }
+          |> Map.merge(Tickets.worktree_payload(ticket, loop.ticket.workspace))
 
         {:ok, push_to_daemon(state, daemon.name, loop.id, payload)}
       else
@@ -690,14 +694,16 @@ defmodule Algedonia.ReviewLoop do
           Loops.create_step(step_attrs)
       end
 
-    payload = %{
-      "role" => "review",
-      "task" => task,
-      "agent_type" => Agents.ticket_agent_type(ticket),
-      "workspace_slug" => loop.ticket.workspace.slug,
-      "ticket_id" => ticket.id,
-      "workspace_id" => ticket.workspace_id
-    }
+    payload =
+      %{
+        "role" => "review",
+        "task" => task,
+        "agent_type" => Agents.ticket_agent_type(ticket),
+        "workspace_slug" => loop.ticket.workspace.slug,
+        "ticket_id" => ticket.id,
+        "workspace_id" => ticket.workspace_id
+      }
+      |> Map.merge(Tickets.worktree_payload(ticket, loop.ticket.workspace))
 
     state
     |> put_in([Access.key(:review_loops), loop.id, :daemon_name], daemon.name)
@@ -949,16 +955,7 @@ defmodule Algedonia.ReviewLoop do
   end
 
   defp ticket_code(ticket, workspace) do
-    prefix =
-      case workspace do
-        %{prefix: prefix} when is_binary(prefix) and prefix != "" -> prefix
-        _ -> "AG"
-      end
-
-    case ticket do
-      %{number: number} when is_integer(number) -> "#{prefix}-#{number}"
-      %{id: id} -> id
-    end
+    Tickets.ticket_code(ticket, workspace)
   end
 
   defp ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)

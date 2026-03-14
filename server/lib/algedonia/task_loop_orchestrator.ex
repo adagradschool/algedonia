@@ -298,6 +298,7 @@ defmodule Algedonia.TaskLoopOrchestrator do
       |> mp("workspace_slug", ws_slug)
       |> mp("ticket_id", ticket_id)
       |> mp("workspace_id", workspace_id)
+      |> Map.merge(Tickets.worktree_payload(loop.ticket, loop.ticket.workspace))
 
     {:ok, _step} =
       Loops.create_step(%{

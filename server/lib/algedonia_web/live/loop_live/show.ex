@@ -538,6 +538,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> maybe_put("task", task)
       |> maybe_put("workspace_slug", socket.assigns[:workspace_slug])
       |> maybe_put("ticket_id", socket.assigns.ticket && socket.assigns.ticket.id)
+      |> Map.merge(
+        ticket_worktree_payload(socket.assigns[:ticket], socket.assigns[:current_workspace])
+      )
 
     DaemonChannel.push_start_loop(daemon.name, loop.id, opts)
 
@@ -561,6 +564,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       |> maybe_put("task", task)
       |> maybe_put("workspace_slug", socket.assigns[:workspace_slug])
       |> maybe_put("ticket_id", ticket_id)
+      |> Map.merge(
+        ticket_worktree_payload(socket.assigns[:ticket], socket.assigns[:current_workspace])
+      )
 
     DaemonChannel.push_start_loop(daemon_name, socket.assigns.loop_id, opts)
 
@@ -635,6 +641,9 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   defp workspace_id(socket) do
     socket.assigns[:ticket] && socket.assigns.ticket.workspace_id
   end
+
+  defp ticket_worktree_payload(nil, _workspace), do: %{}
+  defp ticket_worktree_payload(ticket, workspace), do: Tickets.worktree_payload(ticket, workspace)
 
   defp ensure_planning_loop(%{assigns: %{loop_record: %{role: :planning}}} = socket), do: socket
 
