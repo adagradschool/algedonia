@@ -26,7 +26,6 @@ defmodule Algedonia.Loops.Loop do
     field :current_attempt, :integer, default: 0
     field :max_attempts, :integer, default: 10
     field :rubric, :string
-    field :branch_name, :string
     field :checker_config, :map
     field :land_mode, :string
     field :pr_url, :string
@@ -51,7 +50,6 @@ defmodule Algedonia.Loops.Loop do
           current_attempt: integer(),
           max_attempts: integer(),
           rubric: String.t() | nil,
-          branch_name: String.t() | nil,
           checker_config: map() | nil,
           land_mode: String.t() | nil,
           pr_url: String.t() | nil,
@@ -76,7 +74,6 @@ defmodule Algedonia.Loops.Loop do
       :current_attempt,
       :max_attempts,
       :rubric,
-      :branch_name,
       :checker_config,
       :land_mode,
       :pr_url,

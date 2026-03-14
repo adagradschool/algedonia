@@ -62,6 +62,17 @@ defmodule Algedonia.Tickets do
     }
   end
 
+  @doc """
+  Returns the deterministic worktree branch for a ticket.
+  """
+  @spec worktree_branch_name(
+          %{type: atom() | String.t()},
+          %{prefix: String.t()} | String.t() | nil
+        ) :: String.t()
+  def worktree_branch_name(ticket, workspace_or_prefix) do
+    "#{ticket_type(ticket)}/#{ticket_code(ticket, workspace_or_prefix)}"
+  end
+
   defp worktree_bootstrap_script(%{worktree_bootstrap_script: script}), do: script
   defp worktree_bootstrap_script(_), do: nil
 

@@ -87,6 +87,12 @@ defmodule Algedonia.ReviewLoop do
     )
   end
 
+  @doc "Ensures a review loop is polling GitHub for the ticket's canonical branch."
+  @spec refresh_pr_status(map(), keyword()) :: :ok | {:error, term()}
+  def refresh_pr_status(ticket, opts \\ []) do
+    call_if_alive(opts, {:refresh_pr_status, ticket}, {:error, :review_loop_not_running})
+  end
+
   @doc "Returns background poll state for a review loop."
   @spec poll_state(binary(), keyword()) :: map() | nil
   def poll_state(loop_id, opts \\ []) do
@@ -179,6 +185,15 @@ defmodule Algedonia.ReviewLoop do
   def handle_call({:pr_status, loop_id, payload, workspace_id}, _from, state) do
     case run_with_workspace(workspace_id, {:error, :workspace_scope_required}, fn ->
            do_handle_pr_status(loop_id, payload, state)
+         end) do
+      {:ok, new_state} -> {:reply, :ok, new_state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:refresh_pr_status, ticket}, _from, state) do
+    case run_with_workspace(ticket.workspace_id, {:error, :workspace_scope_required}, fn ->
+           do_refresh_pr_status(ticket, state)
          end) do
       {:ok, new_state} -> {:reply, :ok, new_state}
       {:error, _} = err -> {:reply, err, state}
@@ -309,21 +324,8 @@ defmodule Algedonia.ReviewLoop do
           status: "completed"
         })
 
-        pr_url = Map.get(payload, "pr_url")
-        pr_number = Map.get(payload, "pr_number")
-        merged = Map.get(payload, "merged", false)
-
         ticket = Tickets.get_ticket!(loop.ticket_id)
-        maybe_record_pr_linkage(ticket, pr_url, pr_number)
-
-        state = touch_activity(state, loop_id)
-
-        if merged do
-          do_merge_detected(loop_id, state)
-        else
-          state = schedule_poll(state, loop_id)
-          {:ok, state}
-        end
+        do_refresh_review_loop(loop, ticket, touch_activity(state, loop_id))
 
       _ ->
         {:ok, state}
@@ -416,19 +418,21 @@ defmodule Algedonia.ReviewLoop do
   defp poll_dispatch_review(loop_id, loop, ticket, state) do
     daemon_name = state.review_loops[loop_id][:daemon_name]
 
+    workspace =
+      case loop do
+        %{ticket: %{workspace: %Algedonia.Workspaces.Workspace{} = workspace}} -> workspace
+        _ -> Workspaces.get_workspace(loop.workspace_id)
+      end
+
     payload = %{
       "workspace_slug" => workspace_slug_for_state(loop_id, state),
-      "ticket_id" => ticket.id
+      "ticket_id" => ticket.id,
+      "branch_name" => Tickets.worktree_branch_name(ticket, workspace)
     }
 
     payload =
       if is_integer(ticket.review_pr_number),
         do: Map.put(payload, "pr_number", ticket.review_pr_number),
-        else: payload
-
-    payload =
-      if is_binary(loop.branch_name) and loop.branch_name != "",
-        do: Map.put(payload, "branch_name", loop.branch_name),
         else: payload
 
     state.poll_fn.(daemon_name, loop_id, payload)
@@ -442,7 +446,7 @@ defmodule Algedonia.ReviewLoop do
         ticket = Tickets.get_ticket!(loop.ticket_id)
         feedback_changed = feedback_changed?(state, loop_id, payload)
         state = update_poll_state(state, loop_id, payload)
-        maybe_record_pr_linkage(ticket, Map.get(payload, "pr_url"), Map.get(payload, "pr_number"))
+        maybe_record_pr_linkage(ticket, Map.get(payload, "pr_number"))
 
         cond do
           Map.get(payload, "merged") ->
@@ -560,7 +564,6 @@ defmodule Algedonia.ReviewLoop do
       title: "Review #{ticket_code(ticket, workspace)}: #{ticket.title}",
       description:
         "Prepare #{ticket_code(ticket, workspace)} for human review via branch, PR, CI, and feedback follow-up",
-      branch_name: suggested_branch_name(ticket, workspace),
       role: :review,
       status: :pending,
       max_attempts: Workspaces.iteration_budget(ticket.workspace_id)
@@ -579,13 +582,35 @@ defmodule Algedonia.ReviewLoop do
     "/w/#{ws.slug}/tickets/#{ticket_ref(loop.ticket)}"
   end
 
-  defp maybe_record_pr_linkage(ticket, pr_url, pr_number) do
+  defp maybe_record_pr_linkage(ticket, pr_number) do
     attrs = %{}
-    attrs = if pr_url, do: Map.put(attrs, :review_pr_url, pr_url), else: attrs
-    attrs = if pr_number, do: Map.put(attrs, :review_pr_number, pr_number), else: attrs
+
+    attrs =
+      if is_integer(pr_number) and pr_number > 0,
+        do: Map.put(attrs, :review_pr_number, pr_number),
+        else: attrs
 
     if attrs != %{} do
       Tickets.update_ticket(ticket, attrs, skip_hooks: true)
+    end
+  end
+
+  defp do_refresh_pr_status(ticket, state) do
+    case Loops.list_review_loops_for_ticket(ticket.id)
+         |> Enum.find(&(&1.status in [:pending, :running])) do
+      nil ->
+        do_start_review(ticket, state)
+
+      loop ->
+        loop = Loops.preload_with_workspace(loop)
+        do_refresh_review_loop(loop, ticket, state)
+    end
+  end
+
+  defp do_refresh_review_loop(loop, ticket, state) do
+    case ensure_review_runtime(loop, state, start_agent?: false) do
+      {:ok, state} -> {:ok, poll_dispatch_review(loop.id, loop, ticket, state)}
+      {:error, _} -> {:ok, schedule_poll(state, loop.id)}
     end
   end
 
@@ -919,7 +944,7 @@ defmodule Algedonia.ReviewLoop do
 
     %{
       ticket_code: ticket_code,
-      branch_name: loop.branch_name || suggested_branch_name(ticket, workspace),
+      branch_name: Tickets.worktree_branch_name(ticket, workspace),
       pr_title: "#{ticket_code}: #{ticket.title}",
       pr_description: suggested_pr_description(ticket_code, ticket_link, agent_link),
       ticket_link: ticket_link,
@@ -944,28 +969,10 @@ defmodule Algedonia.ReviewLoop do
     Enum.join(sections, "\n\n")
   end
 
-  defp suggested_branch_name(ticket, workspace) do
-    title_slug =
-      ticket.title
-      |> normalize_slug()
-      |> String.slice(0, 48)
-
-    "review/#{normalize_slug(ticket_code(ticket, workspace))}-#{title_slug}"
-    |> String.trim_trailing("-")
-  end
-
   defp ticket_code(ticket, workspace) do
     Tickets.ticket_code(ticket, workspace)
   end
 
   defp ticket_ref(%{number: number}) when is_integer(number), do: Integer.to_string(number)
   defp ticket_ref(%{id: id}), do: id
-
-  defp normalize_slug(value) do
-    value
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/u, "-")
-    |> String.trim("-")
-  end
 end
