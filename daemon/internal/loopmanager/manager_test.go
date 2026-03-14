@@ -13,12 +13,13 @@ import (
 	"time"
 
 	"github.com/algedonia/daemon/internal/adapter"
+	"github.com/algedonia/daemon/internal/repo"
 )
 
 type testWorktreeManager struct{}
 
-func (testWorktreeManager) EnsureWorktree(_ context.Context, workspaceDir, ticketPrefix string) (string, error) {
-	wtPath := filepath.Join(workspaceDir, "worktrees", ticketPrefix)
+func (testWorktreeManager) EnsureWorktree(_ context.Context, workspaceDir string, spec repo.WorktreeSpec) (string, error) {
+	wtPath := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
 	if err := os.MkdirAll(wtPath, 0o755); err != nil {
 		return "", err
 	}
@@ -900,6 +901,8 @@ func TestHandleStartLoopWithRole(t *testing.T) {
 		"agent_type":     "claude_code",
 		"workspace_slug": "scope",
 		"ticket_id":      "99999999-9999-4999-8999-999999999999",
+		"ticket_type":    "feature",
+		"ticket_code":    "ALG-999",
 		"task":           "implement feature X",
 	})
 	if err != nil {

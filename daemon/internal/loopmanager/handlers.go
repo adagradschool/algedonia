@@ -46,8 +46,10 @@ func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interf
 	attempt := parseAttempt(payload["attempt"])
 	wsSlug := payloadStr(payload, "workspace_slug")
 	ticketID := payloadStr(payload, "ticket_id")
+	ticketType := payloadStr(payload, "ticket_type")
+	ticketCode := payloadStr(payload, "ticket_code")
 
-	workdir, workspaceDir, err := m.resolveScopedTicketWorkdir(ctx, wsSlug, ticketID)
+	workdir, workspaceDir, err := m.ensureStartLoopWorkdir(ctx, wsSlug, ticketID, ticketType, ticketCode)
 	if err != nil {
 		return fmt.Errorf("invalid start_loop scope: %w", err)
 	}
@@ -527,6 +529,42 @@ func runGitOutput(
 	return out, nil
 }
 
+func (m *Manager) ensureStartLoopWorkdir(
+	ctx context.Context,
+	workspaceSlug, ticketID, ticketType, ticketCode string,
+) (string, string, error) {
+	if strings.TrimSpace(workspaceSlug) == "" || strings.TrimSpace(ticketID) == "" {
+		return "", "", fmt.Errorf("missing workspace_slug or ticket_id")
+	}
+	if strings.TrimSpace(ticketType) == "" || strings.TrimSpace(ticketCode) == "" {
+		return "", "", fmt.Errorf("missing ticket_type or ticket_code")
+	}
+	if m.worktreeMgr == nil {
+		return "", "", fmt.Errorf("worktree manager not configured")
+	}
+
+	workspaceDir := m.workdirForWorkspace(workspaceSlug)
+	if workspaceDir == m.repoRoot {
+		return "", "", fmt.Errorf("workspace base dir not configured for workspace %q", workspaceSlug)
+	}
+
+	spec := repo.WorktreeSpec{
+		TicketPrefix: repo.TicketPrefix(ticketID),
+		TicketType:   ticketType,
+		TicketCode:   ticketCode,
+	}
+	expectedWorkdir := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
+	workdir, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, spec)
+	if err != nil {
+		return "", "", fmt.Errorf("ensuring ticket worktree: %w", err)
+	}
+	if filepath.Clean(workdir) != filepath.Clean(expectedWorkdir) {
+		return "", "", fmt.Errorf("failed to resolve ticket worktree at %s", expectedWorkdir)
+	}
+
+	return workdir, workspaceDir, nil
+}
+
 func (m *Manager) resolveScopedTicketWorkdir(ctx context.Context, workspaceSlug, ticketID string) (string, string, error) {
 	if strings.TrimSpace(workspaceSlug) == "" || strings.TrimSpace(ticketID) == "" {
 		return "", "", fmt.Errorf("missing workspace_slug or ticket_id")
@@ -540,8 +578,9 @@ func (m *Manager) resolveScopedTicketWorkdir(ctx context.Context, workspaceSlug,
 		return "", "", fmt.Errorf("workspace base dir not configured for workspace %q", workspaceSlug)
 	}
 
-	expectedWorkdir := filepath.Join(workspaceDir, "worktrees", repo.TicketPrefix(ticketID))
-	workdir, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, repo.TicketPrefix(ticketID))
+	spec := repo.WorktreeSpec{TicketPrefix: repo.TicketPrefix(ticketID)}
+	expectedWorkdir := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
+	workdir, err := m.worktreeMgr.EnsureWorktree(ctx, workspaceDir, spec)
 	if err != nil {
 		return "", "", fmt.Errorf("ensuring ticket worktree: %w", err)
 	}

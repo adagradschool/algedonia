@@ -53,7 +53,7 @@ func TestEnsureWorktree(t *testing.T) {
 			setup: func(t *testing.T, wsDir string) {
 				t.Helper()
 				wm := NewWorktreeManager("")
-				_, err := wm.EnsureWorktree(context.Background(), wsDir, "reuse123")
+				_, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "reuse123"})
 				if err != nil {
 					t.Fatalf("pre-create worktree: %v", err)
 				}
@@ -82,7 +82,7 @@ func TestEnsureWorktree(t *testing.T) {
 			}
 
 			wm := NewWorktreeManager("")
-			path, err := wm.EnsureWorktree(context.Background(), wsDir, tt.ticketPrefix)
+			path, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: tt.ticketPrefix})
 
 			if tt.wantErr {
 				if err == nil {
@@ -120,7 +120,7 @@ func TestRemoveWorktree(t *testing.T) {
 	wm := NewWorktreeManager("")
 
 	// Create a worktree first
-	path, err := wm.EnsureWorktree(context.Background(), wsDir, "remove01")
+	path, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "remove01"})
 	if err != nil {
 		t.Fatalf("creating worktree: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestEnsureWorktreeMismatchedHEAD(t *testing.T) {
 	}
 
 	wm := NewWorktreeManager("")
-	path, err := wm.EnsureWorktree(context.Background(), wsDir, "mismatch1")
+	path, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "mismatch1"})
 	if err != nil {
 		t.Fatalf("EnsureWorktree with mismatched HEAD should succeed: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestEnsureWorktreeIdempotent(t *testing.T) {
 	wm := NewWorktreeManager("")
 
 	// Create twice — should return same path without error
-	path1, err := wm.EnsureWorktree(context.Background(), wsDir, "idem1234")
+	path1, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "idem1234"})
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestEnsureWorktreeIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path2, err := wm.EnsureWorktree(context.Background(), wsDir, "idem1234")
+	path2, err := wm.EnsureWorktree(context.Background(), wsDir, WorktreeSpec{TicketPrefix: "idem1234"})
 	if err != nil {
 		t.Fatalf("second create: %v", err)
 	}
@@ -291,7 +291,11 @@ func TestEnsureWorktreeUsesLatestOriginDefaultBranch(t *testing.T) {
 		t.Fatalf("committing in origin worktree: %v\n%s", err, out)
 	}
 
-	path, err := wm.EnsureWorktree(context.Background(), wsDir, "latest01")
+	path, err := wm.EnsureWorktree(
+		context.Background(),
+		wsDir,
+		WorktreeSpec{TicketPrefix: "latest01", TicketType: "feature", TicketCode: "ALG-108"},
+	)
 	if err != nil {
 		t.Fatalf("EnsureWorktree: %v", err)
 	}
@@ -318,6 +322,90 @@ func TestEnsureWorktreeUsesLatestOriginDefaultBranch(t *testing.T) {
 	}
 	if worktreeHead != remoteHead {
 		t.Fatalf("worktree HEAD = %s, want latest %s from %s", worktreeHead, remoteHead, remoteRef)
+	}
+
+	branchName, err := currentBranch(t, path)
+	if err != nil {
+		t.Fatalf("reading current branch: %v", err)
+	}
+	if branchName != "feature/ALG-108" {
+		t.Fatalf("branch = %s, want feature/ALG-108", branchName)
+	}
+}
+
+func TestEnsureWorktreeFailsOnLocalBranchCollision(t *testing.T) {
+	wsDir := setupBareInWorkspaceDir(t)
+	bareRepo := filepath.Join(wsDir, "root")
+	wm := NewWorktreeManager("")
+
+	branchName, err := TicketBranchName("feature", "ALG-108")
+	if err != nil {
+		t.Fatalf("TicketBranchName: %v", err)
+	}
+
+	branch, err := wm.defaultBranch(context.Background(), bareRepo)
+	if err != nil {
+		t.Fatalf("detecting default branch: %v", err)
+	}
+	baseRef, err := wm.worktreeBaseRef(context.Background(), bareRepo, branch)
+	if err != nil {
+		t.Fatalf("worktreeBaseRef: %v", err)
+	}
+
+	if _, _, err := runGitCmd(context.Background(), "git", bareRepo, "branch", branchName, baseRef); err != nil {
+		t.Fatalf("creating local colliding branch: %v", err)
+	}
+
+	_, err = wm.EnsureWorktree(
+		context.Background(),
+		wsDir,
+		WorktreeSpec{TicketPrefix: "localdup", TicketType: "feature", TicketCode: "ALG-108"},
+	)
+	if err == nil {
+		t.Fatal("expected collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "branch name collision") || !strings.Contains(err.Error(), "local") {
+		t.Fatalf("error = %v, want local branch collision", err)
+	}
+}
+
+func TestEnsureWorktreeFailsOnOriginBranchCollision(t *testing.T) {
+	wsDir := setupBareInWorkspaceDir(t)
+	bareRepo := filepath.Join(wsDir, "root")
+	wm := NewWorktreeManager("")
+
+	branchName, err := TicketBranchName("feature", "ALG-108")
+	if err != nil {
+		t.Fatalf("TicketBranchName: %v", err)
+	}
+
+	branch, err := wm.defaultBranch(context.Background(), bareRepo)
+	if err != nil {
+		t.Fatalf("detecting default branch: %v", err)
+	}
+	baseRef, err := wm.worktreeBaseRef(context.Background(), bareRepo, branch)
+	if err != nil {
+		t.Fatalf("worktreeBaseRef: %v", err)
+	}
+	baseSHA, err := revParse(t, bareRepo, baseRef)
+	if err != nil {
+		t.Fatalf("revParse base ref: %v", err)
+	}
+	remoteRef := "refs/remotes/origin/" + branchName
+	if _, _, err := runGitCmd(context.Background(), "git", bareRepo, "update-ref", remoteRef, baseSHA); err != nil {
+		t.Fatalf("creating origin colliding ref: %v", err)
+	}
+
+	_, err = wm.EnsureWorktree(
+		context.Background(),
+		wsDir,
+		WorktreeSpec{TicketPrefix: "origindup", TicketType: "feature", TicketCode: "ALG-108"},
+	)
+	if err == nil {
+		t.Fatal("expected collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "branch name collision") || !strings.Contains(err.Error(), "origin") {
+		t.Fatalf("error = %v, want origin branch collision", err)
 	}
 }
 
@@ -387,6 +475,17 @@ func revParse(t *testing.T, repoPath, ref string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse %s: %v: %s", ref, err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func currentBranch(t *testing.T, repoPath string) (string, error) {
+	t.Helper()
+
+	cmd := exec.Command("git", "-C", repoPath, "branch", "--show-current")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git branch --show-current: %v: %s", err, out)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

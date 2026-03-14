@@ -49,6 +49,8 @@ func TestHandleStartLoopWorkdirDefault(t *testing.T) {
 		"task":           "do something",
 		"workspace_slug": "scope",
 		"ticket_id":      "12121212-1212-4212-8212-121212121212",
+		"ticket_type":    "feature",
+		"ticket_code":    "ALG-121",
 	})
 	if err != nil {
 		t.Fatalf("HandleStartLoop: %v", err)

@@ -12,10 +12,18 @@ import (
 type WorktreeManager interface {
 	// EnsureWorktree creates or reuses a worktree at workspaceDir/worktrees/ticketPrefix.
 	// The bare repo is expected at workspaceDir/root.
-	EnsureWorktree(ctx context.Context, workspaceDir, ticketPrefix string) (string, error)
+	EnsureWorktree(ctx context.Context, workspaceDir string, spec WorktreeSpec) (string, error)
 
 	// RemoveWorktree removes a worktree for the given ticket prefix.
 	RemoveWorktree(ctx context.Context, workspaceDir, ticketPrefix string) error
+}
+
+// WorktreeSpec describes the worktree path plus optional ticket metadata used
+// to create a deterministic branch for new ticket-backed worktrees.
+type WorktreeSpec struct {
+	TicketPrefix string
+	TicketType   string
+	TicketCode   string
 }
 
 // GitWorktreeManager implements WorktreeManager using the git CLI.
@@ -34,9 +42,13 @@ func NewWorktreeManager(gitBin string) *GitWorktreeManager {
 // EnsureWorktree creates a worktree at workspaceDir/worktrees/ticketPrefix
 // from the bare repo at workspaceDir/root. Returns the worktree path.
 // If the worktree already exists and is valid, it returns the existing path.
-func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, ticketPrefix string) (string, error) {
+func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir string, spec WorktreeSpec) (string, error) {
+	if strings.TrimSpace(spec.TicketPrefix) == "" {
+		return "", fmt.Errorf("missing ticket prefix")
+	}
+
 	bareRepo := filepath.Join(workspaceDir, "root")
-	wtPath := filepath.Join(workspaceDir, "worktrees", ticketPrefix)
+	wtPath := filepath.Join(workspaceDir, "worktrees", spec.TicketPrefix)
 
 	// Check if worktree already exists and is valid
 	if info, err := os.Stat(filepath.Join(wtPath, ".git")); err == nil && !info.IsDir() {
@@ -72,6 +84,16 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 		return "", fmt.Errorf("resolving worktree base ref: %w", err)
 	}
 
+	branchName, err := TicketBranchName(spec.TicketType, spec.TicketCode)
+	if err != nil {
+		return "", fmt.Errorf("building ticket branch name: %w", err)
+	}
+	if branchName != "" {
+		if err := wm.ensureBranchAvailable(ctx, bareRepo, branchName); err != nil {
+			return "", err
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
 		return "", fmt.Errorf("creating worktrees dir: %w", err)
 	}
@@ -79,7 +101,14 @@ func (wm *GitWorktreeManager) EnsureWorktree(ctx context.Context, workspaceDir, 
 	// Prune stale worktree entries before adding
 	_, _, _ = runGitCmd(ctx, wm.GitBin, bareRepo, "worktree", "prune")
 
-	_, _, err = runGitCmd(ctx, wm.GitBin, bareRepo, "worktree", "add", "--detach", wtPath, baseRef)
+	args := []string{"worktree", "add"}
+	if branchName == "" {
+		args = append(args, "--detach", wtPath, baseRef)
+	} else {
+		args = append(args, "-b", branchName, wtPath, baseRef)
+	}
+
+	_, _, err = runGitCmd(ctx, wm.GitBin, bareRepo, args...)
 	if err != nil {
 		return "", fmt.Errorf("creating worktree: %w", err)
 	}
@@ -110,6 +139,52 @@ func (wm *GitWorktreeManager) RemoveWorktree(ctx context.Context, workspaceDir, 
 	}
 
 	return nil
+}
+
+// TicketBranchName builds the deterministic branch name for a ticket-backed
+// worktree. If both fields are empty, the caller has opted out of branch
+// creation and the worktree is created detached.
+func TicketBranchName(ticketType, ticketCode string) (string, error) {
+	normalizedType := strings.ToLower(strings.TrimSpace(ticketType))
+	normalizedCode := strings.TrimSpace(ticketCode)
+
+	switch {
+	case normalizedType == "" && normalizedCode == "":
+		return "", nil
+	case normalizedType == "" || normalizedCode == "":
+		return "", fmt.Errorf("missing ticket_type or ticket_code")
+	default:
+		return normalizedType + "/" + normalizedCode, nil
+	}
+}
+
+func (wm *GitWorktreeManager) ensureBranchAvailable(
+	ctx context.Context,
+	bareRepo, branchName string,
+) error {
+	var collisions []string
+
+	if gitRefExists(ctx, wm.GitBin, bareRepo, "refs/heads/"+branchName) {
+		collisions = append(collisions, "local")
+	}
+	if gitRefExists(ctx, wm.GitBin, bareRepo, "refs/remotes/origin/"+branchName) {
+		collisions = append(collisions, "origin")
+	}
+
+	if len(collisions) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"branch name collision for %q: already exists on %s",
+		branchName,
+		strings.Join(collisions, " and "),
+	)
+}
+
+func gitRefExists(ctx context.Context, gitBin, repoDir, ref string) bool {
+	_, _, err := runGitCmd(ctx, gitBin, repoDir, "rev-parse", "--verify", ref)
+	return err == nil
 }
 
 // defaultBranch returns the default branch name for a bare repo.

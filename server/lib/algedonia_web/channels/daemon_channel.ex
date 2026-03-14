@@ -320,6 +320,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
     require_non_empty_string!(Map.get(opts, "task"), "task", "start_loop")
     require_non_empty_string!(Map.get(opts, "workspace_slug"), "workspace_slug", "start_loop")
     require_non_empty_string!(Map.get(opts, "ticket_id"), "ticket_id", "start_loop")
+    require_non_empty_string!(Map.get(opts, "ticket_type"), "ticket_type", "start_loop")
+    require_non_empty_string!(Map.get(opts, "ticket_code"), "ticket_code", "start_loop")
 
     payload = Map.merge(%{"loop_id" => loop_id}, opts)
     AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "start_loop", payload)

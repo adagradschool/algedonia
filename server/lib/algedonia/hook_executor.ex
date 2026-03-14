@@ -139,6 +139,7 @@ defmodule Algedonia.HookExecutor do
         "workspace_slug" => workspace.slug,
         "task" => task
       }
+      |> Map.merge(Tickets.worktree_payload(ticket, workspace))
 
     DaemonChannel.push_start_loop(daemon_name, loop.id, opts)
 

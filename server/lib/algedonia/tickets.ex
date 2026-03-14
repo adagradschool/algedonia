@@ -31,6 +31,34 @@ defmodule Algedonia.Tickets do
   def display_statuses, do: @display_statuses
 
   @doc """
+  Returns the human-readable ticket code using the workspace prefix when available.
+  """
+  @spec ticket_code(
+          %{number: integer()} | %{id: String.t()},
+          %{prefix: String.t()} | String.t() | nil
+        ) ::
+          String.t()
+  def ticket_code(%{number: number}, %{prefix: prefix}) when is_integer(number),
+    do: "#{ticket_prefix(prefix)}-#{number}"
+
+  def ticket_code(%{number: number}, prefix) when is_integer(number),
+    do: "#{ticket_prefix(prefix)}-#{number}"
+
+  def ticket_code(%{id: id}, _workspace_or_prefix), do: id
+
+  @doc """
+  Returns the daemon payload fields required to create a deterministic ticket worktree branch.
+  """
+  @spec worktree_payload(%{type: atom() | String.t()}, %{prefix: String.t()} | String.t() | nil) ::
+          map()
+  def worktree_payload(ticket, workspace_or_prefix) do
+    %{
+      "ticket_type" => ticket_type(ticket),
+      "ticket_code" => ticket_code(ticket, workspace_or_prefix)
+    }
+  end
+
+  @doc """
   Lists tickets with optional filtering and sorting.
 
   ## Options
@@ -229,6 +257,14 @@ defmodule Algedonia.Tickets do
       {:ok, list_queue(workspace_id)}
     end
   end
+
+  defp ticket_prefix(%{prefix: prefix}), do: ticket_prefix(prefix)
+  defp ticket_prefix(prefix) when is_binary(prefix) and prefix != "", do: prefix
+  defp ticket_prefix(_), do: "AG"
+
+  defp ticket_type(%{type: type}) when is_atom(type), do: Atom.to_string(type)
+  defp ticket_type(%{type: type}) when is_binary(type), do: String.downcase(type)
+  defp ticket_type(_), do: ""
 
   @doc """
   Returns queue metadata keyed by ticket ID for the given ticket IDs.
