@@ -9,6 +9,8 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
 
   import AlgedoniaWeb.Helpers, only: [slugify: 1]
 
+  @script_fields ~w(worktree_bootstrap_script worktree_run_script)
+
   @impl true
   def mount(_params, _session, socket) do
     workspace = socket.assigns.current_workspace
@@ -16,6 +18,7 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Settings")
+     |> assign(:script_drop_errors, %{})
      |> assign_settings_form(workspace)
      |> assign_members_and_invitations(workspace)
      |> assign(:invite_form, to_form(%{"github_username" => ""}, as: "invite"))}
@@ -28,7 +31,7 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
       |> Workspaces.change_workspace(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :form, to_form(changeset))}
+    {:noreply, socket |> assign(:form, to_form(changeset)) |> clear_script_drop_errors()}
   end
 
   @impl true
@@ -45,6 +48,7 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
           socket
           |> assign(:current_workspace, updated)
           |> assign_settings_form(updated)
+          |> clear_script_drop_errors()
           |> put_flash(:info, "Workspace updated.")
 
         if updated.slug != workspace.slug do
@@ -54,7 +58,18 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
         end
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
+        {:noreply, socket |> assign(:form, to_form(changeset)) |> clear_script_drop_errors()}
+    end
+  end
+
+  @impl true
+  def handle_event("script_drop_error", %{"field" => field} = params, socket) do
+    message = Map.get(params, "message")
+
+    if field in @script_fields do
+      {:noreply, put_script_drop_error(socket, field, message)}
+    else
+      {:noreply, socket}
     end
   end
 
@@ -100,4 +115,18 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
     |> assign(:members, Workspaces.list_members(workspace.id))
     |> assign(:invitations, Workspaces.list_invitations(workspace.id))
   end
+
+  defp put_script_drop_error(socket, field, message) when message in [nil, ""] do
+    assign(socket, :script_drop_errors, Map.delete(socket.assigns.script_drop_errors, field))
+  end
+
+  defp put_script_drop_error(socket, field, message) do
+    assign(
+      socket,
+      :script_drop_errors,
+      Map.put(socket.assigns.script_drop_errors, field, message)
+    )
+  end
+
+  defp clear_script_drop_errors(socket), do: assign(socket, :script_drop_errors, %{})
 end

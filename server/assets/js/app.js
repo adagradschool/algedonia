@@ -34,6 +34,7 @@ import SidebarPanel from "./hooks/sidebar_panel"
 import DiffViewer from "./hooks/diff_viewer"
 import OsDetect from "./hooks/os_detect"
 import TicketListPrefs from "./hooks/ticket_list_prefs"
+import ScriptEditor from "./hooks/script_editor"
 
 const Hooks = {
   ...colocatedHooks,
@@ -46,6 +47,7 @@ const Hooks = {
   DiffViewer,
   OsDetect,
   TicketListPrefs,
+  ScriptEditor,
   KanbanBoard: {
     mounted() {
       this.sortables = []

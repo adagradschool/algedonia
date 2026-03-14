@@ -555,6 +555,92 @@ body {
   vertical-align: top;
 }
 
+.script-editor-shell {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-panel);
+  overflow: hidden;
+}
+
+.script-editor-shell--drag-active {
+  border-color: var(--color-accent-indigo);
+  box-shadow: 0 0 0 1px var(--color-accent-indigo);
+}
+
+.script-editor-highlight,
+.script-editor-input {
+  margin: 0;
+  padding: 0.75rem;
+  min-height: 9.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: auto;
+}
+
+.script-editor-highlight {
+  pointer-events: none;
+  color: var(--color-fg);
+}
+
+.script-editor-highlight code {
+  display: block;
+  min-height: 100%;
+}
+
+.script-editor-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--color-fg);
+}
+
+.script-editor-input::selection {
+  color: transparent;
+  background: rgba(94, 106, 210, 0.32);
+}
+
+.script-editor-input::placeholder {
+  color: var(--color-fg-muted);
+}
+
+.script-editor-highlight .hljs-comment,
+.script-editor-highlight .hljs-quote {
+  color: var(--color-fg-muted);
+}
+
+.script-editor-highlight .hljs-keyword,
+.script-editor-highlight .hljs-selector-tag,
+.script-editor-highlight .hljs-doctag,
+.script-editor-highlight .hljs-name {
+  color: #84b6ff;
+}
+
+.script-editor-highlight .hljs-string,
+.script-editor-highlight .hljs-regexp,
+.script-editor-highlight .hljs-meta .hljs-string {
+  color: #8ad48f;
+}
+
+.script-editor-highlight .hljs-number,
+.script-editor-highlight .hljs-literal {
+  color: #f2c580;
+}
+
+.script-editor-highlight .hljs-variable,
+.script-editor-highlight .hljs-template-variable,
+.script-editor-highlight .hljs-attr,
+.script-editor-highlight .hljs-built_in {
+  color: #e8a7ff;
+}
+
 @keyframes indicator-in {
   from {
     opacity: 0;
