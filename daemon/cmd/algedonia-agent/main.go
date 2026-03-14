@@ -164,6 +164,7 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("poll_review_pr", mgr.HandlePollReviewPR)
 			client.RegisterHandler("cleanup_worktree", mgr.HandleCleanupWorktree)
 			client.RegisterHandler("open_editor", mgr.HandleOpenEditor)
+			client.RegisterHandler("run_workspace_script", mgr.HandleRunWorkspaceScript)
 			client.SetRunningLoopsFn(mgr.RunningCount)
 			client.SetRunningLoopIDFn(mgr.RunningLoopIDs)
 			client.SetAvailableAgentsFn(registry.AgentTypes)

@@ -12,6 +12,10 @@ defmodule Algedonia.PubSub.Topics do
   def ticket(workspace_id, ticket_id),
     do: workspace_prefix(workspace_id) <> "ticket:#{ticket_id}"
 
+  @spec ticket_manual_run(id(), id()) :: String.t()
+  def ticket_manual_run(workspace_id, ticket_id),
+    do: workspace_prefix(workspace_id) <> "ticket_manual_run:#{ticket_id}"
+
   @spec ticket_loops(id(), id()) :: String.t()
   def ticket_loops(workspace_id, ticket_id),
     do: workspace_prefix(workspace_id) <> "ticket_loops:#{ticket_id}"

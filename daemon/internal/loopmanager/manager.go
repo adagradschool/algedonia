@@ -55,6 +55,7 @@ type Manager struct {
 	repoRoot         string
 	workspaceBaseDir string
 	worktreeMgr      repo.WorktreeManager
+	manualRuns       map[string]struct{}
 	replayMax        int
 }
 
@@ -78,6 +79,7 @@ func NewManager(sendFunc func(event string, payload map[string]interface{}) erro
 		sendFunc:   sendFunc,
 		adapterReg: registry,
 		repoRoot:   repoRoot,
+		manualRuns: make(map[string]struct{}),
 		replayMax:  replayMaxBytesFromEnv(os.Getenv),
 	}
 }

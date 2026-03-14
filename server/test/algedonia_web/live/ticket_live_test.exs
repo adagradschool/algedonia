@@ -196,6 +196,183 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert has_element?(view, "#ticket-rubric-field-editor[phx-hook='MarkdownEditor']")
     end
 
+    test "manual run control is only shown for in-progress and in-review tickets", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      in_progress = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
+      in_review = insert_ticket!(%{workspace_id: workspace.id, status: :in_review})
+      backlog = insert_ticket!(%{workspace_id: workspace.id, status: :backlog})
+
+      {:ok, progress_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{in_progress}")
+      {:ok, review_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{in_review}")
+      {:ok, backlog_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{backlog}")
+
+      assert has_element?(
+               progress_view,
+               ~s{#ticket-run-workspace-script[title="Run workspace script"]}
+             )
+
+      assert has_element?(
+               review_view,
+               ~s{#ticket-run-workspace-script[title="Run workspace script"]}
+             )
+
+      refute has_element?(backlog_view, "#ticket-run-workspace-script")
+    end
+
+    test "manual run is blocked when no workspace run script is configured", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      daemon = insert_daemon!(%{status: :online})
+      topic = "daemon:#{daemon.name}"
+      AlgedoniaWeb.Endpoint.subscribe(topic)
+
+      ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      html = render_click(view, "run_workspace_script", %{"id" => ticket.id})
+
+      assert html =~ "Set a workspace run script in Settings before running it"
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^topic, event: "run_workspace_script"}, 100
+    end
+
+    test "manual run dispatches a ticket-scoped daemon command and disables duplicate clicks", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      daemon = insert_daemon!(%{status: :online})
+      topic = "daemon:#{daemon.name}"
+      AlgedoniaWeb.Endpoint.subscribe(topic)
+
+      {:ok, workspace} =
+        Algedonia.Workspaces.update_workspace(workspace, %{
+          worktree_run_script: "bin/verify-ticket"
+        })
+
+      ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_progress})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> element("#ticket-run-workspace-script")
+      |> render_click()
+
+      assert_receive %Phoenix.Socket.Broadcast{
+                       topic: ^topic,
+                       event: "run_workspace_script",
+                       payload: %{
+                         "run_id" => run_id,
+                         "workspace_slug" => workspace_slug,
+                         "ticket_id" => ticket_id,
+                         "worktree_run_script" => script
+                       }
+                     },
+                     1000
+
+      assert workspace_slug == workspace.slug
+      assert ticket_id == ticket.id
+      assert script == "bin/verify-ticket"
+
+      assert has_element?(view, ~s{#ticket-run-workspace-script[disabled]})
+
+      html = render_click(view, "run_workspace_script", %{"id" => ticket.id})
+
+      assert html =~ "Workspace script is already running"
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.ticket_manual_run(workspace.id, ticket.id),
+        {:manual_run_complete,
+         %{
+           "run_id" => run_id,
+           "status" => "succeeded",
+           "exit_code" => 0,
+           "completed_at" => "2026-03-14T12:00:00Z"
+         }}
+      )
+
+      assert render(view) =~ "Exit code 0"
+    end
+
+    test "manual run panel keeps only the latest run output", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{workspace_id: workspace.id, status: :in_review})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      topic = Topics.ticket_manual_run(workspace.id, ticket.id)
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        topic,
+        {:manual_run_started,
+         %{
+           "run_id" => "11111111-1111-4111-8111-111111111111",
+           "started_at" => "2026-03-14T10:00:00Z"
+         }}
+      )
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        topic,
+        {:manual_run_output,
+         %{
+           "run_id" => "11111111-1111-4111-8111-111111111111",
+           "data" => "first run output"
+         }}
+      )
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        topic,
+        {:manual_run_complete,
+         %{
+           "run_id" => "11111111-1111-4111-8111-111111111111",
+           "status" => "failed",
+           "exit_code" => 2,
+           "completed_at" => "2026-03-14T10:01:00Z"
+         }}
+      )
+
+      assert render(view) =~ "first run output"
+      assert render(view) =~ "Exit code 2"
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        topic,
+        {:manual_run_started,
+         %{
+           "run_id" => "22222222-2222-4222-8222-222222222222",
+           "started_at" => "2026-03-14T11:00:00Z"
+         }}
+      )
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        topic,
+        {:manual_run_output,
+         %{
+           "run_id" => "22222222-2222-4222-8222-222222222222",
+           "data" => "second run output"
+         }}
+      )
+
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        topic,
+        {:manual_run_complete,
+         %{
+           "run_id" => "22222222-2222-4222-8222-222222222222",
+           "status" => "succeeded",
+           "exit_code" => 0,
+           "completed_at" => "2026-03-14T11:01:00Z"
+         }}
+      )
+
+      html = render(view)
+      assert html =~ "second run output"
+      assert html =~ "Exit code 0"
+      refute html =~ "first run output"
+    end
+
     test "ticket detail autosaves markdown fields via tiptap hook", %{
       conn: conn,
       workspace: workspace

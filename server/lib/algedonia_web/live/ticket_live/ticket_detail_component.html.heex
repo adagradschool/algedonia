@@ -79,6 +79,25 @@
               >
                 <.icon name="hero-magnifying-glass" class="size-3" /> Inspect
               </.link>
+              <button
+                :if={@ticket.status in [:in_progress, :in_review]}
+                id="ticket-run-workspace-script"
+                phx-click="run_workspace_script"
+                phx-value-id={@ticket.id}
+                class={[
+                  "size-7 flex items-center justify-center rounded-md transition-colors",
+                  @manual_run.status == :running &&
+                    "cursor-not-allowed text-fg-muted bg-surface-panel/60",
+                  @manual_run.status != :running &&
+                    "text-fg-muted hover:text-fg hover:bg-surface-raised"
+                ]}
+                title="Run workspace script"
+                type="button"
+                disabled={@manual_run.status == :running}
+              >
+                <.icon name="hero-play-mini" class="size-4" />
+                <span class="sr-only">Run workspace script</span>
+              </button>
               <div class="dropdown dropdown-end">
                 <button
                   id="ticket-settings-button"
@@ -330,6 +349,56 @@
                   </div>
                   <p class="text-[10px] text-fg-muted mt-0.5">{hook.instruction}</p>
                 </div>
+              </div>
+            </div>
+            <div id="manual-run-panel" class="space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                  <.icon name="hero-play-mini" class="size-3.5" /> Manual Run
+                </div>
+                <span class={"text-[11px] font-medium px-1.5 py-0.5 rounded #{manual_run_status_classes(@manual_run.status)}"}>
+                  {format_manual_run_status(@manual_run.status)}
+                </span>
+              </div>
+              <div class="rounded-md border border-border bg-surface-panel/60 p-2 space-y-2">
+                <div
+                  :if={
+                    @manual_run.started_at || @manual_run.completed_at ||
+                      !is_nil(@manual_run.exit_code)
+                  }
+                  class="space-y-1 text-[11px] text-fg-muted"
+                >
+                  <div :if={@manual_run.started_at}>
+                    Started {format_manual_run_timestamp(@manual_run.started_at)}
+                  </div>
+                  <div :if={@manual_run.completed_at}>
+                    Finished {format_manual_run_timestamp(@manual_run.completed_at)}
+                  </div>
+                  <div :if={!is_nil(@manual_run.exit_code)}>
+                    Exit code {@manual_run.exit_code}
+                  </div>
+                </div>
+                <p :if={@manual_run.message} class="text-[11px] text-status-orange">
+                  {@manual_run.message}
+                </p>
+                <div
+                  :if={@manual_run.output != ""}
+                  class="max-h-64 overflow-auto rounded border border-border-soft/60 bg-black/70 p-2 font-mono text-[11px] leading-5 text-emerald-100 whitespace-pre-wrap"
+                >
+                  {@manual_run.output}
+                </div>
+                <p
+                  :if={@manual_run.output == "" && @manual_run.status == :idle}
+                  class="text-[11px] text-fg-muted"
+                >
+                  No manual run output yet.
+                </p>
+                <p
+                  :if={@manual_run.output == "" && @manual_run.status == :running}
+                  class="text-[11px] text-fg-muted"
+                >
+                  Running workspace script...
+                </p>
               </div>
             </div>
           </div>

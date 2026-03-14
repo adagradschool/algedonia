@@ -11,6 +11,9 @@ defmodule Algedonia.PubSub.TopicsTest do
     assert Topics.tickets(workspace_id) == "workspace:ws-123:tickets"
     assert Topics.ticket(workspace_id, ticket_id) == "workspace:ws-123:ticket:ticket-123"
 
+    assert Topics.ticket_manual_run(workspace_id, ticket_id) ==
+             "workspace:ws-123:ticket_manual_run:ticket-123"
+
     assert Topics.ticket_loops(workspace_id, ticket_id) ==
              "workspace:ws-123:ticket_loops:ticket-123"
 

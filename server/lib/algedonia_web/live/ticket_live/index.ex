@@ -19,7 +19,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   @detail_events ~w(autosave_ticket autosave_ticket_markdown
     submit_comment submit_reply start_reply edit_comment update_comment
     cancel_edit delete_comment start_work plan_ticket open_planning_session
-    open_editor export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now
+    open_editor run_workspace_script export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now
     confirm_reset cancel_reset confirm_reset_now pull_comments filter_blocked_by_detail)
 
   @impl true
@@ -48,6 +48,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
        current_workspace: current_workspace,
        workspace_prefix: workspace_prefix,
        workspace_slug: workspace_slug,
+       manual_run: DetailEvents.empty_manual_run(),
        save_state: :idle,
        confirm_delete: false,
        delete_ticket_id: nil,
@@ -79,12 +80,18 @@ defmodule AlgedoniaWeb.TicketLive.Index do
   end
 
   defp apply_action(socket, :index, _params),
-    do: assign(socket, page_title: "Tickets", ticket: nil)
+    do:
+      assign(socket,
+        page_title: "Tickets",
+        ticket: nil,
+        manual_run: DetailEvents.empty_manual_run()
+      )
 
   defp apply_action(socket, :new, params) do
     assign(socket,
       page_title: "New Ticket",
-      ticket: %Ticket{status: parse_status(params["status"]) || :backlog}
+      ticket: %Ticket{status: parse_status(params["status"]) || :backlog},
+      manual_run: DetailEvents.empty_manual_run()
     )
   end
 
@@ -94,7 +101,12 @@ defmodule AlgedoniaWeb.TicketLive.Index do
 
   defp apply_action(socket, :edit, %{"ticket_ref" => ticket_ref}) do
     ticket = Tickets.get_ticket_by_ref!(socket.assigns.current_workspace.id, ticket_ref)
-    assign(socket, page_title: "Edit Ticket", ticket: ticket)
+
+    assign(socket,
+      page_title: "Edit Ticket",
+      ticket: ticket,
+      manual_run: DetailEvents.empty_manual_run()
+    )
   end
 
   # -- Board / list events --
@@ -233,6 +245,19 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       else: {:noreply, socket}
   end
 
+  def handle_info({:manual_run_started, payload}, socket) do
+    {:noreply, assign(socket, :manual_run, manual_run_started(payload))}
+  end
+
+  def handle_info({:manual_run_output, payload}, socket) do
+    {:noreply, assign(socket, :manual_run, manual_run_output(socket.assigns.manual_run, payload))}
+  end
+
+  def handle_info({:manual_run_complete, payload}, socket) do
+    {:noreply,
+     assign(socket, :manual_run, manual_run_complete(socket.assigns.manual_run, payload))}
+  end
+
   def handle_info({event, _loop}, socket)
       when event in [:hook_loop_created, :loop_status_changed] do
     ticket = socket.assigns[:ticket]
@@ -266,6 +291,73 @@ defmodule AlgedoniaWeb.TicketLive.Index do
       |> stream_tickets()
     end
   end
+
+  defp manual_run_started(payload) do
+    %{
+      run_id: Map.get(payload, "run_id"),
+      status: :running,
+      output: "",
+      exit_code: nil,
+      started_at: parse_manual_run_datetime(Map.get(payload, "started_at")) || DateTime.utc_now(),
+      completed_at: nil,
+      message: nil
+    }
+  end
+
+  defp manual_run_output(current, payload) do
+    current = current || DetailEvents.empty_manual_run()
+    run_id = Map.get(payload, "run_id")
+
+    if current.run_id in [nil, run_id] do
+      %{
+        current
+        | run_id: run_id,
+          status: :running,
+          output: current.output <> Map.get(payload, "data", ""),
+          message: nil
+      }
+    else
+      current
+    end
+  end
+
+  defp manual_run_complete(current, payload) do
+    current = current || DetailEvents.empty_manual_run()
+    run_id = Map.get(payload, "run_id")
+
+    if current.run_id in [nil, run_id] do
+      %{
+        current
+        | run_id: run_id,
+          status: manual_run_status(Map.get(payload, "status")),
+          exit_code: Map.get(payload, "exit_code"),
+          started_at:
+            parse_manual_run_datetime(Map.get(payload, "started_at")) || current.started_at,
+          completed_at:
+            parse_manual_run_datetime(Map.get(payload, "completed_at")) || DateTime.utc_now(),
+          message: Map.get(payload, "message")
+      }
+    else
+      current
+    end
+  end
+
+  defp manual_run_status("running"), do: :running
+  defp manual_run_status("succeeded"), do: :succeeded
+  defp manual_run_status("failed"), do: :failed
+  defp manual_run_status("rejected"), do: :rejected
+  defp manual_run_status(_), do: :idle
+
+  defp parse_manual_run_datetime(nil), do: nil
+
+  defp parse_manual_run_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_manual_run_datetime(_), do: nil
 
   defp restored_view_mode(_prefs, true), do: nil
 

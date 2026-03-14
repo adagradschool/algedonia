@@ -323,6 +323,68 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
+  describe "manual_run events" do
+    setup %{socket: socket, user: user} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket, user: user}
+    end
+
+    test "broadcasts dedicated manual run output and completion on ticket manual-run topic", %{
+      socket: socket,
+      workspace: workspace,
+      user: user
+    } do
+      Algedonia.Factory.insert_membership!(workspace, user)
+      ticket_id = Ecto.UUID.generate()
+      run_id = Ecto.UUID.generate()
+
+      Phoenix.PubSub.subscribe(
+        Algedonia.PubSub,
+        Topics.ticket_manual_run(workspace.id, ticket_id)
+      )
+
+      output_ref =
+        push(socket, "manual_run_output", %{
+          "run_id" => run_id,
+          "ticket_id" => ticket_id,
+          "data" => Base.encode64("manual stdout"),
+          "workspace_slug" => workspace.slug
+        })
+
+      refute_reply output_ref, _
+
+      assert_receive {:manual_run_output,
+                      %{
+                        "run_id" => ^run_id,
+                        "ticket_id" => ^ticket_id,
+                        "data" => "manual stdout"
+                      }},
+                     1000
+
+      complete_ref =
+        push(socket, "manual_run_complete", %{
+          "run_id" => run_id,
+          "ticket_id" => ticket_id,
+          "workspace_slug" => workspace.slug,
+          "status" => "succeeded",
+          "exit_code" => 0
+        })
+
+      refute_reply complete_ref, _
+
+      assert_receive {:manual_run_complete,
+                      %{
+                        "run_id" => ^run_id,
+                        "ticket_id" => ^ticket_id,
+                        "status" => "succeeded",
+                        "exit_code" => 0
+                      }},
+                     1000
+    end
+  end
+
   describe "loop_exited" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =
@@ -626,6 +688,34 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
       assert_push "cleanup_worktree", %{
         "ticket_id" => "66666666-6666-4666-8666-666666666666",
         "workspace_slug" => "my-workspace"
+      }
+    end
+  end
+
+  describe "run_workspace_script push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards run_workspace_script broadcast to daemon", %{socket: _socket} do
+      run_id = Ecto.UUID.generate()
+      ticket_id = Ecto.UUID.generate()
+
+      AlgedoniaWeb.DaemonChannel.push_run_workspace_script(@daemon_id, %{
+        "run_id" => run_id,
+        "workspace_slug" => "my-workspace",
+        "ticket_id" => ticket_id,
+        "worktree_run_script" => "bin/verify"
+      })
+
+      assert_push "run_workspace_script", %{
+        "run_id" => ^run_id,
+        "workspace_slug" => "my-workspace",
+        "ticket_id" => ^ticket_id,
+        "worktree_run_script" => "bin/verify"
       }
     end
   end

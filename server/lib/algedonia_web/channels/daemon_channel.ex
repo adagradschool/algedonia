@@ -26,7 +26,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
     "merge_pr",
     "poll_review_pr",
     "cleanup_worktree",
-    "open_editor"
+    "open_editor",
+    "run_workspace_script"
   ]
 
   @impl true
@@ -147,6 +148,99 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in("terminal_output", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+  end
+
+  def handle_in(
+        "manual_run_started",
+        %{
+          "run_id" => run_id,
+          "ticket_id" => ticket_id,
+          "workspace_slug" => workspace_slug
+        } = payload,
+        socket
+      ) do
+    with true <- uuid_string?(run_id),
+         true <- uuid_string?(ticket_id),
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         %{id: workspace_id} <- Workspaces.get_workspace_by_slug(workspace_slug) do
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.ticket_manual_run(workspace_id, ticket_id),
+        {:manual_run_started, payload}
+      )
+
+      {:noreply, socket}
+    else
+      _ -> {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+    end
+  end
+
+  def handle_in("manual_run_started", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+  end
+
+  def handle_in(
+        "manual_run_output",
+        %{
+          "run_id" => run_id,
+          "ticket_id" => ticket_id,
+          "data" => data,
+          "workspace_slug" => workspace_slug
+        },
+        socket
+      ) do
+    with true <- uuid_string?(run_id),
+         true <- uuid_string?(ticket_id),
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         {:ok, decoded} <- decode_base64(data),
+         %{id: workspace_id} <- Workspaces.get_workspace_by_slug(workspace_slug) do
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.ticket_manual_run(workspace_id, ticket_id),
+        {:manual_run_output, %{"run_id" => run_id, "ticket_id" => ticket_id, "data" => decoded}}
+      )
+
+      {:noreply, socket}
+    else
+      {:error, :invalid_base64} ->
+        {:reply, {:error, %{reason: "invalid_base64"}}, socket}
+
+      _ ->
+        {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+    end
+  end
+
+  def handle_in("manual_run_output", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+  end
+
+  def handle_in(
+        "manual_run_complete",
+        %{
+          "run_id" => run_id,
+          "ticket_id" => ticket_id,
+          "workspace_slug" => workspace_slug
+        } = payload,
+        socket
+      ) do
+    with true <- uuid_string?(run_id),
+         true <- uuid_string?(ticket_id),
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         %{id: workspace_id} <- Workspaces.get_workspace_by_slug(workspace_slug) do
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.ticket_manual_run(workspace_id, ticket_id),
+        {:manual_run_complete, payload}
+      )
+
+      {:noreply, socket}
+    else
+      _ -> {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+    end
+  end
+
+  def handle_in("manual_run_complete", _payload, socket) do
     {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
   end
 
@@ -387,6 +481,31 @@ defmodule AlgedoniaWeb.DaemonChannel do
       "loop_id" => loop_id,
       "data" => data
     })
+  end
+
+  @doc """
+  Pushes a run_workspace_script command to the daemon to execute a manual
+  ticket-scoped workspace script in the worktree.
+  """
+  @spec push_run_workspace_script(String.t(), map()) :: :ok
+  def push_run_workspace_script(daemon_name, opts) when is_map(opts) do
+    require_non_empty_string!(Map.get(opts, "run_id"), "run_id", "run_workspace_script")
+
+    require_non_empty_string!(
+      Map.get(opts, "workspace_slug"),
+      "workspace_slug",
+      "run_workspace_script"
+    )
+
+    require_non_empty_string!(Map.get(opts, "ticket_id"), "ticket_id", "run_workspace_script")
+
+    require_non_empty_string!(
+      Map.get(opts, "worktree_run_script"),
+      "worktree_run_script",
+      "run_workspace_script"
+    )
+
+    AlgedoniaWeb.Endpoint.broadcast("daemon:#{daemon_name}", "run_workspace_script", opts)
   end
 
   @doc """
