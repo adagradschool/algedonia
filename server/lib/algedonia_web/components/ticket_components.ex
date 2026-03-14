@@ -410,16 +410,7 @@ defmodule AlgedoniaWeb.TicketComponents do
           <span class={["text-xs font-medium", status_label_color(@status)]}>{@label}</span>
           <span class="text-[10px] text-fg-muted">{@count}</span>
         </div>
-        <div class="flex items-center gap-1">
-          <.status_sort_menu status={@status} sort={@sort} />
-          <button
-            class="size-6 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
-            phx-click={JS.patch(workspace_path(@workspace_slug, "/tickets/new?status=#{@status}"))}
-            title="Add issue"
-          >
-            <.icon name="hero-plus-mini" class="size-4" />
-          </button>
-        </div>
+        <.status_sort_menu status={@status} sort={@sort} />
       </div>
       <div
         id={"col-#{@status}"}
@@ -473,12 +464,11 @@ defmodule AlgedoniaWeb.TicketComponents do
       <button
         id={"ticket-sort-#{@status}"}
         type="button"
-        class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
+        class="inline-flex items-center rounded-md border border-border px-2 py-1 text-[10px] text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
         aria-label={"Sort #{status_label(@status)}: #{sort_summary_for_aria(@sort)}"}
-        title={"Sort #{status_label(@status)}"}
+        title={"Sort #{status_label(@status)}: #{sort_summary_for_aria(@sort)}"}
       >
         <.icon name="hero-arrows-up-down" class="size-3" />
-        <span>{sort_summary(@sort)}</span>
       </button>
       <div
         tabindex="0"
@@ -588,14 +578,8 @@ defmodule AlgedoniaWeb.TicketComponents do
   defp sort_field_label(:updated_at), do: "Updated"
   defp sort_field_label(:title), do: "Title"
 
-  defp sort_summary(%{sort_by: sort_by, sort_order: sort_order}),
-    do: "#{sort_field_label(sort_by)} #{sort_direction_symbol(sort_order)}"
-
   defp sort_summary_for_aria(%{sort_by: sort_by, sort_order: sort_order}),
     do: "#{sort_field_label(sort_by)} #{sort_direction_word(sort_order)}"
-
-  defp sort_direction_symbol(:desc), do: "↓"
-  defp sort_direction_symbol(_), do: "↑"
 
   defp sort_direction_word(:desc), do: "descending"
   defp sort_direction_word(_), do: "ascending"

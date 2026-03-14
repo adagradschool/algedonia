@@ -310,10 +310,25 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert has_element?(view, "#ticket-sort-backlog span", "Updated ↓")
-      assert has_element?(view, "#ticket-sort-completed span", "Updated ↓")
-      refute has_element?(view, "#ticket-sort-backlog span", "Updated desc")
-      refute has_element?(view, "#ticket-sort-backlog span", "Updated asc")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Updated descending"]}
+             )
+
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-completed[aria-label="Sort Completed: Updated descending"]}
+             )
+
+      refute has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Updated desc"]}
+             )
+
+      refute has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Updated asc"]}
+             )
 
       assert_ordered_titles(render_board_column(view, :backlog), [
         "Backlog newer",
@@ -367,7 +382,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
 
-      assert has_element?(view, "#ticket-sort-backlog span", "Updated ↓")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Updated descending"]}
+             )
 
       assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
 
@@ -382,7 +400,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       )
       |> render_click()
 
-      assert has_element?(view, "#ticket-sort-backlog span", "Title ↓")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Title descending"]}
+             )
 
       assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
 
@@ -392,11 +413,17 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       )
       |> render_click()
 
-      assert has_element?(view, "#ticket-sort-backlog span", "Title ↑")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Title ascending"]}
+             )
 
       assert_ordered_titles(render_board_column(view, :backlog), ["Alpha backlog", "Zulu backlog"])
 
-      assert has_element?(view, "#ticket-sort-completed span", "Updated ↓")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-completed[aria-label="Sort Completed: Updated descending"]}
+             )
 
       assert_ordered_titles(render_board_column(view, :completed), [
         "Completed newer",
@@ -409,7 +436,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       )
       |> render_click()
 
-      assert has_element?(view, "#ticket-sort-backlog span", "Title ↓")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Title descending"]}
+             )
 
       assert_ordered_titles(render_board_column(view, :backlog), ["Zulu backlog", "Alpha backlog"])
     end
@@ -443,8 +473,15 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert_patch(view, ~p"/w/#{workspace.slug}/tickets?view=list")
 
-      assert has_element?(view, "#ticket-sort-backlog span", "Title ↓")
-      refute has_element?(view, "#ticket-sort-backlog span", "Title desc")
+      assert has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Title descending"]}
+             )
+
+      refute has_element?(
+               view,
+               ~s{#ticket-sort-backlog[aria-label="Sort Backlog: Title desc"]}
+             )
 
       assert_ordered_titles(render_list_section(view, :backlog), ["Zulu backlog", "Alpha backlog"])
     end
