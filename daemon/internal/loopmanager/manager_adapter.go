@@ -245,7 +245,36 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 	snapshotCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	snapshotSHA, snapshotCreated, snapshotErr := snapshotCheckerCompletion(snapshotCtx, lpWorkdir, loopID, lpAttempt)
+	snapshotNeeded, err := worktreeHasChanges(snapshotCtx, lpWorkdir)
+	if err != nil {
+		payload := map[string]interface{}{
+			"loop_id":     loopID,
+			"message":     fmt.Sprintf("checker snapshot commit failed: checking worktree changes: %v", err),
+			"recoverable": false,
+			"attempt":     lpAttempt,
+		}
+		mergeScopePayload(payload, scope)
+		m.sendEvent("error", payload)
+		return
+	}
+
+	var snapshotCommitTitle string
+	if snapshotNeeded {
+		snapshotCommitTitle, err = loadCheckerSnapshotCommitTitle(loopID, lpAttempt, lpWorkspaceDir)
+		if err != nil {
+			payload := map[string]interface{}{
+				"loop_id":     loopID,
+				"message":     fmt.Sprintf("checker snapshot commit failed: invalid checker commit_title: %v", err),
+				"recoverable": false,
+				"attempt":     lpAttempt,
+			}
+			mergeScopePayload(payload, scope)
+			m.sendEvent("error", payload)
+			return
+		}
+	}
+
+	snapshotSHA, snapshotCreated, snapshotErr := snapshotCheckerCompletion(snapshotCtx, lpWorkdir, snapshotCommitTitle)
 	if snapshotErr != nil {
 		payload := map[string]interface{}{
 			"loop_id":     loopID,
@@ -270,11 +299,11 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 	}
 	if snapshotCreated {
 		payload["snapshot_commit_sha"] = snapshotSHA
-		payload["snapshot_commit_message"] = checkerSnapshotCommitMessage(loopID, lpAttempt)
+		payload["snapshot_commit_message"] = snapshotCommitTitle
 	}
 	mergeScopePayload(payload, scope)
 
-	verdict, feedbackPath, feedback, parseErr := loadCheckerHandoff(loopID, lpAttempt, lpWorkspaceDir)
+	handoff, parseErr := loadCheckerHandoff(loopID, lpAttempt, lpWorkspaceDir, false)
 	if parseErr != nil {
 		parseErrPayload := map[string]interface{}{
 			"loop_id":     loopID,
@@ -289,9 +318,9 @@ func (m *Manager) handleCheckerResult(loopID string, lp *LoopProcess, result *ad
 		payload["feedback"] = "Checker did not produce required handoff JSON/markdown files."
 	} else {
 		payload["handoff_valid"] = true
-		payload["verdict"] = verdict
-		payload["feedback_path"] = feedbackPath
-		payload["feedback"] = feedback
+		payload["verdict"] = handoff.Verdict
+		payload["feedback_path"] = handoff.FeedbackPath
+		payload["feedback"] = handoff.Feedback
 	}
 	m.sendEvent("attempt_complete", payload)
 }

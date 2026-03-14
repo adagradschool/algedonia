@@ -66,10 +66,12 @@ REQUIRED HANDOFF FORMAT (file IPC):
 2) Write JSON to: <%= expected_json_path %>
 
 JSON must be exactly:
-{"VERDICT":"pass|fail","FEEDBACK":"<%= expected_feedback_path %>"}
+{"VERDICT":"pass|fail","FEEDBACK":"<%= expected_feedback_path %>","commit_title":"<single-line summary>"}
 
 Rules:
 - Create parent directories if they do not exist.
 - VERDICT must be either "pass" or "fail" (lowercase).
 - FEEDBACK must be the markdown file path above.
+- `commit_title` must be a non-empty single-line plain-text summary with no newline or control characters.
+- `commit_title` should summarize this checker iteration and verdict context, and it will be used as the snapshot commit title if the repo is dirty.
 - Do not output any alternative verdict format.

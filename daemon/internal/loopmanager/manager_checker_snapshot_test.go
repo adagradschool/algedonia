@@ -15,10 +15,11 @@ import (
 	"github.com/algedonia/daemon/internal/adapter"
 )
 
-func TestHandleCheckerResultCreatesSnapshotCommit(t *testing.T) {
+func TestCheckerSnapshotCreatesSnapshotCommitOnFail(t *testing.T) {
 	loopID := "abababab-abab-4bab-8bab-abababababab"
 	attempt := 2
-	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail")
+	commitTitle := "checker: fail snapshot captures dirty tree"
+	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail", commitTitle)
 
 	if err := os.WriteFile(filepath.Join(workdir, "feature.txt"), []byte("change\n"), 0o644); err != nil {
 		t.Fatalf("write feature file: %v", err)
@@ -59,9 +60,8 @@ func TestHandleCheckerResultCreatesSnapshotCommit(t *testing.T) {
 	}
 
 	commitMsg := gitOutput(t, workdir, "log", "-1", "--pretty=%B")
-	wantMsg := checkerSnapshotCommitMessage(loopID, attempt)
-	if commitMsg != wantMsg {
-		t.Fatalf("snapshot commit message = %q, want %q", commitMsg, wantMsg)
+	if commitMsg != commitTitle {
+		t.Fatalf("snapshot commit message = %q, want %q", commitMsg, commitTitle)
 	}
 
 	event := findEventByName(t, events, "attempt_complete")
@@ -81,12 +81,66 @@ func TestHandleCheckerResultCreatesSnapshotCommit(t *testing.T) {
 	if snapshotSHA != headAtAttemptComplete {
 		t.Fatalf("HEAD at attempt_complete = %s, want %s", headAtAttemptComplete, snapshotSHA)
 	}
+	if event.Payload["snapshot_commit_message"] != commitTitle {
+		t.Fatalf("snapshot_commit_message = %v, want %q", event.Payload["snapshot_commit_message"], commitTitle)
+	}
 }
 
-func TestHandleCheckerResultSkipsSnapshotCommitWhenTreeIsClean(t *testing.T) {
+func TestCheckerSnapshotCreatesSnapshotCommitOnPass(t *testing.T) {
+	loopID := "bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc"
+	attempt := 1
+	commitTitle := "checker: pass snapshot records validated changes"
+	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "pass", commitTitle)
+
+	if err := os.WriteFile(filepath.Join(workdir, "pass.txt"), []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("write pass file: %v", err)
+	}
+
+	before := gitCommitCount(t, workdir)
+
+	var mu sync.Mutex
+	var events []sentEvent
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+
+	lp := &LoopProcess{
+		workdir:      workdir,
+		workspaceDir: workspaceDir,
+		attempt:      attempt,
+	}
+	scope := map[string]interface{}{
+		"role":           "checker",
+		"workspace_slug": "scope",
+		"ticket_id":      "12121212-1212-4212-8212-121212121212",
+	}
+
+	mgr.handleCheckerResult(loopID, lp, &adapter.ExitResult{ExitCode: 0}, "sess-pass", scope)
+
+	after := gitCommitCount(t, workdir)
+	if after != before+1 {
+		t.Fatalf("commit count = %d, want %d", after, before+1)
+	}
+
+	commitMsg := gitOutput(t, workdir, "log", "-1", "--pretty=%B")
+	if commitMsg != commitTitle {
+		t.Fatalf("snapshot commit message = %q, want %q", commitMsg, commitTitle)
+	}
+
+	event := findEventByName(t, events, "attempt_complete")
+	if event.Payload["snapshot_commit_created"] != true {
+		t.Fatalf("snapshot_commit_created = %v, want true", event.Payload["snapshot_commit_created"])
+	}
+	if event.Payload["snapshot_commit_message"] != commitTitle {
+		t.Fatalf("snapshot_commit_message = %v, want %q", event.Payload["snapshot_commit_message"], commitTitle)
+	}
+	if event.Payload["verdict"] != "pass" {
+		t.Fatalf("verdict = %v, want pass", event.Payload["verdict"])
+	}
+}
+
+func TestCheckerSnapshotSkipsCommitWhenTreeIsClean(t *testing.T) {
 	loopID := "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd"
 	attempt := 1
-	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "pass")
+	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "pass", "")
 
 	before := gitCommitCount(t, workdir)
 
@@ -119,12 +173,15 @@ func TestHandleCheckerResultSkipsSnapshotCommitWhenTreeIsClean(t *testing.T) {
 	if _, ok := event.Payload["snapshot_commit_sha"]; ok {
 		t.Fatalf("snapshot_commit_sha should be omitted when no commit is created")
 	}
+	if _, ok := event.Payload["snapshot_commit_message"]; ok {
+		t.Fatalf("snapshot_commit_message should be omitted when no commit is created")
+	}
 }
 
-func TestHandleCheckerResultSnapshotFailureSendsErrorAndBlocksCompletion(t *testing.T) {
+func TestCheckerSnapshotFailureSendsErrorAndBlocksCompletion(t *testing.T) {
 	loopID := "efefefef-efef-4fef-8fef-efefefefefef"
 	attempt := 3
-	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail")
+	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail", "checker: fail snapshot hits git lock")
 
 	if err := os.WriteFile(filepath.Join(workdir, "broken.txt"), []byte("dirty\n"), 0o644); err != nil {
 		t.Fatalf("write dirty file: %v", err)
@@ -174,10 +231,59 @@ func TestHandleCheckerResultSnapshotFailureSendsErrorAndBlocksCompletion(t *test
 	}
 }
 
-func TestRetryFlowMakerStartsFromCheckerSnapshotSHA(t *testing.T) {
+func TestCheckerSnapshotInvalidCommitTitleFailsClosed(t *testing.T) {
+	loopID := "abab1212-abab-4bab-8bab-ababab121212"
+	attempt := 4
+	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail", "   ")
+
+	if err := os.WriteFile(filepath.Join(workdir, "invalid-title.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatalf("write dirty file: %v", err)
+	}
+
+	before := gitCommitCount(t, workdir)
+
+	var mu sync.Mutex
+	var events []sentEvent
+	mgr := NewManager(collectingSendFunc(&mu, &events), nil, "")
+
+	lp := &LoopProcess{
+		workdir:      workdir,
+		workspaceDir: workspaceDir,
+		attempt:      attempt,
+	}
+	scope := map[string]interface{}{
+		"role":           "checker",
+		"workspace_slug": "scope",
+		"ticket_id":      "34343434-3434-4343-8434-343434343434",
+	}
+
+	mgr.handleCheckerResult(loopID, lp, &adapter.ExitResult{ExitCode: 0}, "sess-invalid-title", scope)
+
+	after := gitCommitCount(t, workdir)
+	if after != before {
+		t.Fatalf("commit count = %d, want %d", after, before)
+	}
+	if hasEvent(events, "attempt_complete") {
+		t.Fatal("attempt_complete should not be emitted when commit_title is invalid")
+	}
+
+	errorEvent := findEventByName(t, events, "error")
+	msg, _ := errorEvent.Payload["message"].(string)
+	if !strings.Contains(msg, "invalid checker commit_title") {
+		t.Fatalf("error message = %q, want commit_title context", msg)
+	}
+	if !strings.Contains(msg, "missing commit_title") {
+		t.Fatalf("error message = %q, want explicit validation cause", msg)
+	}
+	if errorEvent.Payload["recoverable"] != false {
+		t.Fatalf("recoverable = %v, want false", errorEvent.Payload["recoverable"])
+	}
+}
+
+func TestCheckerSnapshotRetryFlowMakerStartsFromSnapshotSHA(t *testing.T) {
 	loopID := "f0f0f0f0-f0f0-40f0-80f0-f0f0f0f0f0f0"
 	attempt := 1
-	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail")
+	workspaceDir, workdir := setupCheckerSnapshotRepo(t, loopID, attempt, "fail", "checker: fail snapshot enables maker retry")
 
 	if err := os.WriteFile(filepath.Join(workdir, "retry.txt"), []byte("retry-state\n"), 0o644); err != nil {
 		t.Fatalf("write retry file: %v", err)
@@ -250,7 +356,7 @@ func TestRetryFlowMakerStartsFromCheckerSnapshotSHA(t *testing.T) {
 	}
 }
 
-func setupCheckerSnapshotRepo(t *testing.T, loopID string, attempt int, verdict string) (string, string) {
+func setupCheckerSnapshotRepo(t *testing.T, loopID string, attempt int, verdict, commitTitle string) (string, string) {
 	t.Helper()
 
 	workspaceDir := t.TempDir()
@@ -269,11 +375,11 @@ func setupCheckerSnapshotRepo(t *testing.T, loopID string, attempt int, verdict 
 	runGitCmd(t, workdir, "add", "README.md")
 	runGitCmd(t, workdir, "commit", "-m", "initial")
 
-	writeCheckerHandoff(t, workspaceDir, loopID, attempt, verdict)
+	writeCheckerHandoff(t, workspaceDir, loopID, attempt, verdict, commitTitle)
 	return workspaceDir, workdir
 }
 
-func writeCheckerHandoff(t *testing.T, workspaceDir, loopID string, attempt int, verdict string) {
+func writeCheckerHandoff(t *testing.T, workspaceDir, loopID string, attempt int, verdict, commitTitle string) {
 	t.Helper()
 
 	jsonPath, feedbackPath := expectedCheckerHandoffPaths(loopID, attempt, workspaceDir)
@@ -285,8 +391,9 @@ func writeCheckerHandoff(t *testing.T, workspaceDir, loopID string, attempt int,
 	}
 
 	handoffJSON, err := json.Marshal(checkerHandoff{
-		VERDICT:  verdict,
-		FEEDBACK: feedbackPath,
+		VERDICT:     verdict,
+		FEEDBACK:    feedbackPath,
+		CommitTitle: commitTitle,
 	})
 	if err != nil {
 		t.Fatalf("marshal handoff json: %v", err)
