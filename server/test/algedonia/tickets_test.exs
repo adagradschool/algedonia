@@ -527,6 +527,110 @@ defmodule Algedonia.TicketsTest do
     end
   end
 
+  describe "resolve_land_mode/2" do
+    test "returns ticket override when set" do
+      ticket = insert_ticket!(%{land_mode: :auto_land})
+      workspace = Algedonia.Workspaces.get_workspace!(ticket.workspace_id)
+      assert Tickets.resolve_land_mode(ticket, workspace) == :auto_land
+    end
+
+    test "falls back to workspace default when ticket has no override" do
+      workspace =
+        insert_workspace!(%{
+          defaults: %{"land_mode" => "auto_land"}
+        })
+
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      assert Tickets.resolve_land_mode(ticket, workspace) == :auto_land
+    end
+
+    test "falls back to review_gate when neither ticket nor workspace specify" do
+      workspace = insert_workspace!(%{defaults: %{}})
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      assert Tickets.resolve_land_mode(ticket, workspace) == :review_gate
+    end
+
+    test "ticket override takes precedence over workspace default" do
+      workspace =
+        insert_workspace!(%{
+          defaults: %{"land_mode" => "auto_land"}
+        })
+
+      ticket = insert_ticket!(%{workspace_id: workspace.id, land_mode: :review_gate})
+      assert Tickets.resolve_land_mode(ticket, workspace) == :review_gate
+    end
+  end
+
+  describe "land_mode loop creation precedence" do
+    test "loop gets ticket override land_mode" do
+      insert_daemon!(%{status: :online})
+      workspace = insert_workspace!(%{defaults: %{"land_mode" => "review_gate"}})
+
+      ticket =
+        insert_ticket!(%{status: :planning, workspace_id: workspace.id, land_mode: :auto_land})
+
+      assert {:ok, loop_id} = Tickets.start_work(ticket)
+      loop = Loops.get_loop!(loop_id)
+      assert loop.land_mode == "auto_land"
+    end
+
+    test "loop gets workspace default land_mode when ticket has no override" do
+      insert_daemon!(%{status: :online})
+      workspace = insert_workspace!(%{defaults: %{"land_mode" => "auto_land"}})
+      ticket = insert_ticket!(%{status: :planning, workspace_id: workspace.id})
+
+      assert {:ok, loop_id} = Tickets.start_work(ticket)
+      loop = Loops.get_loop!(loop_id)
+      assert loop.land_mode == "auto_land"
+    end
+
+    test "loop gets review_gate when neither ticket nor workspace specify" do
+      insert_daemon!(%{status: :online})
+      workspace = insert_workspace!(%{defaults: %{}})
+      ticket = insert_ticket!(%{status: :planning, workspace_id: workspace.id})
+
+      assert {:ok, loop_id} = Tickets.start_work(ticket)
+      loop = Loops.get_loop!(loop_id)
+      assert loop.land_mode == "review_gate"
+    end
+  end
+
+  describe "ticket land_mode validation" do
+    test "accepts valid land_mode values" do
+      ticket = insert_ticket!()
+      assert {:ok, updated} = Tickets.update_ticket(ticket, %{land_mode: :auto_land})
+      assert updated.land_mode == :auto_land
+
+      assert {:ok, updated} = Tickets.update_ticket(updated, %{land_mode: :review_gate})
+      assert updated.land_mode == :review_gate
+    end
+
+    test "rejects invalid land_mode value" do
+      ticket = insert_ticket!()
+      assert {:error, changeset} = Tickets.update_ticket(ticket, %{land_mode: :invalid_mode})
+      assert errors_on(changeset).land_mode
+    end
+
+    test "allows clearing land_mode to nil (inherited)" do
+      ticket = insert_ticket!(%{land_mode: :auto_land})
+      assert {:ok, updated} = Tickets.update_ticket(ticket, %{land_mode: nil})
+      assert updated.land_mode == nil
+    end
+
+    test "invalid land_mode does not mutate existing loops" do
+      insert_daemon!(%{status: :online})
+      ticket = insert_ticket!(%{status: :planning, land_mode: :auto_land})
+      {:ok, loop_id} = Tickets.start_work(ticket)
+      loop_before = Loops.get_loop!(loop_id)
+
+      ticket = Tickets.get_ticket!(ticket.id)
+      assert {:error, _} = Tickets.update_ticket(ticket, %{land_mode: :invalid_mode})
+
+      loop_after = Loops.get_loop!(loop_id)
+      assert loop_after.land_mode == loop_before.land_mode
+    end
+  end
+
   describe "search_tickets_grouped/1" do
     test "returns grouped tickets with count" do
       insert_ticket!(%{status: :backlog, title: "Task A"})

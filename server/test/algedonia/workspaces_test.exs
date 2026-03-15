@@ -135,6 +135,60 @@ defmodule Algedonia.WorkspacesTest do
     end
   end
 
+  describe "workspace defaults land_mode validation" do
+    test "accepts valid land_mode in defaults" do
+      workspace = insert_workspace!()
+
+      assert {:ok, updated} =
+               Workspaces.update_workspace(workspace, %{defaults: %{"land_mode" => "auto_land"}})
+
+      assert updated.defaults["land_mode"] == "auto_land"
+    end
+
+    test "accepts review_gate in defaults" do
+      workspace = insert_workspace!()
+
+      assert {:ok, updated} =
+               Workspaces.update_workspace(workspace, %{
+                 defaults: %{"land_mode" => "review_gate"}
+               })
+
+      assert updated.defaults["land_mode"] == "review_gate"
+    end
+
+    test "rejects invalid land_mode in defaults" do
+      workspace = insert_workspace!()
+
+      assert {:error, changeset} =
+               Workspaces.update_workspace(workspace, %{
+                 defaults: %{"land_mode" => "invalid_mode"}
+               })
+
+      assert errors_on(changeset).defaults
+    end
+
+    test "invalid defaults do not mutate persisted workspace values" do
+      workspace = insert_workspace!(%{defaults: %{"land_mode" => "auto_land"}})
+
+      assert {:error, _} =
+               Workspaces.update_workspace(workspace, %{
+                 defaults: %{"land_mode" => "invalid_mode"}
+               })
+
+      reloaded = Workspaces.get_workspace!(workspace.id)
+      assert reloaded.defaults["land_mode"] == "auto_land"
+    end
+
+    test "defaults without land_mode key are accepted" do
+      workspace = insert_workspace!()
+
+      assert {:ok, updated} =
+               Workspaces.update_workspace(workspace, %{defaults: %{"other_key" => "value"}})
+
+      assert updated.defaults == %{"other_key" => "value"}
+    end
+  end
+
   describe "iteration_budget/1" do
     test "returns configured workspace max_iterations" do
       workspace = insert_workspace!(%{max_iterations: 6})

@@ -250,6 +250,22 @@
             </div>
             <div class="space-y-2">
               <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+                <.icon name="hero-arrow-down-on-square-mini" class="size-3.5" /> Land Mode
+              </div>
+              <.input
+                field={@ticket_form[:land_mode]}
+                type="select"
+                options={[
+                  {"Inherited (#{@effective_land_mode})", ""},
+                  {"Review Gate", "review_gate"},
+                  {"Auto Land", "auto_land"}
+                ]}
+                class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                phx-debounce="600"
+              />
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-[11px] text-fg-muted">
                 <.icon name="hero-user-mini" class="size-3.5" /> Assignee
               </div>
               <.input

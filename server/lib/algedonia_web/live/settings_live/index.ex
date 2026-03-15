@@ -19,6 +19,7 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
      socket
      |> assign(:page_title, "Settings")
      |> assign(:script_drop_errors, %{})
+     |> assign(:default_land_mode, get_in(workspace.defaults, ["land_mode"]) || "review_gate")
      |> assign_settings_form(workspace)
      |> assign_members_and_invitations(workspace)
      |> assign(:invite_form, to_form(%{"github_username" => ""}, as: "invite"))}
@@ -41,12 +42,14 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
     params = Map.put(params, "slug", slug)
     prefix = Workspaces.prefix_for_name(params["name"] || workspace.name)
     params = Map.put(params, "prefix", prefix)
+    params = merge_land_mode_into_defaults(params, workspace)
 
     case Workspaces.update_workspace(workspace, params) do
       {:ok, updated} ->
         socket =
           socket
           |> assign(:current_workspace, updated)
+          |> assign(:default_land_mode, get_in(updated.defaults, ["land_mode"]) || "review_gate")
           |> assign_settings_form(updated)
           |> clear_script_drop_errors()
           |> put_flash(:info, "Workspace updated.")
@@ -129,4 +132,16 @@ defmodule AlgedoniaWeb.SettingsLive.Index do
   end
 
   defp clear_script_drop_errors(socket), do: assign(socket, :script_drop_errors, %{})
+
+  defp merge_land_mode_into_defaults(params, workspace) do
+    case Map.pop(params, "default_land_mode") do
+      {nil, params} ->
+        params
+
+      {land_mode, params} ->
+        current_defaults = workspace.defaults || %{}
+        updated_defaults = Map.put(current_defaults, "land_mode", land_mode)
+        Map.put(params, "defaults", updated_defaults)
+    end
+  end
 end

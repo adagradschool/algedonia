@@ -28,6 +28,7 @@ defmodule Algedonia.Tickets.Ticket do
     field :acceptance_criteria, :string
     field :rubric, :string
     field :overview, :string
+    field :land_mode, Ecto.Enum, values: [:review_gate, :auto_land]
     field :blocked_by, {:array, :binary_id}, default: []
     field :review_pr_number, :integer
 
@@ -52,6 +53,7 @@ defmodule Algedonia.Tickets.Ticket do
           acceptance_criteria: String.t() | nil,
           rubric: String.t() | nil,
           overview: String.t() | nil,
+          land_mode: :review_gate | :auto_land | nil,
           blocked_by: [Algedonia.Types.id()],
           review_pr_number: integer() | nil,
           comments: [Comment.t()] | Ecto.Association.NotLoaded.t(),
@@ -78,6 +80,7 @@ defmodule Algedonia.Tickets.Ticket do
       :acceptance_criteria,
       :rubric,
       :overview,
+      :land_mode,
       :blocked_by,
       :review_pr_number
     ])
