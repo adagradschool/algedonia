@@ -33,6 +33,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
       assignee_options: assignee_options,
+      assignee_open: false,
       assignee_search: ticket.assignee || "",
       blocker_tickets: resolve_blocker_tickets(ticket),
       blocked_by_options: blocked_by_options,
@@ -349,11 +350,15 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   end
 
   def handle("filter_assignee_detail", %{"value" => query}, socket) do
-    {:noreply, assign(socket, assignee_search: query)}
+    {:noreply, assign(socket, assignee_search: query, assignee_open: true)}
+  end
+
+  def handle("open_assignee_detail", _params, socket) do
+    {:noreply, assign(socket, :assignee_open, true)}
   end
 
   def handle("select_detail_assignee", %{"assignee" => assignee}, socket) do
-    socket = assign(socket, :assignee_search, assignee)
+    socket = assign(socket, assignee_search: assignee, assignee_open: false)
     params = Map.put(current_ticket_form_params(socket), "assignee", assignee)
     autosave_ticket(socket, params)
   end
@@ -406,6 +411,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
+      assignee_open: false,
       assignee_search: ticket.assignee || "",
       blocker_tickets: resolve_blocker_tickets(ticket),
       loop_id: Loops.first_inspect_loop_id(ticket.id),

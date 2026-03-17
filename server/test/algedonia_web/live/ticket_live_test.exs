@@ -143,6 +143,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       assert has_element?(view, "#ticket-form-assignee-search")
       refute has_element?(view, ~s{#ticket-form input[name="ticket[assignee]"][type="text"]})
+      refute has_element?(view, "#ticket-form-assignee-option-alpha-modal")
 
       html =
         view
@@ -267,6 +268,8 @@ defmodule AlgedoniaWeb.TicketLiveTest do
                view,
                ~s{#ticket-detail-form input[name="ticket[assignee]"][type="text"]}
              )
+
+      refute has_element?(view, "#ticket-detail-assignee-option-alpha-detail")
 
       html =
         view

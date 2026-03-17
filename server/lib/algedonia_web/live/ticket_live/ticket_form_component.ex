@@ -28,6 +28,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
      |> assign(:blocked_by_options, blocked_by_options)
      |> assign(:blocked_by_search, "")
      |> assign(:assignee_options, assignee_options)
+     |> assign(:assignee_open, false)
      |> assign(:assignee_search, ticket.assignee || "")
      |> assign(:depends_on_expanded, action != :new)
      |> assign_new(:return_to, fn ->
@@ -53,7 +54,11 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   end
 
   def handle_event("filter_assignee", %{"value" => query}, socket) do
-    {:noreply, assign(socket, :assignee_search, query)}
+    {:noreply, assign(socket, assignee_search: query, assignee_open: true)}
+  end
+
+  def handle_event("open_assignee", _params, socket) do
+    {:noreply, assign(socket, :assignee_open, true)}
   end
 
   def handle_event("select_assignee", %{"assignee" => assignee}, socket) do
@@ -64,6 +69,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
     {:noreply,
      socket
+     |> assign(:assignee_open, false)
      |> assign(:assignee_search, assignee)
      |> assign_form(changeset)}
   end
@@ -156,9 +162,11 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   attr :field, Phoenix.HTML.FormField, required: true
   attr :label, :string, default: "Assignee"
   attr :options, :list, default: []
+  attr :open, :boolean, default: false
   attr :search, :string, default: ""
   attr :target, :any, default: nil
   attr :filter_event, :string, required: true
+  attr :open_event, :string, required: true
   attr :select_event, :string, required: true
   attr :search_input_class, :string, required: true
   attr :options_container_class, :string, required: true
@@ -201,12 +209,13 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
         type="text"
         value={@search}
         placeholder="Search members..."
+        phx-focus={@open_event}
         phx-keyup={@filter_event}
         phx-target={@target}
         class={@search_input_class}
       />
 
-      <div class={@options_container_class}>
+      <div :if={@open and @filtered_options != []} class={@options_container_class}>
         <button
           :for={{label, value} <- @filtered_options}
           id={assignee_option_id(@id, value)}
@@ -224,7 +233,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
       </div>
 
       <p
-        :if={@filtered_options == [] and String.trim(@search) != ""}
+        :if={@open and @filtered_options == [] and String.trim(@search) != ""}
         class={@no_matches_class}
       >
         No matching members
