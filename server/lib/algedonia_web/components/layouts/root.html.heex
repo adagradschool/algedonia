@@ -7,6 +7,160 @@
     <.live_title default="Algedonia">
       {assigns[:page_title]}
     </.live_title>
+    <script>
+      (() => {
+        const STORAGE_PREFIX = "algedonia:"
+        const SHARED_KEY = "<%= left_sidebar_storage_key() %>"
+        const LEGACY_KEYS = ["workspace-left-sidebar-width", "loop-left-sidebar-width"]
+        const LAYOUT_SELECTOR = "#workspace-layout, #loop-workspace-layout"
+        const MIN_WIDTH = 224
+        const MAX_WIDTH = 448
+        const DEFAULT_WIDTH = 256
+        const COLLAPSED_WIDTH = 52
+        const HANDLE_WIDTH = 16
+
+        const parseWidth = (value) => {
+          const parsed = Number.parseInt(value, 10)
+          return Number.isFinite(parsed) ? parsed : null
+        }
+
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+
+        const parseStoredState = (raw) => {
+          if (!raw) return null
+
+          const legacyWidth = parseWidth(raw)
+          if (legacyWidth !== null) {
+            return { width: legacyWidth, collapsed: false }
+          }
+
+          try {
+            const parsed = JSON.parse(raw)
+            return {
+              width: parseWidth(parsed?.width),
+              collapsed: parsed?.collapsed === true
+            }
+          } catch (_error) {
+            return null
+          }
+        }
+
+        const keys = [
+          `${STORAGE_PREFIX}${SHARED_KEY}`,
+          ...LEGACY_KEYS.map((key) => `${STORAGE_PREFIX}${key}`)
+        ]
+
+        let state = null
+
+        try {
+          for (const key of keys) {
+            const parsed = parseStoredState(window.localStorage.getItem(key))
+            if (!parsed) continue
+
+            state = {
+              width: clamp(parsed.width ?? DEFAULT_WIDTH, MIN_WIDTH, MAX_WIDTH),
+              collapsed: parsed.collapsed
+            }
+
+            if (key !== `${STORAGE_PREFIX}${SHARED_KEY}`) {
+              window.localStorage.setItem(
+                `${STORAGE_PREFIX}${SHARED_KEY}`,
+                JSON.stringify(state)
+              )
+            }
+
+            break
+          }
+        } catch (_error) {
+          state = null
+        }
+
+        if (!state) return
+
+        const gridValue = state.collapsed
+          ? `${COLLAPSED_WIDTH}px ${HANDLE_WIDTH}px minmax(0,1fr)`
+          : `${state.width}px ${HANDLE_WIDTH}px minmax(0,1fr)`
+
+        const style = document.createElement("style")
+        style.setAttribute("data-sidebar-preload", "")
+        style.textContent = `
+          ${LAYOUT_SELECTOR} {
+            --left-sidebar-width: ${state.width}px;
+            grid-template-columns: ${gridValue};
+          }
+        `
+
+        if (state.collapsed) {
+          style.textContent += `
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar {
+              width: 100%;
+              align-items: center;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-expanded-only] {
+              display: none;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar > * {
+              width: 100%;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-link {
+              justify-content: center;
+              padding-left: 0.35rem;
+              padding-right: 0.35rem;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-new-issue {
+              width: 2.5rem;
+              height: 2.5rem;
+              min-height: 2.5rem;
+              margin-left: auto;
+              margin-right: auto;
+              padding: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-create {
+              padding-left: 0;
+              padding-right: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar [data-sidebar-slot] {
+              padding-left: 0;
+              padding-right: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .loop-sidebar-loop-card {
+              margin-top: 0.5rem;
+              border-color: transparent;
+              background: transparent;
+              padding: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .loop-sidebar-loop-card > div {
+              justify-content: center;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .loop-sidebar-loop-dot {
+              width: 0.625rem;
+              height: 0.625rem;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-account {
+              justify-content: center;
+              padding-left: 0.25rem;
+              padding-right: 0.25rem;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-toggle] svg {
+              transform: rotate(180deg);
+            }
+          `
+        }
+
+        document.head.appendChild(style)
+      })()
+    </script>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <link phx-track-static rel="stylesheet" href={~p"/assets/js/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>

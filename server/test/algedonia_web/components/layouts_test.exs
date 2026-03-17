@@ -109,7 +109,7 @@ defmodule AlgedoniaWeb.LayoutsTest do
 
       assert html =~ ~s(id="workspace-layout")
       assert html =~ ~s(phx-hook="SidebarPanel")
-      assert html =~ ~s(data-storage-key="workspace-left-sidebar-width")
+      assert html =~ ~s(data-storage-key="left-sidebar-width")
       assert html =~ ~s(data-sidebar-handle)
       assert html =~ ~s(data-sidebar-toggle)
       assert html =~ ~s(data-collapsed-width="52")

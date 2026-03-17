@@ -1,4 +1,27 @@
 const STORAGE_PREFIX = "algedonia:"
+const LEGACY_STORAGE_KEYS = ["workspace-left-sidebar-width", "loop-left-sidebar-width"]
+
+const parseStoredState = (raw) => {
+  if (!raw) return null
+
+  const legacyWidth = parseWidth(raw)
+  if (legacyWidth !== null) {
+    return {
+      width: legacyWidth,
+      collapsed: false
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    return {
+      width: parseWidth(parsed?.width),
+      collapsed: parsed?.collapsed === true
+    }
+  } catch (_error) {
+    return null
+  }
+}
 
 const parseWidth = (value) => {
   const parsed = Number.parseInt(value, 10)
@@ -53,6 +76,7 @@ const SidebarPanel = {
     this.collapsed = collapsed
     this.applyWidth(width)
     this.applyCollapsed(this.collapsed)
+    this.cleanupPreloadStyle()
   },
 
   updated() {
@@ -62,6 +86,7 @@ const SidebarPanel = {
     const { width, collapsed } = this.restoreState()
     this.applyWidth(this.width ?? width)
     this.applyCollapsed(this.collapsed ?? collapsed)
+    this.cleanupPreloadStyle()
   },
 
   destroyed() {
@@ -162,21 +187,38 @@ const SidebarPanel = {
       collapsed: false
     }
 
-    const key = this.dimensions.storageKey
-    if (!key) return fallback
+    const keys = this.dimensions.storageKey
+      ? [
+          this.dimensions.storageKey,
+          ...LEGACY_STORAGE_KEYS
+            .map((legacyKey) => `${STORAGE_PREFIX}${legacyKey}`)
+            .filter((legacyKey) => legacyKey !== this.dimensions.storageKey)
+        ]
+      : []
+
+    if (keys.length === 0) return fallback
 
     try {
-      const raw = window.localStorage.getItem(key)
-      if (!raw) return fallback
+      for (const key of keys) {
+        const parsed = parseStoredState(window.localStorage.getItem(key))
+        if (!parsed) continue
 
-      const parsed = JSON.parse(raw)
-      return {
-        width: parseWidth(parsed?.width) ?? fallback.width,
-        collapsed: parsed?.collapsed === true
+        const restored = {
+          width: parsed.width ?? fallback.width,
+          collapsed: parsed.collapsed
+        }
+
+        if (key !== this.dimensions.storageKey) {
+          window.localStorage.setItem(this.dimensions.storageKey, JSON.stringify(restored))
+        }
+
+        return restored
       }
     } catch (_error) {
       return fallback
     }
+
+    return fallback
   },
 
   cleanupPointerTracking() {
@@ -187,6 +229,10 @@ const SidebarPanel = {
       window.removeEventListener("pointerup", this.onPointerUp)
       window.removeEventListener("pointercancel", this.onPointerUp)
     }
+  },
+
+  cleanupPreloadStyle() {
+    document.querySelector("[data-sidebar-preload]")?.remove()
   }
 }
 
