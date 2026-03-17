@@ -280,6 +280,13 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Beta Detail"
       refute html =~ "Alpine Outside"
 
+      view |> render_click("close_assignee_detail", %{})
+      refute has_element?(view, "#ticket-detail-assignee-option-alpha-detail")
+
+      view
+      |> element("#ticket-detail-assignee-search")
+      |> render_keyup(%{"value" => "alp"})
+
       view
       |> element("#ticket-detail-assignee-option-alpha-detail")
       |> render_click()

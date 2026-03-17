@@ -61,6 +61,10 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
     {:noreply, assign(socket, :assignee_open, true)}
   end
 
+  def handle_event("close_assignee", _params, socket) do
+    {:noreply, assign(socket, :assignee_open, false)}
+  end
+
   def handle_event("select_assignee", %{"assignee" => assignee}, socket) do
     changeset =
       socket.assigns.ticket
@@ -167,6 +171,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   attr :target, :any, default: nil
   attr :filter_event, :string, required: true
   attr :open_event, :string, required: true
+  attr :close_event, :string, required: true
   attr :select_event, :string, required: true
   attr :search_input_class, :string, required: true
   attr :options_container_class, :string, required: true
@@ -186,7 +191,12 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
       )
 
     ~H"""
-    <div class="fieldset mb-2">
+    <div
+      id={"#{@id}-wrapper"}
+      class="fieldset mb-2"
+      phx-click-away={@close_event}
+      phx-target={@target}
+    >
       <div class="flex items-center justify-between gap-3">
         <span :if={@label} class="label mb-1">{@label}</span>
         <button
