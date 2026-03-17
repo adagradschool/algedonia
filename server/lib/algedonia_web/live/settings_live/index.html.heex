@@ -32,6 +32,24 @@
             min="1"
             max="50"
           />
+          <div class="fieldset">
+            <label class="label">Default land mode</label>
+            <select
+              id="workspace-default-land-mode"
+              name="workspace[default_land_mode]"
+              class="w-full px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
+            >
+              <option value="review_gate" selected={@default_land_mode == "review_gate"}>
+                Review Gate
+              </option>
+              <option value="auto_land" selected={@default_land_mode == "auto_land"}>
+                Auto Land
+              </option>
+            </select>
+            <p class="mt-1 text-xs text-fg-muted">
+              Applied to new loops when a ticket has no override.
+            </p>
+          </div>
           <div class="space-y-4">
             <div class="text-sm font-medium text-fg">Worktree scripts</div>
 

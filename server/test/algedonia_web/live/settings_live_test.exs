@@ -264,6 +264,38 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
     end
   end
 
+  describe "default land mode" do
+    test "renders land mode selector with default value", %{conn: conn, workspace: workspace} do
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+      assert html =~ "Default land mode"
+      assert html =~ "Review Gate"
+      assert html =~ "Auto Land"
+    end
+
+    test "saves default land mode to workspace defaults", %{conn: conn, workspace: workspace} do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      view
+      |> form("form[phx-submit=save]",
+        workspace: %{name: workspace.name, default_land_mode: "auto_land"}
+      )
+      |> render_submit()
+
+      reloaded = Algedonia.Workspaces.get_workspace!(workspace.id)
+      assert reloaded.defaults["land_mode"] == "auto_land"
+    end
+
+    test "persisted land mode is reflected on reload", %{conn: conn, workspace: workspace} do
+      {:ok, _} =
+        Algedonia.Workspaces.update_workspace(workspace, %{
+          defaults: %{"land_mode" => "auto_land"}
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+      assert html =~ ~s(value="auto_land" selected)
+    end
+  end
+
   describe "automations" do
     test "renders automations section", %{conn: conn, workspace: workspace} do
       {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")

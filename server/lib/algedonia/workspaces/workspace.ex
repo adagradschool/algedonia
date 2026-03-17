@@ -89,5 +89,18 @@ defmodule Algedonia.Workspaces.Workspace do
     |> validate_format(:github_repo_url, ~r{^https?://},
       message: "must be a valid URL starting with http:// or https://"
     )
+    |> validate_defaults_land_mode()
+  end
+
+  @valid_land_modes ~w(review_gate auto_land)
+
+  defp validate_defaults_land_mode(changeset) do
+    case get_field(changeset, :defaults) do
+      %{"land_mode" => mode} when mode not in @valid_land_modes ->
+        add_error(changeset, :defaults, "land_mode must be review_gate or auto_land")
+
+      _ ->
+        changeset
+    end
   end
 end

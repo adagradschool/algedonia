@@ -24,11 +24,13 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     if connected?(socket), do: Loops.subscribe_ticket_loops(workspace_id, ticket.id)
 
     blocked_by_options = build_blocked_by_options(workspace_id, ticket.id)
+    workspace = Workspaces.get_workspace!(workspace_id)
 
     assign(socket,
       page_title: ticket.title,
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
+      effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
       blocker_tickets: resolve_blocker_tickets(ticket),
       blocked_by_options: blocked_by_options,
       blocked_by_search: "",
@@ -381,9 +383,12 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   # -- Helpers --
 
   defp assign_saved_ticket(socket, ticket) do
+    workspace = Workspaces.get_workspace!(ticket.workspace_id)
+
     assign(socket,
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
+      effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
       blocker_tickets: resolve_blocker_tickets(ticket),
       loop_id: Loops.first_inspect_loop_id(ticket.id),
       review_loop_id: Loops.first_review_loop_id(ticket.id),
@@ -427,6 +432,10 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     |> Enum.reject(&(&1.id == ticket_id))
     |> Enum.map(&{"##{&1.number} #{&1.title}", &1.id})
   end
+
+  defp format_land_mode(:auto_land), do: "Auto Land"
+  defp format_land_mode(:review_gate), do: "Review Gate"
+  defp format_land_mode(_), do: "Review Gate"
 
   defp resolve_blocker_tickets(%{blocked_by: ids}) when is_list(ids) and ids != [] do
     Tickets.get_tickets_by_ids(ids)

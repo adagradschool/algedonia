@@ -86,15 +86,19 @@ defmodule Algedonia.Tickets.Planning do
   end
 
   defp create_single_loop(ticket, checker_config) do
+    workspace = Workspaces.get_workspace!(ticket.workspace_id)
+    land_mode = Tickets.resolve_land_mode(ticket, workspace)
+
     attrs = %{
       workspace_id: ticket.workspace_id,
       ticket_id: ticket.id,
       title: ticket.title,
       description: ticket.description || "",
       role: :task,
-      max_attempts: Workspaces.iteration_budget(ticket.workspace_id),
+      max_attempts: Workspaces.iteration_budget(workspace),
       rubric: ticket.rubric || "",
-      checker_config: checker_config
+      checker_config: checker_config,
+      land_mode: Atom.to_string(land_mode)
     }
 
     case Loops.create_loop(attrs) do

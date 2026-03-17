@@ -584,6 +584,24 @@ defmodule Algedonia.Tickets do
     update_ticket(ticket, %{status: :backlog}, skip_hooks: true)
   end
 
+  @doc """
+  Resolves the effective land mode for a ticket using deterministic precedence:
+  ticket override -> workspace default -> system fallback `:review_gate`.
+  """
+  @spec resolve_land_mode(Ticket.t(), Workspace.t() | nil) :: :review_gate | :auto_land
+  def resolve_land_mode(%Ticket{land_mode: mode}, _workspace)
+      when mode in [:review_gate, :auto_land] do
+    mode
+  end
+
+  def resolve_land_mode(_ticket, %Workspace{defaults: %{"land_mode" => "auto_land"}}),
+    do: :auto_land
+
+  def resolve_land_mode(_ticket, %Workspace{defaults: %{"land_mode" => "review_gate"}}),
+    do: :review_gate
+
+  def resolve_land_mode(_ticket, _workspace), do: :review_gate
+
   # -- Markdown export (delegated) --
 
   @spec export_markdown(Ticket.t()) :: String.t()

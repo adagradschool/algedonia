@@ -1014,6 +1014,44 @@ defmodule AlgedoniaWeb.TicketLiveTest do
     end
   end
 
+  describe "Land Mode" do
+    test "ticket detail shows land mode selector with inherited default", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert html =~ "Land Mode"
+      assert html =~ "Inherited (Review Gate)"
+    end
+
+    test "ticket detail shows effective land mode from workspace default", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, _} =
+        Algedonia.Workspaces.update_workspace(workspace, %{
+          defaults: %{"land_mode" => "auto_land"}
+        })
+
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      {:ok, _view, html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert html =~ "Inherited (Auto Land)"
+    end
+
+    test "saving land mode persists override on ticket", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{workspace_id: workspace.id})
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      view
+      |> form("#ticket-detail-form", ticket: %{land_mode: "auto_land"})
+      |> render_change()
+
+      reloaded = Algedonia.Tickets.get_ticket!(ticket.id)
+      assert reloaded.land_mode == :auto_land
+    end
+  end
+
   describe "Export Markdown" do
     test "ticket detail settings dropdown has export option", %{
       conn: conn,
