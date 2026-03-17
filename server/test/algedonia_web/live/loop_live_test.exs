@@ -446,6 +446,7 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute has_element?(view, "#loop-inspector-layout[style*='--inspector-width']")
 
       assert has_element?(view, "#loop-workspace-layout[phx-hook='SidebarPanel']")
+      assert has_element?(view, "#loop-workspace-layout[data-storage-key='left-sidebar-width']")
       assert has_element?(view, "#loop-workspace-layout [data-sidebar-toggle]")
       assert has_element?(view, "#loop-workspace-layout[data-collapsed-width='52']")
       assert has_element?(view, "#loop-inspector-layout[phx-hook='SplitPanel']")

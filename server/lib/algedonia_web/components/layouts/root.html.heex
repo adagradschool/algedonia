@@ -7,6 +7,90 @@
     <.live_title default="Algedonia">
       {assigns[:page_title]}
     </.live_title>
+    <script>
+      (() => {
+        const STORAGE_PREFIX = "algedonia:"
+        const SHARED_KEY = "<%= left_sidebar_storage_key() %>"
+        const LEGACY_KEYS = ["workspace-left-sidebar-width", "loop-left-sidebar-width"]
+        const MIN_WIDTH = 224
+        const MAX_WIDTH = 448
+        const DEFAULT_WIDTH = 256
+        const COLLAPSED_WIDTH = 52
+        const HANDLE_WIDTH = 16
+
+        const parseWidth = (value) => {
+          const parsed = Number.parseInt(value, 10)
+          return Number.isFinite(parsed) ? parsed : null
+        }
+
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+
+        const parseStoredState = (raw) => {
+          if (!raw) return null
+
+          const legacyWidth = parseWidth(raw)
+          if (legacyWidth !== null) {
+            return { width: legacyWidth, collapsed: false }
+          }
+
+          try {
+            const parsed = JSON.parse(raw)
+            return {
+              width: parseWidth(parsed?.width),
+              collapsed: parsed?.collapsed === true
+            }
+          } catch (_error) {
+            return null
+          }
+        }
+
+        const keys = [
+          `${STORAGE_PREFIX}${SHARED_KEY}`,
+          ...LEGACY_KEYS.map((key) => `${STORAGE_PREFIX}${key}`)
+        ]
+
+        let state = null
+
+        try {
+          for (const key of keys) {
+            const parsed = parseStoredState(window.localStorage.getItem(key))
+            if (!parsed) continue
+
+            state = {
+              width: clamp(parsed.width ?? DEFAULT_WIDTH, MIN_WIDTH, MAX_WIDTH),
+              collapsed: parsed.collapsed
+            }
+
+            if (key !== `${STORAGE_PREFIX}${SHARED_KEY}`) {
+              window.localStorage.setItem(
+                `${STORAGE_PREFIX}${SHARED_KEY}`,
+                JSON.stringify(state)
+              )
+            }
+
+            break
+          }
+        } catch (_error) {
+          state = null
+        }
+
+        if (!state) return
+
+        const gridValue = state.collapsed
+          ? `${COLLAPSED_WIDTH}px ${HANDLE_WIDTH}px minmax(0,1fr)`
+          : `${state.width}px ${HANDLE_WIDTH}px minmax(0,1fr)`
+
+        const style = document.createElement("style")
+        style.setAttribute("data-sidebar-preload", "")
+        style.textContent = `
+          #workspace-layout, #loop-workspace-layout {
+            --left-sidebar-width: ${state.width}px;
+            grid-template-columns: ${gridValue};
+          }
+        `
+        document.head.appendChild(style)
+      })()
+    </script>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <link phx-track-static rel="stylesheet" href={~p"/assets/js/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>

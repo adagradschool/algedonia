@@ -5,6 +5,9 @@ defmodule AlgedoniaWeb.Layouts do
   use AlgedoniaWeb, :html
 
   embed_templates "layouts/*"
+  @left_sidebar_storage_key "left-sidebar-width"
+
+  def left_sidebar_storage_key, do: @left_sidebar_storage_key
 
   @doc """
   Renders the app layout with sidebar navigation.
@@ -46,7 +49,7 @@ defmodule AlgedoniaWeb.Layouts do
         data-default-width="256"
         data-collapsed-width="52"
         data-handle-width="16"
-        data-storage-key="workspace-left-sidebar-width"
+        data-storage-key={left_sidebar_storage_key()}
         class="h-full grid grid-cols-[var(--left-sidebar-width,16rem)_16px_minmax(0,1fr)] overflow-hidden"
       >
         <div id="workspace-left-sidebar-panel" data-sidebar-panel class="min-w-0 overflow-hidden">
