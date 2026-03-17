@@ -76,6 +76,7 @@ const SidebarPanel = {
     this.collapsed = collapsed
     this.applyWidth(width)
     this.applyCollapsed(this.collapsed)
+    this.cleanupPreloadStyle()
   },
 
   updated() {
@@ -85,6 +86,7 @@ const SidebarPanel = {
     const { width, collapsed } = this.restoreState()
     this.applyWidth(this.width ?? width)
     this.applyCollapsed(this.collapsed ?? collapsed)
+    this.cleanupPreloadStyle()
   },
 
   destroyed() {
@@ -227,6 +229,10 @@ const SidebarPanel = {
       window.removeEventListener("pointerup", this.onPointerUp)
       window.removeEventListener("pointercancel", this.onPointerUp)
     }
+  },
+
+  cleanupPreloadStyle() {
+    document.querySelector("[data-sidebar-preload]")?.remove()
   }
 }
 

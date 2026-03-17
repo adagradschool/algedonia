@@ -12,6 +12,7 @@
         const STORAGE_PREFIX = "algedonia:"
         const SHARED_KEY = "<%= left_sidebar_storage_key() %>"
         const LEGACY_KEYS = ["workspace-left-sidebar-width", "loop-left-sidebar-width"]
+        const LAYOUT_SELECTOR = "#workspace-layout, #loop-workspace-layout"
         const MIN_WIDTH = 224
         const MAX_WIDTH = 448
         const DEFAULT_WIDTH = 256
@@ -83,11 +84,80 @@
         const style = document.createElement("style")
         style.setAttribute("data-sidebar-preload", "")
         style.textContent = `
-          #workspace-layout, #loop-workspace-layout {
+          ${LAYOUT_SELECTOR} {
             --left-sidebar-width: ${state.width}px;
             grid-template-columns: ${gridValue};
           }
         `
+
+        if (state.collapsed) {
+          style.textContent += `
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar {
+              width: 100%;
+              align-items: center;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-expanded-only] {
+              display: none;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar > * {
+              width: 100%;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-link {
+              justify-content: center;
+              padding-left: 0.35rem;
+              padding-right: 0.35rem;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-new-issue {
+              width: 2.5rem;
+              height: 2.5rem;
+              min-height: 2.5rem;
+              margin-left: auto;
+              margin-right: auto;
+              padding: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-create {
+              padding-left: 0;
+              padding-right: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar [data-sidebar-slot] {
+              padding-left: 0;
+              padding-right: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .loop-sidebar-loop-card {
+              margin-top: 0.5rem;
+              border-color: transparent;
+              background: transparent;
+              padding: 0;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .loop-sidebar-loop-card > div {
+              justify-content: center;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .loop-sidebar-loop-dot {
+              width: 0.625rem;
+              height: 0.625rem;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-panel] .workspace-sidebar .workspace-sidebar-account {
+              justify-content: center;
+              padding-left: 0.25rem;
+              padding-right: 0.25rem;
+            }
+
+            ${LAYOUT_SELECTOR} [data-sidebar-toggle] svg {
+              transform: rotate(180deg);
+            }
+          `
+        }
+
         document.head.appendChild(style)
       })()
     </script>
