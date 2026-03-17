@@ -660,16 +660,8 @@ defmodule Algedonia.Tickets do
     workspace_id = get_field(changeset, :workspace_id)
 
     with_workspace_scope(workspace_id, fn ->
-      case Repo.transaction(fn -> insert_ticket_and_queue(changeset) end) do
-        {:ok, ticket} ->
-          {:ok, ticket}
-
-        {:error, {:ticket, ticket_changeset}} ->
-          {:error, ticket_changeset}
-
-        {:error, {:queue_entry, _reason}} ->
-          {:error, add_error(changeset, :base, "queue entry persistence failed")}
-      end
+      Repo.transaction(fn -> insert_ticket_and_queue(changeset) end)
+      |> normalize_ticket_insert_result(changeset)
     end)
   end
 
@@ -688,6 +680,16 @@ defmodule Algedonia.Tickets do
       {:ok, _queue_entry} -> ticket
       {:error, reason} -> Repo.rollback({:queue_entry, reason})
     end
+  end
+
+  defp normalize_ticket_insert_result({:ok, ticket}, _changeset), do: {:ok, ticket}
+
+  defp normalize_ticket_insert_result({:error, {:ticket, ticket_changeset}}, _changeset) do
+    {:error, ticket_changeset}
+  end
+
+  defp normalize_ticket_insert_result({:error, {:queue_entry, _reason}}, changeset) do
+    {:error, add_error(changeset, :base, "queue entry persistence failed")}
   end
 
   defp insert_queue_entry(repo, %Ticket{} = ticket) do
