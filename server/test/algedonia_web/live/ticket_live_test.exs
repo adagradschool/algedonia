@@ -124,6 +124,53 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert render(view) =~ "Edited title"
     end
 
+    test "modal assignee selector filters workspace members by prefix and persists selection", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      alpha = insert_user!(%{name: "Alpha Modal"})
+      beta = insert_user!(%{name: "Beta Modal"})
+      other_workspace = insert_workspace!(%{name: "Other Modal Workspace"})
+      outsider = insert_user!(%{name: "Alfred Outside"})
+
+      insert_membership!(workspace, alpha)
+      insert_membership!(workspace, beta)
+      insert_membership!(other_workspace, outsider)
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      view |> element("#new-issue-button") |> render_click()
+
+      assert has_element?(view, "#ticket-form-assignee-search")
+      refute has_element?(view, ~s{#ticket-form input[name="ticket[assignee]"][type="text"]})
+
+      html =
+        view
+        |> element("#ticket-form-assignee-search")
+        |> render_keyup(%{"value" => "al"})
+
+      assert html =~ "Alpha Modal"
+      refute html =~ "Beta Modal"
+      refute html =~ "Alfred Outside"
+
+      view
+      |> element("#ticket-form-assignee-option-alpha-modal")
+      |> render_click()
+
+      view
+      |> form("#ticket-form", ticket: %{title: "Assigned from modal", type: :bug, priority: 2})
+      |> render_submit()
+
+      ticket =
+        Tickets.list_tickets(workspace_id: workspace.id)
+        |> Enum.find(&(&1.title == "Assigned from modal"))
+
+      assert ticket.assignee == "Alpha Modal"
+
+      {:ok, reload_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert has_element?(reload_view, ~s{#ticket-detail-assignee-search[value="Alpha Modal"]})
+    end
+
     test "deletes a ticket", %{conn: conn, workspace: workspace} do
       ticket = insert_ticket!(%{title: "Doomed ticket", workspace_id: workspace.id})
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
@@ -194,6 +241,56 @@ defmodule AlgedoniaWeb.TicketLiveTest do
              )
 
       assert has_element?(view, "#ticket-rubric-field-editor[phx-hook='MarkdownEditor']")
+    end
+
+    test "detail assignee selector autosaves selection and allows clearing", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      alpha = insert_user!(%{name: "Alpha Detail"})
+      beta = insert_user!(%{name: "Beta Detail"})
+      other_workspace = insert_workspace!(%{name: "Other Detail Workspace"})
+      outsider = insert_user!(%{name: "Alpine Outside"})
+
+      insert_membership!(workspace, alpha)
+      insert_membership!(workspace, beta)
+      insert_membership!(other_workspace, outsider)
+
+      ticket =
+        insert_ticket!(%{title: "Detail assignee", workspace_id: workspace.id, assignee: nil})
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert has_element?(view, "#ticket-detail-assignee-search")
+
+      refute has_element?(
+               view,
+               ~s{#ticket-detail-form input[name="ticket[assignee]"][type="text"]}
+             )
+
+      html =
+        view
+        |> element("#ticket-detail-assignee-search")
+        |> render_keyup(%{"value" => "alp"})
+
+      assert html =~ "Alpha Detail"
+      refute html =~ "Beta Detail"
+      refute html =~ "Alpine Outside"
+
+      view
+      |> element("#ticket-detail-assignee-option-alpha-detail")
+      |> render_click()
+
+      assert Tickets.get_ticket!(ticket.id).assignee == "Alpha Detail"
+
+      {:ok, reload_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert has_element?(reload_view, ~s{#ticket-detail-assignee-search[value="Alpha Detail"]})
+
+      reload_view
+      |> element("#ticket-detail-assignee-clear")
+      |> render_click()
+
+      assert Tickets.get_ticket!(ticket.id).assignee == nil
     end
 
     test "manual run control is only shown for in-progress and in-review tickets", %{

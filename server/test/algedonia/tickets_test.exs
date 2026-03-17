@@ -22,6 +22,59 @@ defmodule Algedonia.TicketsTest do
     end
   end
 
+  describe "assignee validation" do
+    test "create_ticket_for_workspace persists a workspace member assignee" do
+      workspace = insert_workspace!(%{name: "Assignee Workspace"})
+      member = insert_user!(%{name: "Workspace Member"})
+      insert_membership!(workspace, member)
+
+      assert {:ok, ticket} =
+               Tickets.create_ticket_for_workspace(workspace, %{
+                 "title" => "Assigned ticket",
+                 "type" => "bug",
+                 "assignee" => "Workspace Member"
+               })
+
+      assert ticket.assignee == "Workspace Member"
+    end
+
+    test "create_ticket_for_workspace rejects non-member assignees" do
+      workspace = insert_workspace!(%{name: "Primary Workspace"})
+      other_workspace = insert_workspace!(%{name: "Other Workspace"})
+      outsider = insert_user!(%{name: "Outside Member"})
+      insert_membership!(other_workspace, outsider)
+
+      assert {:error, changeset} =
+               Tickets.create_ticket_for_workspace(workspace, %{
+                 "title" => "Invalid assignee",
+                 "type" => "bug",
+                 "assignee" => "Outside Member"
+               })
+
+      assert "must be a workspace member" in errors_on(changeset).assignee
+    end
+
+    test "update_ticket rejects assignees from another workspace and allows clearing" do
+      workspace = insert_workspace!(%{name: "Current Workspace"})
+      member = insert_user!(%{name: "Current Member"})
+      other_workspace = insert_workspace!(%{name: "External Workspace"})
+      outsider = insert_user!(%{name: "External Member"})
+
+      insert_membership!(workspace, member)
+      insert_membership!(other_workspace, outsider)
+
+      ticket = insert_ticket!(%{workspace_id: workspace.id, assignee: "Current Member"})
+
+      assert {:error, changeset} =
+               Tickets.update_ticket(ticket, %{"assignee" => "External Member"})
+
+      assert "must be a workspace member" in errors_on(changeset).assignee
+
+      assert {:ok, cleared} = Tickets.update_ticket(ticket, %{"assignee" => "  "})
+      assert cleared.assignee == nil
+    end
+  end
+
   describe "list_tickets/1" do
     test "returns all tickets" do
       t1 = insert_ticket!()

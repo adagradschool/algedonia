@@ -10,6 +10,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   def update(%{ticket: ticket, action: action} = assigns, socket) do
     changeset = Tickets.change_ticket(ticket)
     workspace = Map.get(assigns, :workspace)
+    assignee_options = (workspace && Tickets.list_assignee_options(workspace.id)) || []
 
     blocked_by_options =
       if workspace do
@@ -26,6 +27,8 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
      |> assign(:action_label, if(action == :new, do: "Save issue", else: "Update issue"))
      |> assign(:blocked_by_options, blocked_by_options)
      |> assign(:blocked_by_search, "")
+     |> assign(:assignee_options, assignee_options)
+     |> assign(:assignee_search, ticket.assignee || "")
      |> assign(:depends_on_expanded, action != :new)
      |> assign_new(:return_to, fn ->
        workspace_slug = Map.get(assigns, :workspace_slug)
@@ -47,6 +50,22 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
   def handle_event("filter_blocked_by", %{"value" => query}, socket) do
     {:noreply, assign(socket, :blocked_by_search, query)}
+  end
+
+  def handle_event("filter_assignee", %{"value" => query}, socket) do
+    {:noreply, assign(socket, :assignee_search, query)}
+  end
+
+  def handle_event("select_assignee", %{"assignee" => assignee}, socket) do
+    changeset =
+      socket.assigns.ticket
+      |> Tickets.change_ticket(Map.put(current_form_params(socket), "assignee", assignee))
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:assignee_search, assignee)
+     |> assign_form(changeset)}
   end
 
   def handle_event("expand_depends_on", _params, socket) do
@@ -131,6 +150,118 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
       q = String.downcase(search)
       Enum.filter(options, fn {label, _id} -> String.contains?(String.downcase(label), q) end)
     end
+  end
+
+  attr :id, :string, required: true
+  attr :field, Phoenix.HTML.FormField, required: true
+  attr :label, :string, default: "Assignee"
+  attr :options, :list, default: []
+  attr :search, :string, default: ""
+  attr :target, :any, default: nil
+  attr :filter_event, :string, required: true
+  attr :select_event, :string, required: true
+  attr :search_input_class, :string, required: true
+  attr :options_container_class, :string, required: true
+  attr :option_class, :string, required: true
+  attr :selected_option_class, :string, required: true
+  attr :clear_button_class, :string, default: ""
+  attr :clear_button_label, :string, default: "Clear"
+  attr :no_matches_class, :string, default: ""
+  attr :error_class, :string, default: "mt-1.5 flex gap-2 items-center text-sm text-error"
+
+  def assignee_selector(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :filtered_options,
+        filtered_assignee_options(assigns.options, assigns.search)
+      )
+
+    ~H"""
+    <div class="fieldset mb-2">
+      <div class="flex items-center justify-between gap-3">
+        <span :if={@label} class="label mb-1">{@label}</span>
+        <button
+          :if={(@field.value || "") != ""}
+          id={"#{@id}-clear"}
+          type="button"
+          phx-click={@select_event}
+          phx-target={@target}
+          phx-value-assignee=""
+          class={@clear_button_class}
+        >
+          {@clear_button_label}
+        </button>
+      </div>
+
+      <input type="hidden" id={@field.id} name={@field.name} value={@field.value || ""} />
+
+      <input
+        id={"#{@id}-search"}
+        type="text"
+        value={@search}
+        placeholder="Search members..."
+        phx-keyup={@filter_event}
+        phx-target={@target}
+        class={@search_input_class}
+      />
+
+      <div class={@options_container_class}>
+        <button
+          :for={{label, value} <- @filtered_options}
+          id={assignee_option_id(@id, value)}
+          type="button"
+          phx-click={@select_event}
+          phx-target={@target}
+          phx-value-assignee={value}
+          class={[
+            @option_class,
+            (@field.value || "") == value && @selected_option_class
+          ]}
+        >
+          {label}
+        </button>
+      </div>
+
+      <p
+        :if={@filtered_options == [] and String.trim(@search) != ""}
+        class={@no_matches_class}
+      >
+        No matching members
+      </p>
+
+      <p :for={msg <- Enum.map(@field.errors || [], &translate_error(&1))} class={@error_class}>
+        {msg}
+      </p>
+    </div>
+    """
+  end
+
+  def filtered_assignee_options(options, search) do
+    query = search |> to_string() |> String.trim() |> String.downcase()
+
+    if query == "" do
+      options
+    else
+      Enum.filter(options, fn {label, _value} ->
+        String.starts_with?(String.downcase(label), query)
+      end)
+    end
+  end
+
+  defp current_form_params(socket) do
+    socket.assigns.form.source.params || %{}
+  end
+
+  defp assignee_option_id(base_id, value) do
+    suffix =
+      value
+      |> to_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9_-]+/u, "-")
+      |> String.trim("-")
+
+    "#{base_id}-option-#{suffix}"
   end
 
   defp status_label(:in_progress), do: "In Progress"

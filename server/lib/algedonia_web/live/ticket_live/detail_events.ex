@@ -25,12 +25,15 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
     blocked_by_options = build_blocked_by_options(workspace_id, ticket.id)
     workspace = Workspaces.get_workspace!(workspace_id)
+    assignee_options = Tickets.list_assignee_options(workspace_id)
 
     assign(socket,
       page_title: ticket.title,
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
+      assignee_options: assignee_options,
+      assignee_search: ticket.assignee || "",
       blocker_tickets: resolve_blocker_tickets(ticket),
       blocked_by_options: blocked_by_options,
       blocked_by_search: "",
@@ -69,10 +72,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   @spec handle(binary(), map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
   def handle("autosave_ticket", %{"ticket" => params}, socket) do
-    case Tickets.update_ticket(socket.assigns.ticket, params) do
-      {:ok, updated} -> {:noreply, assign_saved_ticket(socket, updated)}
-      {:error, cs} -> {:noreply, assign_save_error(socket, cs)}
-    end
+    autosave_ticket(socket, params)
   end
 
   def handle("autosave_ticket_markdown", %{"field" => field, "body" => body}, socket) do
@@ -297,7 +297,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       "type" => ticket.type,
       "coding_agent" => ticket.coding_agent,
       "priority" => ticket.priority,
-      "assignee" => ticket.assignee,
+      "assignee" => duplicate_assignee(workspace.id, ticket.assignee),
       "acceptance_criteria" => ticket.acceptance_criteria,
       "rubric" => ticket.rubric
     }
@@ -348,6 +348,16 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     {:noreply, assign(socket, blocked_by_search: query)}
   end
 
+  def handle("filter_assignee_detail", %{"value" => query}, socket) do
+    {:noreply, assign(socket, assignee_search: query)}
+  end
+
+  def handle("select_detail_assignee", %{"assignee" => assignee}, socket) do
+    socket = assign(socket, :assignee_search, assignee)
+    params = Map.put(current_ticket_form_params(socket), "assignee", assignee)
+    autosave_ticket(socket, params)
+  end
+
   def handle("confirm_reset", _params, socket) do
     {:noreply, assign(socket, confirm_reset: true)}
   end
@@ -382,6 +392,13 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   # -- Helpers --
 
+  defp autosave_ticket(socket, params) do
+    case Tickets.update_ticket(socket.assigns.ticket, params) do
+      {:ok, updated} -> {:noreply, assign_saved_ticket(socket, updated)}
+      {:error, cs} -> {:noreply, assign_save_error(socket, cs)}
+    end
+  end
+
   defp assign_saved_ticket(socket, ticket) do
     workspace = Workspaces.get_workspace!(ticket.workspace_id)
 
@@ -389,6 +406,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       ticket: ticket,
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
+      assignee_search: ticket.assignee || "",
       blocker_tickets: resolve_blocker_tickets(ticket),
       loop_id: Loops.first_inspect_loop_id(ticket.id),
       review_loop_id: Loops.first_review_loop_id(ticket.id),
@@ -398,6 +416,10 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   defp assign_save_error(socket, changeset) do
     assign(socket, ticket_form: to_form(changeset), save_state: :error)
+  end
+
+  defp current_ticket_form_params(socket) do
+    socket.assigns.ticket_form.source.params || %{}
   end
 
   defp work_loop_path(socket, ticket, loop_id) do
@@ -417,6 +439,17 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   defp duplicate_title(title) when is_binary(title), do: "#{title} (Copy)"
   defp duplicate_title(_), do: "Copied issue"
+
+  defp duplicate_assignee(workspace_id, assignee) when is_binary(assignee) do
+    allowed_assignees =
+      workspace_id
+      |> Tickets.list_assignee_options()
+      |> Enum.map(fn {_label, value} -> value end)
+
+    if assignee in allowed_assignees, do: assignee, else: nil
+  end
+
+  defp duplicate_assignee(_workspace_id, _assignee), do: nil
 
   defp parse_detail_field(field) when is_binary(field) do
     case Enum.find(@ticket_detail_fields, &(Atom.to_string(&1) == field)) do

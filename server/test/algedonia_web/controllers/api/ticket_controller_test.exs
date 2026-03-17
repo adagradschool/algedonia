@@ -125,6 +125,20 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
       assert is_integer(t["number"])
     end
 
+    test "creates a ticket with a workspace member assignee", %{conn: conn, workspace: workspace} do
+      conn =
+        post(conn, "/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{
+            "title" => "Assigned API ticket",
+            "type" => "bug",
+            "assignee" => "TestUser"
+          }
+        })
+
+      %{"ticket" => t} = json_response(conn, 201)
+      assert t["assignee"] == "TestUser"
+    end
+
     test "returns 422 for invalid params", %{conn: conn, workspace: workspace} do
       conn =
         post(conn, "/api/w/#{workspace.slug}/tickets", %{
@@ -132,6 +146,24 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
         })
 
       assert %{"errors" => %{"title" => ["Can't be blank"]}} = json_response(conn, 422)
+    end
+
+    test "returns 422 for assignee outside the workspace", %{conn: conn, workspace: workspace} do
+      other_workspace = insert_workspace!(%{name: "API Other Workspace"})
+      outsider = insert_user!(%{name: "Other Workspace Member"})
+      insert_membership!(other_workspace, outsider)
+
+      conn =
+        post(conn, "/api/w/#{workspace.slug}/tickets", %{
+          "ticket" => %{
+            "title" => "Invalid assignee ticket",
+            "type" => "bug",
+            "assignee" => "Other Workspace Member"
+          }
+        })
+
+      assert %{"errors" => %{"assignee" => [message]}} = json_response(conn, 422)
+      assert String.contains?(String.downcase(message), "workspace member")
     end
 
     test "creates a ticket with blocked_by and dispatchability fields", %{
@@ -191,6 +223,19 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
       assert t["title"] == "Updated"
     end
 
+    test "allows clearing assignee", %{conn: conn, workspace: workspace} do
+      ticket =
+        insert_ticket!(%{workspace_id: workspace.id, title: "Assigned", assignee: "TestUser"})
+
+      conn =
+        patch(conn, "/api/w/#{workspace.slug}/tickets/#{ticket.id}", %{
+          "ticket" => %{"assignee" => ""}
+        })
+
+      %{"ticket" => t} = json_response(conn, 200)
+      assert t["assignee"] == nil
+    end
+
     test "updates by ticket number", %{conn: conn, workspace: workspace} do
       ticket = insert_ticket!(%{workspace_id: workspace.id, title: "Old"})
 
@@ -210,6 +255,21 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
         })
 
       assert json_response(conn, 404)
+    end
+
+    test "rejects assignee from another workspace", %{conn: conn, workspace: workspace} do
+      ticket = insert_ticket!(%{workspace_id: workspace.id, title: "Old"})
+      other_workspace = insert_workspace!(%{name: "Update Other Workspace"})
+      outsider = insert_user!(%{name: "Cross Workspace Member"})
+      insert_membership!(other_workspace, outsider)
+
+      conn =
+        patch(conn, "/api/w/#{workspace.slug}/tickets/#{ticket.id}", %{
+          "ticket" => %{"assignee" => "Cross Workspace Member"}
+        })
+
+      assert %{"errors" => %{"assignee" => [message]}} = json_response(conn, 422)
+      assert String.contains?(String.downcase(message), "workspace member")
     end
 
     test "rejects dependency cycles with explicit validation errors", %{

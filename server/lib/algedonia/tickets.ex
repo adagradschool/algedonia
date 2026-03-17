@@ -12,6 +12,7 @@ defmodule Algedonia.Tickets do
   alias Algedonia.Skills.Error
   alias Algedonia.Tickets.{Comment, QueueEntry, Ticket}
   alias Algedonia.Tickets.Planning
+  alias Algedonia.Workspaces
   alias Algedonia.Workspaces.Workspace
 
   @display_statuses [
@@ -153,6 +154,20 @@ defmodule Algedonia.Tickets do
   end
 
   @doc """
+  Returns workspace-scoped assignee options as `{label, value}` tuples.
+  """
+  @spec list_assignee_options(Algedonia.Types.id() | nil) :: [{String.t(), String.t()}]
+  def list_assignee_options(workspace_id) when is_binary(workspace_id) do
+    workspace_id
+    |> Workspaces.list_members()
+    |> Enum.map(&member_assignee_option/1)
+    |> Enum.reject(fn {label, _value} -> label == "" end)
+    |> Enum.uniq_by(fn {label, _value} -> label end)
+  end
+
+  def list_assignee_options(_workspace_id), do: []
+
+  @doc """
   Creates a ticket.
   """
   @spec create_ticket(map()) :: {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
@@ -194,7 +209,7 @@ defmodule Algedonia.Tickets do
           {:ok, Ticket.t()} | {:error, Ecto.Changeset.t()}
   def update_ticket(%Ticket{} = ticket, attrs, opts \\ []) do
     old_status = ticket.status
-    changeset = ticket |> Ticket.changeset(attrs) |> validate_blocked_by_constraints(ticket.id)
+    changeset = ticket_changeset(ticket, attrs, ticket.id)
 
     case Repo.update(changeset) do
       {:ok, updated} ->
@@ -443,7 +458,7 @@ defmodule Algedonia.Tickets do
   """
   @spec change_ticket(Ticket.t(), map()) :: Ecto.Changeset.t()
   def change_ticket(%Ticket{} = ticket, attrs \\ %{}) do
-    Ticket.changeset(ticket, attrs)
+    ticket_changeset(ticket, attrs, ticket.id)
   end
 
   @doc """
@@ -630,21 +645,32 @@ defmodule Algedonia.Tickets do
 
   defp ticket_create_changeset(attrs) do
     %Ticket{}
+    |> ticket_changeset(attrs, nil)
+  end
+
+  defp ticket_changeset(ticket, attrs, ticket_id) do
+    ticket
     |> Ticket.changeset(attrs)
-    |> validate_blocked_by_constraints(nil)
+    |> normalize_assignee()
+    |> validate_assignee_membership()
+    |> validate_blocked_by_constraints(ticket_id)
   end
 
   defp insert_ticket_with_queue(changeset) do
-    case Repo.transaction(fn -> insert_ticket_and_queue(changeset) end) do
-      {:ok, ticket} ->
-        {:ok, ticket}
+    workspace_id = get_field(changeset, :workspace_id)
 
-      {:error, {:ticket, ticket_changeset}} ->
-        {:error, ticket_changeset}
+    with_workspace_scope(workspace_id, fn ->
+      case Repo.transaction(fn -> insert_ticket_and_queue(changeset) end) do
+        {:ok, ticket} ->
+          {:ok, ticket}
 
-      {:error, {:queue_entry, _reason}} ->
-        {:error, add_error(changeset, :base, "queue entry persistence failed")}
-    end
+        {:error, {:ticket, ticket_changeset}} ->
+          {:error, ticket_changeset}
+
+        {:error, {:queue_entry, _reason}} ->
+          {:error, add_error(changeset, :base, "queue entry persistence failed")}
+      end
+    end)
   end
 
   defp insert_ticket_and_queue(changeset) do
@@ -783,6 +809,68 @@ defmodule Algedonia.Tickets do
       changeset
     else
       add_error(changeset, :blocked_by, "contains invalid blocker references")
+    end
+  end
+
+  defp normalize_assignee(changeset) do
+    update_change(changeset, :assignee, fn
+      nil ->
+        nil
+
+      assignee when is_binary(assignee) ->
+        case String.trim(assignee) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      assignee ->
+        assignee
+    end)
+  end
+
+  defp validate_assignee_membership(changeset) do
+    case fetch_change(changeset, :assignee) do
+      :error ->
+        changeset
+
+      {:ok, nil} ->
+        changeset
+
+      {:ok, assignee} ->
+        workspace_id = get_field(changeset, :workspace_id)
+
+        if is_binary(workspace_id) and assignee in assignee_values_for_workspace(workspace_id) do
+          changeset
+        else
+          add_error(changeset, :assignee, "must be a workspace member")
+        end
+    end
+  end
+
+  defp assignee_values_for_workspace(workspace_id) do
+    workspace_id
+    |> list_assignee_options()
+    |> Enum.map(fn {_label, value} -> value end)
+  end
+
+  defp member_assignee_option(user) do
+    label = member_assignee_label(user)
+    {label, label}
+  end
+
+  defp member_assignee_label(%{name: name, github_username: github_username, email: email}) do
+    cond do
+      is_binary(name) and String.trim(name) != "" ->
+        String.trim(name)
+
+      is_binary(github_username) and String.trim(github_username) != "" ->
+        String.trim(github_username)
+
+      is_binary(email) and String.trim(email) != "" ->
+        String.trim(email)
+
+      true ->
+        ""
     end
   end
 
