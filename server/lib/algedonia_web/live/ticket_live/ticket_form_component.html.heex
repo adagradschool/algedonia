@@ -76,12 +76,25 @@
         options={coding_agent_options()}
         class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg px-2.5 py-2 focus:outline-none focus:border-accent-indigo"
       />
-      <.input
+      <AlgedoniaWeb.TicketLive.TicketFormComponent.assignee_selector
+        id="ticket-form-assignee"
         field={@form[:assignee]}
-        type="text"
         label="Assignee"
-        placeholder="Assignee"
-        class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo"
+        options={@assignee_options}
+        open={@assignee_open}
+        search={@assignee_search}
+        target={@myself}
+        filter_event="filter_assignee"
+        open_event="open_assignee"
+        close_event="close_assignee"
+        select_event="select_assignee"
+        search_input_class="w-full rounded-md bg-surface-panel border border-border text-xs text-fg placeholder-fg-muted px-3 py-2 focus:outline-none focus:border-accent-indigo"
+        options_container_class="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-surface-panel"
+        option_class="block w-full px-3 py-2 text-left text-xs text-fg hover:bg-surface-raised focus:outline-none focus:bg-surface-raised"
+        selected_option_class="bg-surface-raised text-accent-indigo"
+        clear_button_class="text-[11px] text-fg-muted hover:text-fg transition-colors"
+        no_matches_class="mt-1 text-[11px] text-fg-muted"
+        error_class="mt-1.5 flex gap-2 items-center text-sm text-error"
       />
     </div>
 

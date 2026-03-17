@@ -31,7 +31,7 @@ defmodule Algedonia.Factory do
         priority: 3,
         status: :backlog,
         description: "A test ticket description",
-        assignee: "alice"
+        assignee: nil
       },
       overrides
     )

@@ -268,12 +268,24 @@
               <div class="flex items-center gap-2 text-[11px] text-fg-muted">
                 <.icon name="hero-user-mini" class="size-3.5" /> Assignee
               </div>
-              <.input
+              <AlgedoniaWeb.TicketLive.TicketFormComponent.assignee_selector
+                id="ticket-detail-assignee"
                 field={@ticket_form[:assignee]}
-                type="text"
-                placeholder="Assignee"
-                class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
-                phx-debounce="600"
+                label=""
+                options={@assignee_options}
+                open={@assignee_open}
+                search={@assignee_search}
+                open_event="open_assignee_detail"
+                close_event="close_assignee_detail"
+                filter_event="filter_assignee_detail"
+                select_event="select_detail_assignee"
+                search_input_class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                options_container_class="max-h-40 overflow-auto rounded-md border border-border-soft/60 bg-surface-panel/60"
+                option_class="block w-full px-2 py-1.5 text-left text-[11px] text-fg hover:bg-surface-raised focus:outline-none focus:bg-surface-raised"
+                selected_option_class="bg-surface-raised text-accent-indigo"
+                clear_button_class="text-[11px] text-fg-muted hover:text-fg transition-colors"
+                no_matches_class="text-[11px] text-fg-muted"
+                error_class="mt-1 text-[11px] text-error"
               />
             </div>
             <div class="space-y-2">
