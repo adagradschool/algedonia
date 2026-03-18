@@ -154,7 +154,7 @@ defmodule Algedonia.Tickets do
   end
 
   @doc """
-  Returns workspace-scoped assignee options as `{label, value}` tuples.
+  Returns workspace-scoped assignee options as `{display_name, member_id}` tuples.
   """
   @spec list_assignee_options(Algedonia.Types.id() | nil) :: [{String.t(), String.t()}]
   def list_assignee_options(workspace_id) when is_binary(workspace_id) do
@@ -162,10 +162,69 @@ defmodule Algedonia.Tickets do
     |> Workspaces.list_members()
     |> Enum.map(&member_assignee_option/1)
     |> Enum.reject(fn {label, _value} -> label == "" end)
-    |> Enum.uniq_by(fn {label, _value} -> label end)
   end
 
   def list_assignee_options(_workspace_id), do: []
+
+  @doc """
+  Builds an assignee display-name lookup keyed by persisted member identifier.
+  """
+  @spec assignee_display_names([{String.t(), String.t()}]) :: %{
+          optional(String.t()) => String.t()
+        }
+  def assignee_display_names(options) when is_list(options) do
+    Map.new(options, fn {label, value} -> {value, label} end)
+  end
+
+  @doc """
+  Resolves a stored assignee to the display name shown in the UI.
+
+  Falls back to the stored text for legacy tickets that still persist a display
+  name instead of a member identifier.
+  """
+  @spec assignee_display_name([{String.t(), String.t()}] | map(), String.t() | nil) ::
+          String.t() | nil
+  def assignee_display_name(_options, nil), do: nil
+
+  def assignee_display_name(options, assignee) when is_list(options) do
+    options
+    |> assignee_display_names()
+    |> assignee_display_name(assignee)
+  end
+
+  def assignee_display_name(display_names, assignee)
+      when is_map(display_names) and is_binary(assignee) do
+    Map.get(display_names, assignee, assignee)
+  end
+
+  def assignee_display_name(_options, assignee) when is_binary(assignee), do: assignee
+
+  @doc """
+  Resolves a stored assignee to the persisted member identifier contract when possible.
+
+  Existing identifier-backed assignees are preserved. Legacy display-name
+  assignees are upgraded only when they unambiguously map to a single workspace
+  member.
+  """
+  @spec assignee_value([{String.t(), String.t()}], String.t() | nil) :: String.t() | nil
+  def assignee_value(_options, nil), do: nil
+
+  def assignee_value(options, assignee) when is_list(options) and is_binary(assignee) do
+    values = MapSet.new(Enum.map(options, fn {_label, value} -> value end))
+
+    cond do
+      MapSet.member?(values, assignee) ->
+        assignee
+
+      true ->
+        case matching_assignee_values(options, assignee) do
+          [value] -> value
+          _ -> nil
+        end
+    end
+  end
+
+  def assignee_value(_options, _assignee), do: nil
 
   @doc """
   Creates a ticket.
@@ -857,7 +916,14 @@ defmodule Algedonia.Tickets do
 
   defp member_assignee_option(user) do
     label = member_assignee_label(user)
-    {label, label}
+    {label, user.id}
+  end
+
+  defp matching_assignee_values(options, label) do
+    options
+    |> Enum.filter(fn {option_label, _value} -> option_label == label end)
+    |> Enum.map(fn {_option_label, value} -> value end)
+    |> Enum.uniq()
   end
 
   defp member_assignee_label(%{name: name, github_username: github_username, email: email}) do

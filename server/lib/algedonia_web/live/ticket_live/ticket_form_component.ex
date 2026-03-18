@@ -11,6 +11,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
     changeset = Tickets.change_ticket(ticket)
     workspace = Map.get(assigns, :workspace)
     assignee_options = (workspace && Tickets.list_assignee_options(workspace.id)) || []
+    assignee_search = Tickets.assignee_display_name(assignee_options, ticket.assignee) || ""
 
     blocked_by_options =
       if workspace do
@@ -29,7 +30,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
      |> assign(:blocked_by_search, "")
      |> assign(:assignee_options, assignee_options)
      |> assign(:assignee_open, false)
-     |> assign(:assignee_search, ticket.assignee || "")
+     |> assign(:assignee_search, assignee_search)
      |> assign(:depends_on_expanded, action != :new)
      |> assign_new(:return_to, fn ->
        workspace_slug = Map.get(assigns, :workspace_slug)
@@ -65,7 +66,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
     {:noreply, assign(socket, :assignee_open, false)}
   end
 
-  def handle_event("select_assignee", %{"assignee" => assignee}, socket) do
+  def handle_event("select_assignee", %{"assignee" => assignee} = params, socket) do
     changeset =
       socket.assigns.ticket
       |> Tickets.change_ticket(Map.put(current_form_params(socket), "assignee", assignee))
@@ -74,7 +75,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
     {:noreply,
      socket
      |> assign(:assignee_open, false)
-     |> assign(:assignee_search, assignee)
+     |> assign(:assignee_search, selected_assignee_label(params))
      |> assign_form(changeset)}
   end
 
@@ -206,6 +207,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
           phx-click={@select_event}
           phx-target={@target}
           phx-value-assignee=""
+          phx-value-label=""
           class={@clear_button_class}
         >
           {@clear_button_label}
@@ -233,6 +235,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
           phx-click={@select_event}
           phx-target={@target}
           phx-value-assignee={value}
+          phx-value-label={label}
           class={[
             @option_class,
             (@field.value || "") == value && @selected_option_class
@@ -270,6 +273,12 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
   defp current_form_params(socket) do
     socket.assigns.form.source.params || %{}
+  end
+
+  defp selected_assignee_label(params) do
+    params
+    |> Map.get("label", "")
+    |> to_string()
   end
 
   defp assignee_option_id(base_id, value) do

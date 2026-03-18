@@ -26,6 +26,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     blocked_by_options = build_blocked_by_options(workspace_id, ticket.id)
     workspace = Workspaces.get_workspace!(workspace_id)
     assignee_options = Tickets.list_assignee_options(workspace_id)
+    assignee_search = Tickets.assignee_display_name(assignee_options, ticket.assignee) || ""
 
     assign(socket,
       page_title: ticket.title,
@@ -34,7 +35,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
       assignee_options: assignee_options,
       assignee_open: false,
-      assignee_search: ticket.assignee || "",
+      assignee_search: assignee_search,
       blocker_tickets: resolve_blocker_tickets(ticket),
       blocked_by_options: blocked_by_options,
       blocked_by_search: "",
@@ -361,8 +362,13 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
     {:noreply, assign(socket, :assignee_open, false)}
   end
 
-  def handle("select_detail_assignee", %{"assignee" => assignee}, socket) do
-    socket = assign(socket, assignee_search: assignee, assignee_open: false)
+  def handle("select_detail_assignee", %{"assignee" => assignee} = params, socket) do
+    socket =
+      assign(socket,
+        assignee_search: selected_assignee_label(params),
+        assignee_open: false
+      )
+
     params = Map.put(current_ticket_form_params(socket), "assignee", assignee)
     autosave_ticket(socket, params)
   end
@@ -416,7 +422,8 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       ticket_form: to_form(Tickets.change_ticket(ticket)),
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
       assignee_open: false,
-      assignee_search: ticket.assignee || "",
+      assignee_search:
+        Tickets.assignee_display_name(socket.assigns.assignee_options, ticket.assignee) || "",
       blocker_tickets: resolve_blocker_tickets(ticket),
       loop_id: Loops.first_inspect_loop_id(ticket.id),
       review_loop_id: Loops.first_review_loop_id(ticket.id),
@@ -451,15 +458,18 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   defp duplicate_title(_), do: "Copied issue"
 
   defp duplicate_assignee(workspace_id, assignee) when is_binary(assignee) do
-    allowed_assignees =
-      workspace_id
-      |> Tickets.list_assignee_options()
-      |> Enum.map(fn {_label, value} -> value end)
-
-    if assignee in allowed_assignees, do: assignee, else: nil
+    workspace_id
+    |> Tickets.list_assignee_options()
+    |> Tickets.assignee_value(assignee)
   end
 
   defp duplicate_assignee(_workspace_id, _assignee), do: nil
+
+  defp selected_assignee_label(params) do
+    params
+    |> Map.get("label", "")
+    |> to_string()
+  end
 
   defp parse_detail_field(field) when is_binary(field) do
     case Enum.find(@ticket_detail_fields, &(Atom.to_string(&1) == field)) do
