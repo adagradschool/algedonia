@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -256,6 +258,73 @@ func TestWorkspaceUpdateRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestWorkspaceListCmd_PrintsActiveWorkspaceForUUIDIDs(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	prevProfile := activeProfile
+	activeProfile = agProfile
+	config.SetProfile("ag")
+	t.Cleanup(func() {
+		activeProfile = prevProfile
+		config.SetProfile("ag")
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/workspaces" {
+			t.Errorf("path = %q, want /api/workspaces", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q, want %q", got, "Bearer test-token")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"workspaces": []map[string]interface{}{
+				{
+					"id":     "550e8400-e29b-41d4-a716-446655440000",
+					"slug":   "alpha",
+					"name":   "Alpha",
+					"prefix": "ALP",
+				},
+				{
+					"id":     "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+					"slug":   "beta",
+					"name":   "Beta",
+					"prefix": "BET",
+				},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	if err := config.Save(&config.Config{
+		ServerURL: srv.URL,
+		Token:     "test-token",
+		Workspace: "beta",
+	}); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+
+	cmd := newWorkspaceListCmd()
+	output, err := captureStdout(t, func() error {
+		return cmd.RunE(cmd, nil)
+	})
+	if err != nil {
+		t.Fatalf("workspace list returned error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 output lines, got %d: %q", len(lines), output)
+	}
+
+	if got := strings.Fields(lines[0]); len(got) != 2 || got[0] != "alpha" || got[1] != "Alpha" {
+		t.Fatalf("inactive workspace row = %q, want slug/name without marker", lines[0])
+	}
+	if got := strings.Fields(lines[1]); len(got) != 3 || got[0] != "*" || got[1] != "beta" || got[2] != "Beta" {
+		t.Fatalf("active workspace row = %q, want marker/slug/name", lines[1])
+	}
+}
+
 func executeWorkspaceCommand(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer, error) {
 	t.Helper()
 
@@ -272,6 +341,36 @@ func executeWorkspaceCommand(t *testing.T, args ...string) (*bytes.Buffer, *byte
 	cmd.SetArgs(args)
 
 	return stdout, stderr, cmd.Execute()
+}
+
+func captureStdout(t *testing.T, run func() error) (string, error) {
+	t.Helper()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+
+	os.Stdout = w
+	defer func() {
+		os.Stdout = origStdout
+	}()
+
+	runErr := run()
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing pipe writer: %v", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading captured stdout: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("closing pipe reader: %v", err)
+	}
+
+	return string(out), runErr
 }
 
 func setupWorkspaceCLITest(t *testing.T, serverURL, workspace string) {
