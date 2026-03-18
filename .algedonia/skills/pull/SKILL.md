@@ -21,11 +21,12 @@ This is a rebase-based pull skill.
 2. Enable rerere for repeat conflict resolution:
    - `git config rerere.enabled true`
    - `git config rerere.autoupdate true`
-3. Fetch latest refs:
-   - `git fetch origin`
-4. Fast-forward local branch to remote branch tip:
-   - `git pull --rebase origin $(git branch --show-current)`
-5. Rebase branch onto main:
+3. From the worktree root, run the helper:
+   - `./.algedonia/skills/pull/scripts/rebase_branch.sh`
+4. The helper fetches `origin`, checks `refs/remotes/origin/$(git branch --show-current)`, and prints the selected path with the branch name:
+   - remote branch exists: `pull: branch <name> using remote-branch rebase via origin/<name>`
+   - remote branch missing: `pull: branch <name> using origin/main fallback because refs/remotes/origin/<name> is missing`
+5. The helper always finishes with:
    - `git rebase origin/main`
 6. If conflicts occur:
    - resolve files
