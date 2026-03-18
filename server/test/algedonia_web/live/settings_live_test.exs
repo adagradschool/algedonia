@@ -19,14 +19,37 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
 
+      assert has_element?(view, "#settings-scroll-container.flex-1.min-h-0.overflow-y-auto")
+      assert has_element?(view, "#settings-content.max-w-2xl.space-y-8")
+
       assert has_element?(
                view,
-               "div[phx-hook=ScriptEditor] textarea#workspace_worktree_bootstrap_script.script-editor-input[data-role=source]"
+               "#settings-scroll-container > #settings-content"
+             )
+
+      refute has_element?(
+               view,
+               "#settings-scroll-container.max-w-2xl"
              )
 
       assert has_element?(
                view,
-               "div[phx-hook=ScriptEditor] textarea#workspace_worktree_run_script.script-editor-input[data-role=source]"
+               "#bootstrap-script-editor .script-editor-shell.script-editor-shell--bounded"
+             )
+
+      assert has_element?(
+               view,
+               "div[phx-hook=ScriptEditor] textarea#workspace_worktree_bootstrap_script.script-editor-input.script-editor-input--scrollable[data-role=source]"
+             )
+
+      assert has_element?(
+               view,
+               "#run-script-editor .script-editor-shell.script-editor-shell--bounded"
+             )
+
+      assert has_element?(
+               view,
+               "div[phx-hook=ScriptEditor] textarea#workspace_worktree_run_script.script-editor-input.script-editor-input--scrollable[data-role=source]"
              )
 
       assert has_element?(
@@ -37,6 +60,36 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       html = render(view)
       assert html |> String.split("phx-hook=\"ScriptEditor\"") |> length() == 3
       assert html |> String.split("data-role=\"drop-error\"") |> length() == 3
+    end
+
+    test "long script content keeps bounded editors and lower settings content rendered", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      long_bootstrap =
+        1..40
+        |> Enum.map_join("\n", &"echo bootstrap line #{&1}")
+
+      long_run =
+        1..40
+        |> Enum.map_join("\n", &"./script/run_step_#{&1}.sh")
+
+      {:ok, workspace} =
+        Algedonia.Workspaces.update_workspace(workspace, %{
+          worktree_bootstrap_script: long_bootstrap,
+          worktree_run_script: long_run
+        })
+
+      {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      assert has_element?(view, "#settings-scroll-container")
+      assert has_element?(view, "#settings-content.max-w-2xl")
+      assert has_element?(view, "#bootstrap-script-editor .script-editor-shell--bounded")
+      assert has_element?(view, "#run-script-editor .script-editor-shell--bounded")
+      assert html =~ "echo bootstrap line 40"
+      assert html =~ "./script/run_step_40.sh"
+      assert html =~ "Invite member"
+      assert html =~ "Automations"
     end
   end
 

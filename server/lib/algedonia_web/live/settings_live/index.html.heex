@@ -8,200 +8,204 @@
   nav_section={@nav_section}
   current_path={@current_path}
 >
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full min-h-0">
     <header class="h-12 border-b border-border flex items-center px-6 bg-surface flex-shrink-0">
       <h1 class="text-sm font-semibold text-fg">Settings</h1>
     </header>
 
-    <div class="flex-1 overflow-y-auto p-6 space-y-8 max-w-2xl">
-      <%!-- Workspace settings form --%>
-      <section>
-        <h2 class="text-base font-semibold text-fg mb-4">Workspace</h2>
-        <.form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
-          <.input field={@form[:name]} label="Name" />
-          <.input field={@form[:prefix]} label="Prefix" />
-          <.input
-            field={@form[:github_repo_url]}
-            label="GitHub repo URL"
-            placeholder="https://github.com/org/repo"
-          />
-          <.input
-            field={@form[:max_iterations]}
-            type="number"
-            label="Default iteration budget"
-            min="1"
-            max="50"
-          />
-          <div class="fieldset">
-            <label class="label">Default land mode</label>
-            <select
-              id="workspace-default-land-mode"
-              name="workspace[default_land_mode]"
-              class="w-full px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
-            >
-              <option value="review_gate" selected={@default_land_mode == "review_gate"}>
-                Review Gate
-              </option>
-              <option value="auto_land" selected={@default_land_mode == "auto_land"}>
-                Auto Land
-              </option>
-            </select>
-            <p class="mt-1 text-xs text-fg-muted">
-              Applied to new loops when a ticket has no override.
-            </p>
-          </div>
-          <div class="space-y-4">
-            <div class="text-sm font-medium text-fg">Worktree scripts</div>
-
-            <div
-              id="bootstrap-script-editor"
-              class="fieldset mb-2"
-              phx-hook="ScriptEditor"
-              data-script-field="worktree_bootstrap_script"
-            >
-              <label for={@form[:worktree_bootstrap_script].id}>
-                <span class="label mb-1">Worktree bootstrap script</span>
-              </label>
-              <div class="script-editor-shell">
-                <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
-                <textarea
-                  id={@form[:worktree_bootstrap_script].id}
-                  name={@form[:worktree_bootstrap_script].name}
-                  rows="6"
-                  data-role="source"
-                  class="script-editor-input"
-                  placeholder="bash commands to run in each newly created ticket worktree"
-                >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_bootstrap_script].value)}</textarea>
-              </div>
-              <p
-                data-role="drop-error"
-                class={[
-                  "mt-1 text-xs text-status-red",
-                  if(@script_drop_errors["worktree_bootstrap_script"], do: nil, else: "hidden")
-                ]}
+    <div id="settings-scroll-container" class="flex-1 min-h-0 overflow-y-auto p-6">
+      <div id="settings-content" class="max-w-2xl space-y-8">
+        <%!-- Workspace settings form --%>
+        <section>
+          <h2 class="text-base font-semibold text-fg mb-4">Workspace</h2>
+          <.form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
+            <.input field={@form[:name]} label="Name" />
+            <.input field={@form[:prefix]} label="Prefix" />
+            <.input
+              field={@form[:github_repo_url]}
+              label="GitHub repo URL"
+              placeholder="https://github.com/org/repo"
+            />
+            <.input
+              field={@form[:max_iterations]}
+              type="number"
+              label="Default iteration budget"
+              min="1"
+              max="50"
+            />
+            <div class="fieldset">
+              <label class="label">Default land mode</label>
+              <select
+                id="workspace-default-land-mode"
+                name="workspace[default_land_mode]"
+                class="w-full px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
               >
-                {@script_drop_errors["worktree_bootstrap_script"]}
+                <option value="review_gate" selected={@default_land_mode == "review_gate"}>
+                  Review Gate
+                </option>
+                <option value="auto_land" selected={@default_land_mode == "auto_land"}>
+                  Auto Land
+                </option>
+              </select>
+              <p class="mt-1 text-xs text-fg-muted">
+                Applied to new loops when a ticket has no override.
               </p>
             </div>
+            <div class="space-y-4">
+              <div class="text-sm font-medium text-fg">Worktree scripts</div>
 
-            <div
-              id="run-script-editor"
-              class="fieldset mb-2"
-              phx-hook="ScriptEditor"
-              data-script-field="worktree_run_script"
-            >
-              <label for={@form[:worktree_run_script].id}>
-                <span class="label mb-1">Worktree manual run script</span>
-              </label>
-              <div class="script-editor-shell">
-                <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
-                <textarea
-                  id={@form[:worktree_run_script].id}
-                  name={@form[:worktree_run_script].name}
-                  rows="6"
-                  data-role="source"
-                  class="script-editor-input"
-                  placeholder="bash commands to run manually in a ticket worktree"
-                >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_run_script].value)}</textarea>
-              </div>
-              <p
-                data-role="drop-error"
-                class={[
-                  "mt-1 text-xs text-status-red",
-                  if(@script_drop_errors["worktree_run_script"], do: nil, else: "hidden")
-                ]}
+              <div
+                id="bootstrap-script-editor"
+                class="fieldset mb-2"
+                phx-hook="ScriptEditor"
+                data-script-field="worktree_bootstrap_script"
               >
-                {@script_drop_errors["worktree_run_script"]}
-              </p>
+                <label for={@form[:worktree_bootstrap_script].id}>
+                  <span class="label mb-1">Worktree bootstrap script</span>
+                </label>
+                <div class="script-editor-shell script-editor-shell--bounded">
+                  <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
+                  <textarea
+                    id={@form[:worktree_bootstrap_script].id}
+                    name={@form[:worktree_bootstrap_script].name}
+                    rows="6"
+                    data-role="source"
+                    class="script-editor-input script-editor-input--scrollable"
+                    placeholder="bash commands to run in each newly created ticket worktree"
+                  >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_bootstrap_script].value)}</textarea>
+                </div>
+                <p
+                  data-role="drop-error"
+                  class={[
+                    "mt-1 text-xs text-status-red",
+                    if(@script_drop_errors["worktree_bootstrap_script"], do: nil, else: "hidden")
+                  ]}
+                >
+                  {@script_drop_errors["worktree_bootstrap_script"]}
+                </p>
+              </div>
+
+              <div
+                id="run-script-editor"
+                class="fieldset mb-2"
+                phx-hook="ScriptEditor"
+                data-script-field="worktree_run_script"
+              >
+                <label for={@form[:worktree_run_script].id}>
+                  <span class="label mb-1">Worktree manual run script</span>
+                </label>
+                <div class="script-editor-shell script-editor-shell--bounded">
+                  <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
+                  <textarea
+                    id={@form[:worktree_run_script].id}
+                    name={@form[:worktree_run_script].name}
+                    rows="6"
+                    data-role="source"
+                    class="script-editor-input script-editor-input--scrollable"
+                    placeholder="bash commands to run manually in a ticket worktree"
+                  >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_run_script].value)}</textarea>
+                </div>
+                <p
+                  data-role="drop-error"
+                  class={[
+                    "mt-1 text-xs text-status-red",
+                    if(@script_drop_errors["worktree_run_script"], do: nil, else: "hidden")
+                  ]}
+                >
+                  {@script_drop_errors["worktree_run_script"]}
+                </p>
+              </div>
+            </div>
+
+            <div class="flex justify-end">
+              <button
+                type="submit"
+                class="px-4 py-2 bg-accent-indigo hover:bg-accent-indigo-hover text-white font-medium rounded-lg transition-colors text-sm"
+              >
+                Save changes
+              </button>
+            </div>
+          </.form>
+        </section>
+
+        <%!-- Members --%>
+        <section>
+          <h2 class="text-base font-semibold text-fg mb-4">Members</h2>
+          <div class="space-y-2">
+            <div
+              :for={member <- @members}
+              class="flex items-center gap-3 px-3 py-2 rounded-md bg-surface-panel"
+            >
+              <img
+                :if={member.avatar_url}
+                src={member.avatar_url}
+                class="size-7 rounded-full"
+                alt=""
+              />
+              <div
+                :if={!member.avatar_url}
+                class="size-7 rounded-full bg-accent-indigo flex items-center justify-center text-white text-xs font-medium"
+              >
+                {String.first(member.name || "?")}
+              </div>
+              <div class="flex flex-col">
+                <span class="text-sm text-fg">{member.name || member.github_username}</span>
+                <span :if={member.github_username} class="text-xs text-fg-muted">
+                  @{member.github_username}
+                </span>
+              </div>
             </div>
           </div>
+        </section>
 
-          <div class="flex justify-end">
+        <%!-- Invitations --%>
+        <section>
+          <h2 class="text-base font-semibold text-fg mb-4">Invite member</h2>
+          <.form for={@invite_form} phx-submit="invite" class="flex gap-2 mb-4">
+            <input
+              type="text"
+              name="invite[github_username]"
+              value={@invite_form[:github_username].value}
+              placeholder="GitHub username"
+              required
+              class="flex-1 px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm placeholder-fg-muted focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
+            />
             <button
               type="submit"
               class="px-4 py-2 bg-accent-indigo hover:bg-accent-indigo-hover text-white font-medium rounded-lg transition-colors text-sm"
             >
-              Save changes
+              Invite
             </button>
-          </div>
-        </.form>
-      </section>
+          </.form>
 
-      <%!-- Members --%>
-      <section>
-        <h2 class="text-base font-semibold text-fg mb-4">Members</h2>
-        <div class="space-y-2">
-          <div
-            :for={member <- @members}
-            class="flex items-center gap-3 px-3 py-2 rounded-md bg-surface-panel"
-          >
-            <img
-              :if={member.avatar_url}
-              src={member.avatar_url}
-              class="size-7 rounded-full"
-              alt=""
-            />
+          <div :if={@invitations != []} class="space-y-2">
+            <h3 class="text-xs uppercase tracking-wider text-fg-muted mb-2">
+              Pending invitations
+            </h3>
             <div
-              :if={!member.avatar_url}
-              class="size-7 rounded-full bg-accent-indigo flex items-center justify-center text-white text-xs font-medium"
+              :for={invitation <- @invitations}
+              class="flex items-center justify-between px-3 py-2 rounded-md bg-surface-panel"
             >
-              {String.first(member.name || "?")}
-            </div>
-            <div class="flex flex-col">
-              <span class="text-sm text-fg">{member.name || member.github_username}</span>
-              <span :if={member.github_username} class="text-xs text-fg-muted">
-                @{member.github_username}
-              </span>
+              <span class="text-sm text-fg">@{invitation.github_username}</span>
+              <button
+                type="button"
+                phx-click="cancel_invitation"
+                phx-value-id={invitation.id}
+                class="text-xs text-fg-muted hover:text-red-400 transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <%!-- Invitations --%>
-      <section>
-        <h2 class="text-base font-semibold text-fg mb-4">Invite member</h2>
-        <.form for={@invite_form} phx-submit="invite" class="flex gap-2 mb-4">
-          <input
-            type="text"
-            name="invite[github_username]"
-            value={@invite_form[:github_username].value}
-            placeholder="GitHub username"
-            required
-            class="flex-1 px-3 py-2 bg-surface-panel border border-border rounded-lg text-fg text-sm placeholder-fg-muted focus:outline-none focus:ring-2 focus:ring-accent-indigo focus:border-transparent"
-          />
-          <button
-            type="submit"
-            class="px-4 py-2 bg-accent-indigo hover:bg-accent-indigo-hover text-white font-medium rounded-lg transition-colors text-sm"
-          >
-            Invite
-          </button>
-        </.form>
-
-        <div :if={@invitations != []} class="space-y-2">
-          <h3 class="text-xs uppercase tracking-wider text-fg-muted mb-2">Pending invitations</h3>
-          <div
-            :for={invitation <- @invitations}
-            class="flex items-center justify-between px-3 py-2 rounded-md bg-surface-panel"
-          >
-            <span class="text-sm text-fg">@{invitation.github_username}</span>
-            <button
-              type="button"
-              phx-click="cancel_invitation"
-              phx-value-id={invitation.id}
-              class="text-xs text-fg-muted hover:text-red-400 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <%!-- Automations --%>
-      <.live_component
-        module={AlgedoniaWeb.SettingsLive.AutomationsComponent}
-        id="automations"
-        workspace={@current_workspace}
-      />
+        <%!-- Automations --%>
+        <.live_component
+          module={AlgedoniaWeb.SettingsLive.AutomationsComponent}
+          id="automations"
+          workspace={@current_workspace}
+        />
+      </div>
     </div>
   </div>
 
