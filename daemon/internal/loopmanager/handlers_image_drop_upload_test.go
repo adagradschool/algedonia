@@ -149,6 +149,44 @@ func TestHandleImageDropUploadRejectsOversize(t *testing.T) {
 	}
 }
 
+func TestHandleImageDropUploadRejectsDecodeFailure(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), adapter.DefaultRegistry(), "")
+	loopID := "d9d9d9d9-d9d9-49d9-89d9-d9d9d9d9d9d9"
+
+	if err := mgr.StartLoop(context.Background(), loopID, "cat", nil, "", ""); err != nil {
+		t.Fatalf("StartLoop: %v", err)
+	}
+	defer mgr.StopLoop(loopID, "test cleanup")
+
+	err := mgr.HandleImageDropUpload(context.Background(), map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": "image-drop-ws",
+		"ticket_id":      "e0e0e0e0-e0e0-40e0-80e0-e0e0e0e0e0e0",
+		"files": []interface{}{
+			map[string]interface{}{
+				"name": "broken.png",
+				"type": "image/png",
+				"data": "%%%not-base64%%%",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleImageDropUpload: %v", err)
+	}
+
+	if !hasTerminalImageDropResult(
+		&mu,
+		events,
+		"error",
+		"Dropped images could not be decoded.",
+	) {
+		t.Fatal("expected explicit decode-failure result event")
+	}
+}
+
 func TestHandleImageDropUploadRejectsTmpWriteFailure(t *testing.T) {
 	var mu sync.Mutex
 	var events []sentEvent
@@ -198,6 +236,38 @@ func TestHandleImageDropUploadRejectsTmpWriteFailure(t *testing.T) {
 		"Dropped images could not be written to /tmp.",
 	) {
 		t.Fatal("expected explicit /tmp write-failure result event")
+	}
+}
+
+func TestHandleImageDropUploadRejectsTerminalInsertFailure(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), adapter.DefaultRegistry(), "")
+
+	err := mgr.HandleImageDropUpload(context.Background(), map[string]interface{}{
+		"loop_id":        "f1f1f1f1-f1f1-41f1-81f1-f1f1f1f1f1f1",
+		"workspace_slug": "image-drop-ws",
+		"ticket_id":      "a2a2a2a2-a2a2-42a2-82a2-a2a2a2a2a2a2",
+		"files": []interface{}{
+			map[string]interface{}{
+				"name": "photo.png",
+				"type": "image/png",
+				"data": base64.StdEncoding.EncodeToString([]byte("png")),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleImageDropUpload: %v", err)
+	}
+
+	if !hasTerminalImageDropResult(
+		&mu,
+		events,
+		"error",
+		"Dropped image paths could not be inserted into the terminal.",
+	) {
+		t.Fatal("expected explicit terminal insert failure result event")
 	}
 }
 
