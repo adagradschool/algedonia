@@ -1,0 +1,198 @@
+package loopmanager
+
+import (
+	"context"
+	"encoding/base64"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/algedonia/daemon/internal/adapter"
+)
+
+func TestHandleImageDropUpload(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), adapter.DefaultRegistry(), "")
+	loopID := "c1c1c1c1-c1c1-41c1-81c1-c1c1c1c1c1c1"
+	ticketID := "d2d2d2d2-d2d2-42d2-82d2-d2d2d2d2d2d2"
+	workspaceSlug := "image-drop-ws"
+
+	ctx := context.Background()
+	if err := mgr.StartLoop(ctx, loopID, "cat", nil, "", ""); err != nil {
+		t.Fatalf("StartLoop: %v", err)
+	}
+	defer mgr.StopLoop(loopID, "test cleanup")
+
+	cleanupDir := terminalImageDropTargetDir(ticketID)
+	defer os.RemoveAll(cleanupDir)
+
+	payload := map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+		"files": []interface{}{
+			map[string]interface{}{
+				"name": "first shot.png",
+				"type": "image/png",
+				"data": base64.StdEncoding.EncodeToString([]byte("first-image")),
+			},
+			map[string]interface{}{
+				"name": "two's.webp",
+				"type": "image/webp",
+				"data": base64.StdEncoding.EncodeToString([]byte("second-image")),
+			},
+		},
+	}
+
+	if err := mgr.HandleImageDropUpload(ctx, payload); err != nil {
+		t.Fatalf("HandleImageDropUpload: %v", err)
+	}
+
+	firstPath := terminalImageDropFilePath(ticketID, terminalImageDropUploadFile{
+		Name: "first shot.png",
+		Type: "image/png",
+	}, []byte("first-image"))
+	secondPath := terminalImageDropFilePath(ticketID, terminalImageDropUploadFile{
+		Name: "two's.webp",
+		Type: "image/webp",
+	}, []byte("second-image"))
+
+	assertEventuallyContains(t, 5*time.Second, func() string {
+		return collectedTerminalOutput(&mu, events)
+	}, shellEscapePath(firstPath)+" "+shellEscapePath(secondPath))
+
+	firstBytes, err := os.ReadFile(firstPath)
+	if err != nil {
+		t.Fatalf("ReadFile(first): %v", err)
+	}
+	if string(firstBytes) != "first-image" {
+		t.Fatalf("first file contents = %q", string(firstBytes))
+	}
+
+	secondBytes, err := os.ReadFile(secondPath)
+	if err != nil {
+		t.Fatalf("ReadFile(second): %v", err)
+	}
+	if string(secondBytes) != "second-image" {
+		t.Fatalf("second file contents = %q", string(secondBytes))
+	}
+
+	if !strings.HasPrefix(firstPath, filepath.Join("/tmp", "algedonia-terminal-drops")) {
+		t.Fatalf("expected /tmp image drop path, got %s", firstPath)
+	}
+}
+
+func TestHandleImageDropUploadRejectsUnsupported(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), adapter.DefaultRegistry(), "")
+
+	err := mgr.HandleImageDropUpload(context.Background(), map[string]interface{}{
+		"loop_id":        "e3e3e3e3-e3e3-43e3-83e3-e3e3e3e3e3e3",
+		"workspace_slug": "image-drop-ws",
+		"ticket_id":      "f4f4f4f4-f4f4-44f4-84f4-f4f4f4f4f4f4",
+		"files": []interface{}{
+			map[string]interface{}{
+				"name": "notes.txt",
+				"type": "text/plain",
+				"data": base64.StdEncoding.EncodeToString([]byte("not-an-image")),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleImageDropUpload: %v", err)
+	}
+
+	if !hasTerminalImageDropResult(&mu, events, "error", "Drop rejected: no supported images were provided.") {
+		t.Fatal("expected explicit unsupported-file result event")
+	}
+}
+
+func TestHandleImageDropUploadRejectsOversize(t *testing.T) {
+	t.Setenv("ALGEDONIA_TERMINAL_IMAGE_DROP_MAX_BYTES", "4")
+
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), adapter.DefaultRegistry(), "")
+	loopID := "a5a5a5a5-a5a5-45a5-85a5-a5a5a5a5a5a5"
+
+	if err := mgr.StartLoop(context.Background(), loopID, "cat", nil, "", ""); err != nil {
+		t.Fatalf("StartLoop: %v", err)
+	}
+	defer mgr.StopLoop(loopID, "test cleanup")
+
+	err := mgr.HandleImageDropUpload(context.Background(), map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": "image-drop-ws",
+		"ticket_id":      "b6b6b6b6-b6b6-46b6-86b6-b6b6b6b6b6b6",
+		"files": []interface{}{
+			map[string]interface{}{
+				"name": "big.png",
+				"type": "image/png",
+				"data": base64.StdEncoding.EncodeToString([]byte("12345")),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleImageDropUpload: %v", err)
+	}
+
+	if !hasTerminalImageDropResult(&mu, events, "error", "Dropped images exceed the 4 byte limit.") {
+		t.Fatal("expected explicit oversize result event")
+	}
+}
+
+func collectedTerminalOutput(mu *sync.Mutex, events []sentEvent) string {
+	mu.Lock()
+	defer mu.Unlock()
+
+	var output string
+	for _, event := range events {
+		if event.Event != "terminal_output" {
+			continue
+		}
+
+		encoded, _ := event.Payload["data"].(string)
+		decoded, _ := base64.StdEncoding.DecodeString(encoded)
+		output += string(decoded)
+	}
+
+	return output
+}
+
+func hasTerminalImageDropResult(mu *sync.Mutex, events []sentEvent, status, message string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+
+	for _, event := range events {
+		if event.Event != "terminal_image_drop_result" {
+			continue
+		}
+		if event.Payload["status"] == status && event.Payload["message"] == message {
+			return true
+		}
+	}
+
+	return false
+}
+
+func assertEventuallyContains(t *testing.T, timeout time.Duration, fn func() string, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(fn(), want) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %q in %q", want, fn())
+}

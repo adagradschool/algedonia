@@ -356,6 +356,70 @@ defmodule AlgedoniaWeb.LoopLiveTest do
       refute_receive %Phoenix.Socket.Broadcast{topic: ^topic, event: "merge_pr"}, 100
     end
 
+    test "terminal image drop requires an active loop terminal", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      loop = build_task_loop!(workspace, %{status: :running, current_attempt: 1})
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{loop.ticket_id}/loops/#{loop.id}")
+
+      html =
+        view
+        |> element("[id^='terminal-attempt-1-']")
+        |> render_hook("terminal_image_drop_upload", %{
+          "files" => [%{"name" => "shot.png", "type" => "image/png", "data" => "YWJj"}]
+        })
+
+      assert html =~ "Image drop requires an active loop terminal"
+    end
+
+    test "terminal image drop without daemon flashes and does not dispatch upload", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      loop = build_task_loop!(workspace, %{status: :running, current_attempt: 1})
+      topic = "daemon:test-daemon"
+      AlgedoniaWeb.Endpoint.subscribe(topic)
+      Terminals.start_buffer(loop.id)
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{loop.ticket_id}/loops/#{loop.id}")
+
+      html =
+        view
+        |> element("[id^='terminal-attempt-1-']")
+        |> render_hook("terminal_image_drop_upload", %{
+          "files" => [%{"name" => "shot.png", "type" => "image/png", "data" => "YWJj"}]
+        })
+
+      assert html =~ "No online daemon available"
+
+      refute_receive %Phoenix.Socket.Broadcast{
+                       topic: ^topic,
+                       event: "terminal_image_drop_upload"
+                     },
+                     100
+    end
+
+    test "terminal image drop result flashes explicit feedback", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      loop = build_task_loop!(workspace, %{status: :running, current_attempt: 1})
+
+      {:ok, view, _html} =
+        live(conn, ~p"/w/#{workspace.slug}/tickets/#{loop.ticket_id}/loops/#{loop.id}")
+
+      send(
+        view.pid,
+        {:terminal_image_drop_result, :error, "Dropped images could not be written to /tmp."}
+      )
+
+      assert render(view) =~ "Dropped images could not be written to /tmp."
+    end
+
     test "stale planning URL with non-UUID ref self-heals to real planning loop", %{
       conn: conn,
       workspace: workspace

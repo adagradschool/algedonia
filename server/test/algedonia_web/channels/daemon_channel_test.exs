@@ -604,6 +604,36 @@ defmodule AlgedoniaWeb.DaemonChannelTest do
     end
   end
 
+  describe "terminal_image_drop_upload push" do
+    setup %{socket: socket} do
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "daemon:#{@daemon_id}", %{})
+
+      {:ok, socket: socket}
+    end
+
+    test "forwards terminal_image_drop_upload broadcast to daemon", %{socket: _socket} do
+      AlgedoniaWeb.DaemonChannel.push_terminal_image_drop_upload(
+        @daemon_id,
+        "77777777-7777-4777-8777-777777777777",
+        %{
+          "workspace_slug" => "my-workspace",
+          "ticket_id" => "88888888-8888-4888-8888-888888888888",
+          "files" => [
+            %{"name" => "shot.png", "type" => "image/png", "size" => 3, "data" => "YWJj"}
+          ]
+        }
+      )
+
+      assert_push "terminal_image_drop_upload", %{
+        "loop_id" => "77777777-7777-4777-8777-777777777777",
+        "workspace_slug" => "my-workspace",
+        "ticket_id" => "88888888-8888-4888-8888-888888888888",
+        "files" => [%{"name" => "shot.png", "type" => "image/png", "size" => 3, "data" => "YWJj"}]
+      }
+    end
+  end
+
   describe "start_loop push" do
     setup %{socket: socket} do
       {:ok, _reply, socket} =

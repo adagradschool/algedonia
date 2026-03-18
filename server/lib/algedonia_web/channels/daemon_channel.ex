@@ -22,6 +22,7 @@ defmodule AlgedoniaWeb.DaemonChannel do
     "start_loop",
     "stop_loop",
     "stdin_input",
+    "terminal_image_drop_upload",
     "get_diff",
     "merge_pr",
     "poll_review_pr",
@@ -315,6 +316,37 @@ defmodule AlgedoniaWeb.DaemonChannel do
   end
 
   def handle_in(
+        "terminal_image_drop_result",
+        %{
+          "loop_id" => loop_id,
+          "workspace_slug" => workspace_slug,
+          "status" => status,
+          "message" => message
+        },
+        socket
+      ) do
+    with true <- uuid_string?(loop_id),
+         true <- authorized_workspace_slug?(socket, workspace_slug),
+         %{id: workspace_id} <- Workspaces.get_workspace_by_slug(workspace_slug),
+         {:ok, parsed_status} <- parse_terminal_image_drop_status(status),
+         true <- is_binary(message) and message != "" do
+      Phoenix.PubSub.broadcast(
+        Algedonia.PubSub,
+        Topics.loop(workspace_id, loop_id),
+        {:terminal_image_drop_result, parsed_status, message}
+      )
+
+      {:noreply, socket}
+    else
+      _ -> {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+    end
+  end
+
+  def handle_in("terminal_image_drop_result", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_workspace_scope"}}, socket}
+  end
+
+  def handle_in(
         "review_pr_status",
         %{"loop_id" => loop_id, "workspace_slug" => workspace_slug} = payload,
         socket
@@ -481,6 +513,41 @@ defmodule AlgedoniaWeb.DaemonChannel do
       "loop_id" => loop_id,
       "data" => data
     })
+  end
+
+  @doc """
+  Pushes terminal_image_drop_upload to the daemon to materialize dropped image
+  bytes and insert resulting shell-safe paths into terminal stdin.
+  """
+  @spec push_terminal_image_drop_upload(String.t(), Algedonia.Types.id(), map()) :: :ok
+  def push_terminal_image_drop_upload(daemon_name, loop_id, opts) when is_map(opts) do
+    require_non_empty_string!(loop_id, "loop_id", "terminal_image_drop_upload")
+
+    require_non_empty_string!(
+      Map.get(opts, "workspace_slug"),
+      "workspace_slug",
+      "terminal_image_drop_upload"
+    )
+
+    require_non_empty_string!(
+      Map.get(opts, "ticket_id"),
+      "ticket_id",
+      "terminal_image_drop_upload"
+    )
+
+    files = Map.get(opts, "files")
+
+    if !is_list(files) or files == [] do
+      raise ArgumentError, "terminal_image_drop_upload requires at least one file"
+    end
+
+    payload = Map.merge(%{"loop_id" => loop_id}, opts)
+
+    AlgedoniaWeb.Endpoint.broadcast(
+      "daemon:#{daemon_name}",
+      "terminal_image_drop_upload",
+      payload
+    )
   end
 
   @doc """
@@ -768,4 +835,8 @@ defmodule AlgedoniaWeb.DaemonChannel do
   defp require_non_empty_string!(_value, field, event) do
     raise ArgumentError, "#{event} requires non-empty #{field}"
   end
+
+  defp parse_terminal_image_drop_status("info"), do: {:ok, :info}
+  defp parse_terminal_image_drop_status("error"), do: {:ok, :error}
+  defp parse_terminal_image_drop_status(_status), do: :error
 end

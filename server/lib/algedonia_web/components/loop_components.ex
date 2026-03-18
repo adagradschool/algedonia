@@ -64,11 +64,16 @@ defmodule AlgedoniaWeb.LoopComponents do
       phx-hook="XTerm"
       phx-update="ignore"
       data-loop-id={@loop_id}
+      data-terminal-drop-max-bytes={terminal_image_drop_max_bytes()}
       data-terminal-ws-url={@terminal_ws_url}
       data-terminal-ws-token={@terminal_ws_token}
       class="h-full"
     >
     </div>
     """
+  end
+
+  defp terminal_image_drop_max_bytes do
+    Application.get_env(:algedonia, :terminal_image_drop_max_bytes, 10 * 1024 * 1024)
   end
 end

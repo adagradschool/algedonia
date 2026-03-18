@@ -159,6 +159,7 @@ func newLoginCmd() *cobra.Command {
 			client.RegisterHandler("start_loop", mgr.HandleStartLoop)
 			client.RegisterHandler("stop_loop", mgr.HandleStopLoop)
 			client.RegisterHandler("stdin_input", mgr.HandleStdinInput)
+			client.RegisterHandler("terminal_image_drop_upload", mgr.HandleImageDropUpload)
 			client.RegisterHandler("get_diff", mgr.HandleGetDiff)
 			client.RegisterHandler("merge_pr", mgr.HandleMergePR)
 			client.RegisterHandler("poll_review_pr", mgr.HandlePollReviewPR)

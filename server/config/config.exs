@@ -7,12 +7,19 @@
 # General application configuration
 import Config
 
+terminal_image_drop_max_bytes =
+  case Integer.parse(System.get_env("ALGEDONIA_TERMINAL_IMAGE_DROP_MAX_BYTES") || "") do
+    {value, ""} when value > 0 -> value
+    _ -> 10 * 1_024 * 1_024
+  end
+
 config :algedonia,
   ecto_repos: [Algedonia.Repo],
   generators: [timestamp_type: :utc_datetime],
   default_coding_agent: :codex,
   overview_model: "claude-haiku-4-5-20251001",
-  terminal_ws_base_url: "ws://127.0.0.1:8765/terminal/ws"
+  terminal_ws_base_url: "ws://127.0.0.1:8765/terminal/ws",
+  terminal_image_drop_max_bytes: terminal_image_drop_max_bytes
 
 # Configure the endpoint
 config :algedonia, AlgedoniaWeb.Endpoint,

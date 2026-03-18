@@ -2,9 +2,10 @@ import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
 import {
-  handleTerminalImageDrop,
+  DEFAULT_TERMINAL_DROP_MAX_BYTES,
+  handleTerminalImageDropUpload,
   hasPotentialTerminalFileDrop,
-} from "./xterm_drop.mjs"
+} from "./xterm_drop_upload.mjs"
 
 const FIT_DEBOUNCE_MS = 60
 const MIN_RENDERABLE_WIDTH_PX = 24
@@ -55,6 +56,9 @@ const XTerm = {
     this.loopId = this.el.dataset.loopId || ""
     this.terminalWsUrl = this.el.dataset.terminalWsUrl || ""
     this.terminalWsToken = this.el.dataset.terminalWsToken || ""
+    this.terminalDropMaxBytes =
+      Number.parseInt(this.el.dataset.terminalDropMaxBytes || "", 10) ||
+      DEFAULT_TERMINAL_DROP_MAX_BYTES
     this.liveStreamEnabled = Boolean(this.loopId && this.terminalWsUrl && this.terminalWsToken)
 
     this.metrics = {
@@ -121,24 +125,28 @@ const XTerm = {
       }
     }
 
-    this.onDrop = (event) => {
+    this.onDrop = async (event) => {
       this.el.classList.remove(DROP_ACTIVE_CLASS)
       if (!hasPotentialTerminalFileDrop(event.dataTransfer)) return
 
       event.preventDefault()
 
       try {
-        const inserted = handleTerminalImageDrop(
-          event.dataTransfer,
-          (bytes) => this.sendInputFrame(bytes),
-          this.encoder
-        )
+        const inserted = await handleTerminalImageDropUpload(event.dataTransfer, {
+          maxBytes: this.terminalDropMaxBytes,
+          pushUpload: (payload) => this.pushEvent("terminal_image_drop_upload", payload),
+          pushFeedback: (feedback) => this.pushEvent("terminal_drop_feedback", feedback),
+        })
 
         if (inserted) {
           this.term?.focus()
         }
       } catch (error) {
         console.warn("XTerm drop error", error)
+        this.pushEvent("terminal_drop_feedback", {
+          level: "error",
+          message: "Dropped images could not be prepared for upload.",
+        })
       }
     }
 
@@ -560,7 +568,10 @@ const XTerm = {
     }
     if (this.onDrop) {
       this.el.removeEventListener("drop", this.onDrop)
+<<<<<<< HEAD
       this.el.classList.remove(DROP_ACTIVE_CLASS)
+=======
+>>>>>>> 7c0fb29 (fail verifier: image drop contract conflicts between /tmp and worktree scope)
     }
     if (window.__algedoniaTerminalMetrics) {
       delete window.__algedoniaTerminalMetrics[this.el.id]
