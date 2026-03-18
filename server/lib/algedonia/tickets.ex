@@ -212,15 +212,13 @@ defmodule Algedonia.Tickets do
   def assignee_value(options, assignee) when is_list(options) and is_binary(assignee) do
     values = MapSet.new(Enum.map(options, fn {_label, value} -> value end))
 
-    cond do
-      MapSet.member?(values, assignee) ->
-        assignee
-
-      true ->
-        case matching_assignee_values(options, assignee) do
-          [value] -> value
-          _ -> nil
-        end
+    if MapSet.member?(values, assignee) do
+      assignee
+    else
+      case matching_assignee_values(options, assignee) do
+        [value] -> value
+        _ -> nil
+      end
     end
   end
 
