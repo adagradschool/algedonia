@@ -155,7 +155,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Alfred Outside"
 
       view
-      |> element("#ticket-form-assignee-option-alpha-modal")
+      |> element("#ticket-form-assignee-option-#{alpha.id}")
       |> render_click()
 
       view
@@ -166,10 +166,15 @@ defmodule AlgedoniaWeb.TicketLiveTest do
         Tickets.list_tickets(workspace_id: workspace.id)
         |> Enum.find(&(&1.title == "Assigned from modal"))
 
-      assert ticket.assignee == "Alpha Modal"
+      assert ticket.assignee == alpha.id
 
       {:ok, reload_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
       assert has_element?(reload_view, ~s{#ticket-detail-assignee-search[value="Alpha Modal"]})
+
+      assert has_element?(
+               reload_view,
+               ~s{#ticket-detail-form input[name="ticket[assignee]"][value="#{alpha.id}"]}
+             )
     end
 
     test "deletes a ticket", %{conn: conn, workspace: workspace} do
@@ -288,19 +293,92 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> render_keyup(%{"value" => "alp"})
 
       view
-      |> element("#ticket-detail-assignee-option-alpha-detail")
+      |> element("#ticket-detail-assignee-option-#{alpha.id}")
       |> render_click()
 
-      assert Tickets.get_ticket!(ticket.id).assignee == "Alpha Detail"
+      assert Tickets.get_ticket!(ticket.id).assignee == alpha.id
 
       {:ok, reload_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
       assert has_element?(reload_view, ~s{#ticket-detail-assignee-search[value="Alpha Detail"]})
+
+      assert has_element?(
+               reload_view,
+               ~s{#ticket-detail-form input[name="ticket[assignee]"][value="#{alpha.id}"]}
+             )
 
       reload_view
       |> element("#ticket-detail-assignee-clear")
       |> render_click()
 
       assert Tickets.get_ticket!(ticket.id).assignee == nil
+    end
+
+    test "duplicate display names remain selectable by identifier in the modal assignee picker",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
+      first = insert_user!(%{name: "same-label"})
+      second = insert_user!(%{name: " same-label "})
+
+      insert_membership!(workspace, first)
+      insert_membership!(workspace, second)
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets")
+
+      view |> element("#new-issue-button") |> render_click()
+
+      html =
+        view
+        |> element("#ticket-form-assignee-search")
+        |> render_keyup(%{"value" => "same"})
+
+      assert html =~ "same-label"
+
+      view
+      |> element("#ticket-form-assignee-option-#{second.id}")
+      |> render_click()
+
+      view
+      |> form("#ticket-form",
+        ticket: %{title: "Duplicate label assignee", type: :bug, priority: 2}
+      )
+      |> render_submit()
+
+      ticket =
+        Tickets.list_tickets(workspace_id: workspace.id)
+        |> Enum.find(&(&1.title == "Duplicate label assignee"))
+
+      assert ticket.assignee == second.id
+
+      {:ok, reload_view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+      assert has_element?(reload_view, ~s{#ticket-detail-assignee-search[value="same-label"]})
+
+      assert has_element?(
+               reload_view,
+               ~s{#ticket-detail-form input[name="ticket[assignee]"][value="#{second.id}"]}
+             )
+    end
+
+    test "legacy display-name assignees still render in the detail picker", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      ticket =
+        insert_ticket!(%{
+          title: "Legacy assignee",
+          workspace_id: workspace.id,
+          assignee: "Legacy Display Name"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket}")
+
+      assert has_element?(view, ~s{#ticket-detail-assignee-search[value="Legacy Display Name"]})
+
+      assert has_element?(
+               view,
+               ~s{#ticket-detail-form input[name="ticket[assignee]"][value="Legacy Display Name"]}
+             )
     end
 
     test "manual run control is only shown for in-progress and in-review tickets", %{

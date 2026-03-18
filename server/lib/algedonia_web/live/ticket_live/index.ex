@@ -35,6 +35,11 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     current_workspace_id = current_workspace && current_workspace.id
     workspace_prefix = if current_workspace, do: current_workspace.prefix, else: "AG"
 
+    assignee_display_names =
+      current_workspace_id
+      |> Tickets.list_assignee_options()
+      |> Tickets.assignee_display_names()
+
     if connected?(socket) && current_workspace_id do
       Tickets.subscribe(current_workspace_id)
     end
@@ -48,6 +53,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
        current_workspace_id: current_workspace_id,
        current_workspace: current_workspace,
        workspace_prefix: workspace_prefix,
+       assignee_display_names: assignee_display_names,
        workspace_slug: workspace_slug,
        manual_run: DetailEvents.empty_manual_run(),
        save_state: :idle,
@@ -221,7 +227,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
           ticket: ticket,
           ticket_form: to_form(Tickets.change_ticket(ticket)),
           assignee_open: false,
-          assignee_search: ticket.assignee || "",
+          assignee_search:
+            Tickets.assignee_display_name(socket.assigns.assignee_options, ticket.assignee) || "",
           blocker_tickets: blocker_tickets,
           blocked_by_options:
             Tickets.list_tickets(workspace_id: ticket.workspace_id)

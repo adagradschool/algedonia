@@ -11,7 +11,7 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
       |> put_req_header("authorization", "Bearer #{token}")
       |> put_req_header("accept", "application/json")
 
-    {:ok, conn: conn, workspace: workspace}
+    {:ok, conn: conn, workspace: workspace, user: user}
   end
 
   describe "GET /api/w/:workspace/tickets" do
@@ -125,18 +125,22 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
       assert is_integer(t["number"])
     end
 
-    test "creates a ticket with a workspace member assignee", %{conn: conn, workspace: workspace} do
+    test "creates a ticket with a workspace member assignee", %{
+      conn: conn,
+      workspace: workspace,
+      user: user
+    } do
       conn =
         post(conn, "/api/w/#{workspace.slug}/tickets", %{
           "ticket" => %{
             "title" => "Assigned API ticket",
             "type" => "bug",
-            "assignee" => "TestUser"
+            "assignee" => user.id
           }
         })
 
       %{"ticket" => t} = json_response(conn, 201)
-      assert t["assignee"] == "TestUser"
+      assert t["assignee"] == user.id
     end
 
     test "returns 422 for invalid params", %{conn: conn, workspace: workspace} do
@@ -158,7 +162,7 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
           "ticket" => %{
             "title" => "Invalid assignee ticket",
             "type" => "bug",
-            "assignee" => "Other Workspace Member"
+            "assignee" => outsider.id
           }
         })
 
@@ -223,9 +227,9 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
       assert t["title"] == "Updated"
     end
 
-    test "allows clearing assignee", %{conn: conn, workspace: workspace} do
+    test "allows clearing assignee", %{conn: conn, workspace: workspace, user: user} do
       ticket =
-        insert_ticket!(%{workspace_id: workspace.id, title: "Assigned", assignee: "TestUser"})
+        insert_ticket!(%{workspace_id: workspace.id, title: "Assigned", assignee: user.id})
 
       conn =
         patch(conn, "/api/w/#{workspace.slug}/tickets/#{ticket.id}", %{
@@ -265,7 +269,7 @@ defmodule AlgedoniaWeb.Api.TicketControllerTest do
 
       conn =
         patch(conn, "/api/w/#{workspace.slug}/tickets/#{ticket.id}", %{
-          "ticket" => %{"assignee" => "Cross Workspace Member"}
+          "ticket" => %{"assignee" => outsider.id}
         })
 
       assert %{"errors" => %{"assignee" => [message]}} = json_response(conn, 422)

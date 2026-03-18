@@ -32,10 +32,16 @@ defmodule Algedonia.TicketsTest do
                Tickets.create_ticket_for_workspace(workspace, %{
                  "title" => "Assigned ticket",
                  "type" => "bug",
-                 "assignee" => "Workspace Member"
+                 "assignee" => member.id
                })
 
-      assert ticket.assignee == "Workspace Member"
+      assert ticket.assignee == member.id
+
+      assert Tickets.assignee_display_name(
+               Tickets.list_assignee_options(workspace.id),
+               ticket.assignee
+             ) ==
+               "Workspace Member"
     end
 
     test "create_ticket_for_workspace rejects non-member assignees" do
@@ -48,7 +54,22 @@ defmodule Algedonia.TicketsTest do
                Tickets.create_ticket_for_workspace(workspace, %{
                  "title" => "Invalid assignee",
                  "type" => "bug",
-                 "assignee" => "Outside Member"
+                 "assignee" => outsider.id
+               })
+
+      assert "must be a workspace member" in errors_on(changeset).assignee
+    end
+
+    test "create_ticket_for_workspace rejects display-name assignees under the identifier contract" do
+      workspace = insert_workspace!(%{name: "Identifier Workspace"})
+      member = insert_user!(%{name: "Workspace Member"})
+      insert_membership!(workspace, member)
+
+      assert {:error, changeset} =
+               Tickets.create_ticket_for_workspace(workspace, %{
+                 "title" => "Label assignee",
+                 "type" => "bug",
+                 "assignee" => "Workspace Member"
                })
 
       assert "must be a workspace member" in errors_on(changeset).assignee
@@ -63,15 +84,31 @@ defmodule Algedonia.TicketsTest do
       insert_membership!(workspace, member)
       insert_membership!(other_workspace, outsider)
 
-      ticket = insert_ticket!(%{workspace_id: workspace.id, assignee: "Current Member"})
+      ticket = insert_ticket!(%{workspace_id: workspace.id, assignee: member.id})
 
       assert {:error, changeset} =
-               Tickets.update_ticket(ticket, %{"assignee" => "External Member"})
+               Tickets.update_ticket(ticket, %{"assignee" => outsider.id})
 
       assert "must be a workspace member" in errors_on(changeset).assignee
 
       assert {:ok, cleared} = Tickets.update_ticket(ticket, %{"assignee" => "  "})
       assert cleared.assignee == nil
+    end
+
+    test "assignee options preserve duplicate display names with distinct identifiers" do
+      workspace = insert_workspace!(%{name: "Duplicate Assignees"})
+      first = insert_user!(%{name: "duplicate-handle"})
+      second = insert_user!(%{name: " duplicate-handle "})
+
+      insert_membership!(workspace, first)
+      insert_membership!(workspace, second)
+
+      options = Tickets.list_assignee_options(workspace.id)
+
+      assert {"duplicate-handle", first.id} in options
+      assert {"duplicate-handle", second.id} in options
+      assert Tickets.assignee_value(options, "duplicate-handle") == nil
+      assert Tickets.assignee_value(options, first.id) == first.id
     end
   end
 

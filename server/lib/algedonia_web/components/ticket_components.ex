@@ -6,6 +6,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   import AlgedoniaWeb.CoreComponents, only: [icon: 1]
   import AlgedoniaWeb.Helpers, only: [ticket_ref: 1, short_id: 1]
 
+  alias Algedonia.Tickets
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -100,6 +101,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr(:prefix, :string, default: "AG")
   attr(:workspace_slug, :string, default: nil)
   attr(:loop_info, :map, default: %{})
+  attr(:assignee_display_names, :map, default: %{})
 
   def ticket_card(assigns) do
     info = Map.get(assigns.loop_info, assigns.ticket.id, %{})
@@ -130,6 +132,7 @@ defmodule AlgedoniaWeb.TicketComponents do
         loop_ref={@loop_ref}
         stage={@stage}
         attempt={@attempt}
+        assignee_display_names={@assignee_display_names}
       />
     </div>
     """
@@ -148,6 +151,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr(:loop_ref, :string, default: nil)
   attr(:stage, :string, default: nil)
   attr(:attempt, :integer, default: nil)
+  attr(:assignee_display_names, :map, default: %{})
 
   defp ticket_card_bottom_row(%{ticket: %{status: :in_review}} = assigns) do
     ~H"""
@@ -261,7 +265,7 @@ defmodule AlgedoniaWeb.TicketComponents do
           :if={@ticket.assignee}
           class="text-[10px] text-fg-muted max-w-36 whitespace-normal break-words text-right"
         >
-          {@ticket.assignee}
+          {Tickets.assignee_display_name(@assignee_display_names, @ticket.assignee)}
         </span>
       </div>
     </div>
@@ -276,6 +280,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr(:prefix, :string, default: "AG")
   attr(:workspace_slug, :string, default: nil)
   attr(:loop_info, :map, default: %{})
+  attr(:assignee_display_names, :map, default: %{})
 
   def ticket_row(assigns) do
     info = Map.get(assigns.loop_info, assigns.ticket.id, %{})
@@ -345,7 +350,7 @@ defmodule AlgedoniaWeb.TicketComponents do
         :if={@ticket.assignee}
         class="text-[10px] text-fg-muted max-w-40 text-right whitespace-normal break-words"
       >
-        {@ticket.assignee}
+        {Tickets.assignee_display_name(@assignee_display_names, @ticket.assignee)}
       </span>
       <div class="dropdown dropdown-end shrink-0" phx-stop-propagation>
         <button
@@ -402,6 +407,7 @@ defmodule AlgedoniaWeb.TicketComponents do
   attr(:prefix, :string, default: "AG")
   attr(:workspace_slug, :string, default: nil)
   attr(:loop_info, :map, default: %{})
+  attr(:assignee_display_names, :map, default: %{})
   attr(:last, :boolean, default: false)
 
   def status_column(assigns) do
@@ -435,6 +441,7 @@ defmodule AlgedoniaWeb.TicketComponents do
           prefix={@prefix}
           workspace_slug={@workspace_slug}
           loop_info={@loop_info}
+          assignee_display_names={@assignee_display_names}
         />
       </div>
     </div>
