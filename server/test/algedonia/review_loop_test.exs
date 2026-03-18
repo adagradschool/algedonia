@@ -165,6 +165,37 @@ defmodule Algedonia.ReviewLoopTest do
       assert payload["task"] =~ "Suggested PR title"
       assert payload["task"] =~ "ALG-#{ticket.number}: Ship review flow"
     end
+
+    test "backlog -> in_review transition starts the PR creation review loop once", ctx do
+      {:ok, default_pid} = ReviewLoop.start_link(push_fn: ctx.push_fn)
+
+      on_exit(fn ->
+        if Process.alive?(default_pid) do
+          GenServer.stop(default_pid)
+        end
+      end)
+
+      daemon = insert_daemon!(%{status: :online})
+      workspace = insert_workspace!(%{slug: "loop-ws-backlog", name: "Loop", prefix: "ALG"})
+
+      ticket =
+        insert_ticket!(%{
+          status: :backlog,
+          workspace_id: workspace.id,
+          title: "Ship review flow from backlog"
+        })
+
+      assert {:ok, _updated} = Tickets.update_ticket(ticket, %{status: :in_review})
+
+      loops = Loops.list_review_loops_for_ticket(ticket.id)
+      assert length(loops) == 1
+
+      daemon_name = daemon.name
+      assert_receive {:push_start_loop, ^daemon_name, _, payload}, @push_timeout
+      assert payload["role"] == "review"
+      assert payload["task"] =~ "Suggested PR title"
+      assert payload["task"] =~ "ALG-#{ticket.number}: Ship review flow from backlog"
+    end
   end
 
   describe "rebase-on-main freshness enforcement" do

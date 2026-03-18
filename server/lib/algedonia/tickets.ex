@@ -364,7 +364,7 @@ defmodule Algedonia.Tickets do
         old_status != :in_progress and new_status == :in_progress ->
           maybe_ensure_work_loop(updated)
 
-        old_status == :in_progress and new_status == :in_review ->
+        old_status != :in_review and new_status == :in_review ->
           Algedonia.ReviewLoop.start_review(updated)
 
         old_status == :in_progress and new_status in [:backlog, :planning] ->
