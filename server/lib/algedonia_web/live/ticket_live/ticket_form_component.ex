@@ -4,8 +4,8 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   """
   use AlgedoniaWeb, :live_component
 
-  alias AlgedoniaWeb.TicketLive.ComboboxHelpers
   alias Algedonia.Tickets
+  alias AlgedoniaWeb.TicketLive.ComboboxHelpers
 
   @impl true
   def update(%{ticket: ticket, action: action} = assigns, socket) do
