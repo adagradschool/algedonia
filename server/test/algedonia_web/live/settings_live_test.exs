@@ -121,6 +121,29 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       assert flash["info"] == "Workspace updated."
     end
 
+    test "submitted prefix is ignored and remains derived from the workspace name", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
+
+      view
+      |> form("form[phx-submit=save]",
+        workspace: %{
+          name: "Derived Prefix Workspace",
+          prefix: "MANUAL"
+        }
+      )
+      |> render_submit()
+
+      flash = assert_redirect(view, ~p"/w/derived-prefix-workspace/settings")
+      assert flash["info"] == "Workspace updated."
+
+      reloaded = Algedonia.Workspaces.get_workspace!(workspace.id)
+      assert reloaded.prefix == Algedonia.Workspaces.prefix_for_name("Derived Prefix Workspace")
+      refute reloaded.prefix == "MANUAL"
+    end
+
     test "stays on same page when slug unchanged", %{conn: conn, workspace: workspace} do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
 

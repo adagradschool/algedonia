@@ -65,10 +65,18 @@ type Comment struct {
 
 // Workspace represents a workspace from the API.
 type Workspace struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Slug   string `json:"slug"`
-	Prefix string `json:"prefix"`
+	ID                      string                 `json:"id"`
+	Name                    string                 `json:"name"`
+	Slug                    string                 `json:"slug"`
+	Prefix                  string                 `json:"prefix"`
+	GitHubRepoURL           *string                `json:"github_repo_url"`
+	WorktreeBootstrapScript *string                `json:"worktree_bootstrap_script"`
+	WorktreeRunScript       *string                `json:"worktree_run_script"`
+	TrackerConfig           map[string]interface{} `json:"tracker_config"`
+	PlaybackConfig          map[string]interface{} `json:"playback_config"`
+	Defaults                map[string]interface{} `json:"defaults"`
+	MaxIterations           int                    `json:"max_iterations"`
+	PlanningMode            string                 `json:"planning_mode"`
 }
 
 // ListTicketsOpts holds optional filters for listing tickets.
@@ -229,6 +237,33 @@ func (c *Client) ListWorkspaces() ([]Workspace, error) {
 		return nil, err
 	}
 	return resp.Workspaces, nil
+}
+
+// GetWorkspace returns the current workspace configuration.
+func (c *Client) GetWorkspace() (*Workspace, error) {
+	path := fmt.Sprintf("/api/w/%s/workspace", url.PathEscape(c.Workspace))
+
+	var resp struct {
+		Workspace Workspace `json:"workspace"`
+	}
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp.Workspace, nil
+}
+
+// UpdateWorkspace updates the current workspace configuration.
+func (c *Client) UpdateWorkspace(attrs map[string]interface{}) (*Workspace, error) {
+	path := fmt.Sprintf("/api/w/%s/workspace", url.PathEscape(c.Workspace))
+	body := map[string]interface{}{"workspace": attrs}
+
+	var resp struct {
+		Workspace Workspace `json:"workspace"`
+	}
+	if err := c.patch(path, body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp.Workspace, nil
 }
 
 func (c *Client) get(path string, out interface{}) error {

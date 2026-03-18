@@ -371,7 +371,7 @@ func TestListWorkspaces(t *testing.T) {
 			t.Errorf("path = %q, want /api/workspaces", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"workspaces": []Workspace{{ID: 1, Name: "Test", Slug: "test", Prefix: "TST"}},
+			"workspaces": []Workspace{{ID: "workspace-1", Name: "Test", Slug: "test", Prefix: "TST"}},
 		})
 	})
 
@@ -381,6 +381,109 @@ func TestListWorkspaces(t *testing.T) {
 	}
 	if len(workspaces) != 1 || workspaces[0].Slug != "test" {
 		t.Errorf("unexpected workspaces: %+v", workspaces)
+	}
+}
+
+func TestGetWorkspace(t *testing.T) {
+	repoURL := "https://github.com/example/algedonia"
+	bootstrap := "scripts/bootstrap.sh"
+	runScript := "scripts/verify.sh"
+
+	_, client := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/w/my-ws/workspace" {
+			t.Errorf("path = %q, want /api/w/my-ws/workspace", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"workspace": Workspace{
+				ID:                      "workspace-1",
+				Name:                    "Example",
+				Slug:                    "example",
+				Prefix:                  "EXA",
+				GitHubRepoURL:           &repoURL,
+				WorktreeBootstrapScript: &bootstrap,
+				WorktreeRunScript:       &runScript,
+				MaxIterations:           7,
+			},
+		})
+	})
+
+	workspace, err := client.GetWorkspace()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if workspace.Name != "Example" || workspace.Prefix != "EXA" {
+		t.Fatalf("unexpected workspace: %+v", workspace)
+	}
+	if workspace.GitHubRepoURL == nil || *workspace.GitHubRepoURL != repoURL {
+		t.Fatalf("github_repo_url = %v, want %q", workspace.GitHubRepoURL, repoURL)
+	}
+	if workspace.MaxIterations != 7 {
+		t.Fatalf("max_iterations = %d, want 7", workspace.MaxIterations)
+	}
+}
+
+func TestUpdateWorkspace(t *testing.T) {
+	repoURL := "https://github.com/example/renamed"
+	bootstrap := "scripts/bootstrap.sh"
+	runScript := "scripts/verify.sh"
+
+	_, client := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" {
+			t.Errorf("method = %q, want PATCH", r.Method)
+		}
+		if r.URL.Path != "/api/w/my-ws/workspace" {
+			t.Errorf("path = %q, want /api/w/my-ws/workspace", r.URL.Path)
+		}
+
+		var body struct {
+			Workspace map[string]interface{} `json:"workspace"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		if body.Workspace["name"] != "Renamed Workspace" {
+			t.Fatalf("name = %v, want %q", body.Workspace["name"], "Renamed Workspace")
+		}
+		if body.Workspace["max_iterations"] != float64(9) {
+			t.Fatalf("max_iterations = %v, want 9", body.Workspace["max_iterations"])
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"workspace": Workspace{
+				ID:                      "workspace-1",
+				Name:                    "Renamed Workspace",
+				Slug:                    "renamed-workspace",
+				Prefix:                  "REN",
+				GitHubRepoURL:           &repoURL,
+				WorktreeBootstrapScript: &bootstrap,
+				WorktreeRunScript:       &runScript,
+				MaxIterations:           9,
+			},
+		})
+	})
+
+	workspace, err := client.UpdateWorkspace(map[string]interface{}{
+		"name":                      "Renamed Workspace",
+		"max_iterations":            9,
+		"github_repo_url":           repoURL,
+		"worktree_bootstrap_script": bootstrap,
+		"worktree_run_script":       runScript,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if workspace.Slug != "renamed-workspace" {
+		t.Fatalf("slug = %q, want %q", workspace.Slug, "renamed-workspace")
+	}
+	if workspace.Prefix != "REN" {
+		t.Fatalf("prefix = %q, want %q", workspace.Prefix, "REN")
+	}
+	if workspace.WorktreeRunScript == nil || *workspace.WorktreeRunScript != runScript {
+		t.Fatalf("worktree_run_script = %v, want %q", workspace.WorktreeRunScript, runScript)
 	}
 }
 

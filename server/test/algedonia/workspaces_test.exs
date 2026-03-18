@@ -110,6 +110,34 @@ defmodule Algedonia.WorkspacesTest do
       assert updated.worktree_run_script == "scripts/verify.sh"
     end
 
+    test "partial updates do not mutate unrelated workspace configuration" do
+      workspace =
+        insert_workspace!(%{
+          tracker_config: %{"planning_states" => ["planning"]},
+          playback_config: %{"concurrency" => 2},
+          defaults: %{"base_pipeline" => ["compile", "test", "lint"]},
+          planning_mode: :always_review,
+          worktree_bootstrap_script: "bin/setup-worktree",
+          worktree_run_script: "bin/verify-worktree",
+          github_repo_url: "https://github.com/acme/repo",
+          max_iterations: 7
+        })
+
+      assert {:ok, updated} =
+               Workspaces.update_workspace(workspace, %{
+                 github_repo_url: "https://github.com/acme/renamed"
+               })
+
+      assert updated.github_repo_url == "https://github.com/acme/renamed"
+      assert updated.max_iterations == 7
+      assert updated.worktree_bootstrap_script == "bin/setup-worktree"
+      assert updated.worktree_run_script == "bin/verify-worktree"
+      assert updated.tracker_config == %{"planning_states" => ["planning"]}
+      assert updated.playback_config == %{"concurrency" => 2}
+      assert updated.defaults == %{"base_pipeline" => ["compile", "test", "lint"]}
+      assert updated.planning_mode == :always_review
+    end
+
     test "rejects invalid planning mode in changeset" do
       attrs = %{
         name: "Acme",
