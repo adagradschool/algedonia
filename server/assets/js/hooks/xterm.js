@@ -1,11 +1,16 @@
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
+import {
+  handleTerminalImageDrop,
+  hasPotentialTerminalFileDrop,
+} from "./xterm_drop.mjs"
 
 const FIT_DEBOUNCE_MS = 60
 const MIN_RENDERABLE_WIDTH_PX = 24
 const MIN_RENDERABLE_HEIGHT_PX = 24
 const WS_RECONNECT_MS = 1200
+const DROP_ACTIVE_CLASS = "xterm-terminal--drag-active"
 
 const FRAME_INPUT = 0x00
 const FRAME_CONTROL = 0x01
@@ -103,6 +108,43 @@ const XTerm = {
 
     this.onPointerFocus = () => this.term?.focus()
     this.el.addEventListener("pointerdown", this.onPointerFocus)
+
+    this.onDragOver = (event) => {
+      if (!hasPotentialTerminalFileDrop(event.dataTransfer)) return
+      event.preventDefault()
+      this.el.classList.add(DROP_ACTIVE_CLASS)
+    }
+
+    this.onDragLeave = (event) => {
+      if (event.currentTarget === event.target || !this.el.contains(event.relatedTarget)) {
+        this.el.classList.remove(DROP_ACTIVE_CLASS)
+      }
+    }
+
+    this.onDrop = (event) => {
+      this.el.classList.remove(DROP_ACTIVE_CLASS)
+      if (!hasPotentialTerminalFileDrop(event.dataTransfer)) return
+
+      event.preventDefault()
+
+      try {
+        const inserted = handleTerminalImageDrop(
+          event.dataTransfer,
+          (bytes) => this.sendInputFrame(bytes),
+          this.encoder
+        )
+
+        if (inserted) {
+          this.term?.focus()
+        }
+      } catch (error) {
+        console.warn("XTerm drop error", error)
+      }
+    }
+
+    this.el.addEventListener("dragover", this.onDragOver)
+    this.el.addEventListener("dragleave", this.onDragLeave)
+    this.el.addEventListener("drop", this.onDrop)
 
     this.connectTerminalSocket()
 
@@ -509,6 +551,16 @@ const XTerm = {
     }
     if (this.onPointerFocus) {
       this.el.removeEventListener("pointerdown", this.onPointerFocus)
+    }
+    if (this.onDragOver) {
+      this.el.removeEventListener("dragover", this.onDragOver)
+    }
+    if (this.onDragLeave) {
+      this.el.removeEventListener("dragleave", this.onDragLeave)
+    }
+    if (this.onDrop) {
+      this.el.removeEventListener("drop", this.onDrop)
+      this.el.classList.remove(DROP_ACTIVE_CLASS)
     }
     if (window.__algedoniaTerminalMetrics) {
       delete window.__algedoniaTerminalMetrics[this.el.id]
