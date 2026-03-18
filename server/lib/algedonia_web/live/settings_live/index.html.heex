@@ -8,12 +8,15 @@
   nav_section={@nav_section}
   current_path={@current_path}
 >
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full min-h-0">
     <header class="h-12 border-b border-border flex items-center px-6 bg-surface flex-shrink-0">
       <h1 class="text-sm font-semibold text-fg">Settings</h1>
     </header>
 
-    <div class="flex-1 overflow-y-auto p-6 space-y-8 max-w-2xl">
+    <div
+      id="settings-scroll-container"
+      class="flex-1 min-h-0 overflow-y-auto p-6 space-y-8 max-w-2xl"
+    >
       <%!-- Workspace settings form --%>
       <section>
         <h2 class="text-base font-semibold text-fg mb-4">Workspace</h2>
@@ -62,14 +65,14 @@
               <label for={@form[:worktree_bootstrap_script].id}>
                 <span class="label mb-1">Worktree bootstrap script</span>
               </label>
-              <div class="script-editor-shell">
+              <div class="script-editor-shell script-editor-shell--bounded">
                 <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
                 <textarea
                   id={@form[:worktree_bootstrap_script].id}
                   name={@form[:worktree_bootstrap_script].name}
                   rows="6"
                   data-role="source"
-                  class="script-editor-input"
+                  class="script-editor-input script-editor-input--scrollable"
                   placeholder="bash commands to run in each newly created ticket worktree"
                 >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_bootstrap_script].value)}</textarea>
               </div>
@@ -93,14 +96,14 @@
               <label for={@form[:worktree_run_script].id}>
                 <span class="label mb-1">Worktree manual run script</span>
               </label>
-              <div class="script-editor-shell">
+              <div class="script-editor-shell script-editor-shell--bounded">
                 <pre class="script-editor-highlight" aria-hidden="true"><code data-role="highlight" class="language-bash"></code></pre>
                 <textarea
                   id={@form[:worktree_run_script].id}
                   name={@form[:worktree_run_script].name}
                   rows="6"
                   data-role="source"
-                  class="script-editor-input"
+                  class="script-editor-input script-editor-input--scrollable"
                   placeholder="bash commands to run manually in a ticket worktree"
                 >{Phoenix.HTML.Form.normalize_value("textarea", @form[:worktree_run_script].value)}</textarea>
               </div>

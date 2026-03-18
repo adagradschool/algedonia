@@ -563,6 +563,10 @@ body {
   overflow: hidden;
 }
 
+.script-editor-shell--bounded {
+  height: 16rem;
+}
+
 .script-editor-shell--drag-active {
   border-color: var(--color-accent-indigo);
   box-shadow: 0 0 0 1px var(--color-accent-indigo);
@@ -572,7 +576,8 @@ body {
 .script-editor-input {
   margin: 0;
   padding: 0.75rem;
-  min-height: 9.5rem;
+  height: 100%;
+  min-height: 0;
   font-family: var(--font-mono);
   font-size: 0.8rem;
   line-height: 1.45;
@@ -594,7 +599,7 @@ body {
   position: absolute;
   inset: 0;
   width: 100%;
-  resize: vertical;
+  resize: none;
   border: 0;
   outline: none;
   background: transparent;
