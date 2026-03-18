@@ -55,6 +55,23 @@ test("builds upload payloads for supported images in deterministic drop order", 
   })
 })
 
+test("builds upload payloads from dropped file bytes without recovering host paths", async () => {
+  const dataTransfer = {
+    files: [makeFile("diagram.png", "image/png", [0x64, 0x69, 0x61])],
+    types: ["Files", "text/uri-list"],
+    getData() {
+      throw new Error("host path access should not be used")
+    },
+  }
+
+  const payload = await buildTerminalImageDropPayload(dataTransfer)
+
+  assert.equal(payload.files.length, 1)
+  assert.deepEqual(Object.keys(payload.files[0]).sort(), ["data", "name", "size", "type"])
+  assert.equal(payload.files[0].name, "diagram.png")
+  assert.equal(payload.feedback, null)
+})
+
 test("classifies oversized images before upload encoding", () => {
   const {accepted, rejected} = classifyTerminalImageDropFiles(
     [

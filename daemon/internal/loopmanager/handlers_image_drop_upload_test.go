@@ -149,6 +149,58 @@ func TestHandleImageDropUploadRejectsOversize(t *testing.T) {
 	}
 }
 
+func TestHandleImageDropUploadRejectsTmpWriteFailure(t *testing.T) {
+	var mu sync.Mutex
+	var events []sentEvent
+
+	mgr := NewManager(collectingSendFunc(&mu, &events), adapter.DefaultRegistry(), "")
+	loopID := "c7c7c7c7-c7c7-47c7-87c7-c7c7c7c7c7c7"
+	ticketID := "d8d8d8d8-d8d8-48d8-88d8-d8d8d8d8d8d8"
+	workspaceSlug := "image-drop-write-failure"
+
+	ctx := context.Background()
+	if err := mgr.StartLoop(ctx, loopID, "cat", nil, "", ""); err != nil {
+		t.Fatalf("StartLoop: %v", err)
+	}
+	defer mgr.StopLoop(loopID, "test cleanup")
+
+	blockedTarget := terminalImageDropTargetDir(ticketID)
+	defer os.RemoveAll(blockedTarget)
+
+	if err := os.MkdirAll(filepath.Dir(blockedTarget), 0o755); err != nil {
+		t.Fatalf("MkdirAll(parent): %v", err)
+	}
+
+	if err := os.WriteFile(blockedTarget, []byte("blocked"), 0o600); err != nil {
+		t.Fatalf("WriteFile(target): %v", err)
+	}
+
+	err := mgr.HandleImageDropUpload(ctx, map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": workspaceSlug,
+		"ticket_id":      ticketID,
+		"files": []interface{}{
+			map[string]interface{}{
+				"name": "blocked.png",
+				"type": "image/png",
+				"data": base64.StdEncoding.EncodeToString([]byte("png")),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleImageDropUpload: %v", err)
+	}
+
+	if !hasTerminalImageDropResult(
+		&mu,
+		events,
+		"error",
+		"Dropped images could not be written to /tmp.",
+	) {
+		t.Fatal("expected explicit /tmp write-failure result event")
+	}
+}
+
 func collectedTerminalOutput(mu *sync.Mutex, events []sentEvent) string {
 	mu.Lock()
 	defer mu.Unlock()

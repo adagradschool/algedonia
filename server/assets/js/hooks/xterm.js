@@ -568,10 +568,7 @@ const XTerm = {
     }
     if (this.onDrop) {
       this.el.removeEventListener("drop", this.onDrop)
-<<<<<<< HEAD
       this.el.classList.remove(DROP_ACTIVE_CLASS)
-=======
->>>>>>> 7c0fb29 (fail verifier: image drop contract conflicts between /tmp and worktree scope)
     }
     if (window.__algedoniaTerminalMetrics) {
       delete window.__algedoniaTerminalMetrics[this.el.id]
