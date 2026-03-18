@@ -61,10 +61,11 @@ func TestHandleImageDropUpload(t *testing.T) {
 		Name: "two's.webp",
 		Type: "image/webp",
 	}, []byte("second-image"))
+	expectedOutput := shellEscapePath(firstPath) + " " + shellEscapePath(secondPath)
 
-	assertEventuallyContains(t, 5*time.Second, func() string {
+	assertEventuallyEquals(t, 5*time.Second, func() string {
 		return collectedTerminalOutput(&mu, events)
-	}, shellEscapePath(firstPath)+" "+shellEscapePath(secondPath))
+	}, expectedOutput)
 
 	firstBytes, err := os.ReadFile(firstPath)
 	if err != nil {
@@ -317,4 +318,18 @@ func assertEventuallyContains(t *testing.T, timeout time.Duration, fn func() str
 	}
 
 	t.Fatalf("timed out waiting for %q in %q", want, fn())
+}
+
+func assertEventuallyEquals(t *testing.T, timeout time.Duration, fn func() string, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if got := fn(); got == want {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for exact %q in %q", want, fn())
 }
