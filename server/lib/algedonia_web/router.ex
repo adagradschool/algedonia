@@ -79,6 +79,8 @@ defmodule AlgedoniaWeb.Router do
     scope "/w/:workspace" do
       pipe_through AlgedoniaWeb.Plugs.ApiWorkspace
 
+      get "/workspace", WorkspaceController, :show
+      patch "/workspace", WorkspaceController, :update
       post "/tickets/reorder", TicketController, :reorder
       resources "/tickets", TicketController, except: [:new, :edit]
       get "/tickets/:id/export/markdown", TicketController, :export_markdown
