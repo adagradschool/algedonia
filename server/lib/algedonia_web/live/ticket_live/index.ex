@@ -20,7 +20,8 @@ defmodule AlgedoniaWeb.TicketLive.Index do
     submit_comment submit_reply start_reply edit_comment update_comment
     cancel_edit delete_comment start_work plan_ticket open_planning_session
     open_editor run_workspace_script export_markdown duplicate_ticket confirm_delete cancel_delete confirm_delete_now
-    confirm_reset cancel_reset confirm_reset_now pull_comments filter_blocked_by_detail open_assignee_detail close_assignee_detail filter_assignee_detail
+    confirm_reset cancel_reset confirm_reset_now pull_comments filter_blocked_by_detail open_blocked_by_detail close_blocked_by_detail
+    open_assignee_detail close_assignee_detail filter_assignee_detail
     select_detail_assignee)
 
   @impl true
@@ -222,6 +223,7 @@ defmodule AlgedoniaWeb.TicketLive.Index do
           ticket_form: to_form(Tickets.change_ticket(ticket)),
           assignee_open: false,
           assignee_search: ticket.assignee || "",
+          blocked_by_open: false,
           blocker_tickets: blocker_tickets,
           blocked_by_options:
             Tickets.list_tickets(workspace_id: ticket.workspace_id)
