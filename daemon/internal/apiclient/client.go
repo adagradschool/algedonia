@@ -65,7 +65,7 @@ type Comment struct {
 
 // Workspace represents a workspace from the API.
 type Workspace struct {
-	ID                      string                 `json:"id"`
+	ID                      WorkspaceID            `json:"id"`
 	Name                    string                 `json:"name"`
 	Slug                    string                 `json:"slug"`
 	Prefix                  string                 `json:"prefix"`
@@ -77,6 +77,35 @@ type Workspace struct {
 	Defaults                map[string]interface{} `json:"defaults"`
 	MaxIterations           int                    `json:"max_iterations"`
 	PlanningMode            string                 `json:"planning_mode"`
+}
+
+// WorkspaceID accepts both legacy numeric and current UUID-string workspace IDs.
+type WorkspaceID string
+
+// UnmarshalJSON preserves workspace IDs as strings while remaining compatible with
+// older numeric payloads.
+func (id *WorkspaceID) UnmarshalJSON(data []byte) error {
+	var raw interface{}
+
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return err
+	}
+
+	switch v := raw.(type) {
+	case nil:
+		*id = ""
+		return nil
+	case string:
+		*id = WorkspaceID(v)
+		return nil
+	case json.Number:
+		*id = WorkspaceID(v.String())
+		return nil
+	default:
+		return fmt.Errorf("workspace id must be a string or number")
+	}
 }
 
 // ListTicketsOpts holds optional filters for listing tickets.

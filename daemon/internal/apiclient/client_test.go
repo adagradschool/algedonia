@@ -366,21 +366,50 @@ func TestDeleteComment(t *testing.T) {
 }
 
 func TestListWorkspaces(t *testing.T) {
-	_, client := testServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces" {
-			t.Errorf("path = %q, want /api/workspaces", r.URL.Path)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"workspaces": []Workspace{{ID: "workspace-1", Name: "Test", Slug: "test", Prefix: "TST"}},
-		})
-	})
-
-	workspaces, err := client.ListWorkspaces()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	tests := []struct {
+		name   string
+		rawID  interface{}
+		wantID WorkspaceID
+	}{
+		{
+			name:   "uuid string ids decode",
+			rawID:  "550e8400-e29b-41d4-a716-446655440000",
+			wantID: WorkspaceID("550e8400-e29b-41d4-a716-446655440000"),
+		},
+		{
+			name:   "numeric ids remain supported",
+			rawID:  1,
+			wantID: WorkspaceID("1"),
+		},
 	}
-	if len(workspaces) != 1 || workspaces[0].Slug != "test" {
-		t.Errorf("unexpected workspaces: %+v", workspaces)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, client := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/workspaces" {
+					t.Errorf("path = %q, want /api/workspaces", r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"workspaces": []map[string]interface{}{
+						{"id": tt.rawID, "name": "Test", "slug": "test", "prefix": "TST"},
+					},
+				})
+			})
+
+			workspaces, err := client.ListWorkspaces()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(workspaces) != 1 {
+				t.Fatalf("expected 1 workspace, got %d", len(workspaces))
+			}
+			if workspaces[0].ID != tt.wantID {
+				t.Errorf("workspace ID = %q, want %q", workspaces[0].ID, tt.wantID)
+			}
+			if workspaces[0].Slug != "test" || workspaces[0].Name != "Test" {
+				t.Errorf("unexpected workspaces: %+v", workspaces)
+			}
+		})
 	}
 }
 
