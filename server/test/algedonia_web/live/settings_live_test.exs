@@ -20,6 +20,17 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/settings")
 
       assert has_element?(view, "#settings-scroll-container.flex-1.min-h-0.overflow-y-auto")
+      assert has_element?(view, "#settings-content.max-w-2xl.space-y-8")
+
+      assert has_element?(
+               view,
+               "#settings-scroll-container > #settings-content"
+             )
+
+      refute has_element?(
+               view,
+               "#settings-scroll-container.max-w-2xl"
+             )
 
       assert has_element?(
                view,
@@ -72,6 +83,7 @@ defmodule AlgedoniaWeb.SettingsLiveTest do
       {:ok, view, html} = live(conn, ~p"/w/#{workspace.slug}/settings")
 
       assert has_element?(view, "#settings-scroll-container")
+      assert has_element?(view, "#settings-content.max-w-2xl")
       assert has_element?(view, "#bootstrap-script-editor .script-editor-shell--bounded")
       assert has_element?(view, "#run-script-editor .script-editor-shell--bounded")
       assert html =~ "echo bootstrap line 40"
