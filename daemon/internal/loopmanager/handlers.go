@@ -22,6 +22,15 @@ import (
 	"github.com/algedonia/daemon/internal/repo"
 )
 
+const terminalImageDropBaseDir = "/tmp/algedonia-terminal-drops"
+
+type terminalImageDropUploadFile struct {
+	Name string
+	Type string
+	Data string
+	Size int
+}
+
 // HandleStartLoop is a command handler for "start_loop" events from the server.
 func (m *Manager) HandleStartLoop(ctx context.Context, payload map[string]interface{}) error {
 	loopID := payloadStr(payload, "loop_id")
@@ -83,6 +92,83 @@ func (m *Manager) HandleStdinInput(_ context.Context, payload map[string]interfa
 		return fmt.Errorf("decoding stdin_input base64: %w", err)
 	}
 	return m.SendInput(loopID, data)
+}
+
+// HandleImageDropUpload materializes browser-dropped image bytes into a managed
+// /tmp directory and inserts shell-safe temp paths into terminal stdin.
+func (m *Manager) HandleImageDropUpload(_ context.Context, payload map[string]interface{}) error {
+	loopID := payloadStr(payload, "loop_id")
+	workspaceSlug := payloadStr(payload, "workspace_slug")
+	ticketID := payloadStr(payload, "ticket_id")
+
+	if loopID == "" {
+		return fmt.Errorf("missing loop_id in terminal_image_drop_upload payload")
+	}
+	if workspaceSlug == "" || ticketID == "" {
+		m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", "Dropped images could not be uploaded.")
+		return nil
+	}
+
+	files, err := parseTerminalImageDropUploadFiles(payload["files"])
+	if err != nil {
+		m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", err.Error())
+		return nil
+	}
+
+	maxBytes := terminalImageDropMaxBytesFromEnv(os.Getenv)
+	targetDir := terminalImageDropTargetDir(ticketID)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", "Dropped images could not be written to /tmp.")
+		return nil
+	}
+
+	quotedPaths := make([]string, 0, len(files))
+
+	for _, file := range files {
+		if !isSupportedTerminalImageDropFile(file) {
+			continue
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(file.Data)
+		if err != nil {
+			m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", "Dropped images could not be decoded.")
+			return nil
+		}
+
+		if len(decoded) == 0 {
+			continue
+		}
+
+		if len(decoded) > maxBytes {
+			m.sendTerminalImageDropResult(
+				loopID,
+				workspaceSlug,
+				"error",
+				fmt.Sprintf("Dropped images exceed the %d byte limit.", maxBytes),
+			)
+			return nil
+		}
+
+		targetPath := terminalImageDropFilePath(ticketID, file, decoded)
+		if err := os.WriteFile(targetPath, decoded, 0o600); err != nil {
+			m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", "Dropped images could not be written to /tmp.")
+			return nil
+		}
+
+		quotedPaths = append(quotedPaths, shellEscapePath(targetPath))
+	}
+
+	if len(quotedPaths) == 0 {
+		m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", "Drop rejected: no supported images were provided.")
+		return nil
+	}
+
+	if err := m.SendInput(loopID, []byte(strings.Join(quotedPaths, " "))); err != nil {
+		m.sendTerminalImageDropResult(loopID, workspaceSlug, "error", "Dropped image paths could not be inserted into the terminal.")
+		return nil
+	}
+
+	return nil
 }
 
 // HandleStopLoop is a command handler for "stop_loop" events from the server.
@@ -793,6 +879,143 @@ func (m *Manager) sendTerminalMessage(loopID, workspaceSlug, message string) {
 		"data":           base64.StdEncoding.EncodeToString([]byte(message)),
 	}
 	m.sendEvent("terminal_output", payload)
+}
+
+func (m *Manager) sendTerminalImageDropResult(loopID, workspaceSlug, status, message string) {
+	if loopID == "" || workspaceSlug == "" || message == "" {
+		return
+	}
+
+	m.sendEvent("terminal_image_drop_result", map[string]interface{}{
+		"loop_id":        loopID,
+		"workspace_slug": workspaceSlug,
+		"status":         status,
+		"message":        message,
+	})
+}
+
+func parseTerminalImageDropUploadFiles(raw interface{}) ([]terminalImageDropUploadFile, error) {
+	items, ok := raw.([]interface{})
+	if !ok || len(items) == 0 {
+		return nil, fmt.Errorf("Drop rejected: no supported images were provided.")
+	}
+
+	files := make([]terminalImageDropUploadFile, 0, len(items))
+
+	for _, item := range items {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		file := terminalImageDropUploadFile{
+			Name: payloadStr(entry, "name"),
+			Type: payloadStr(entry, "type"),
+			Data: payloadStr(entry, "data"),
+		}
+
+		if size, ok := parseOptionalInt(entry["size"]); ok {
+			file.Size = size
+		}
+
+		if file.Name == "" || file.Data == "" {
+			continue
+		}
+
+		files = append(files, file)
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("Drop rejected: no supported images were provided.")
+	}
+
+	return files, nil
+}
+
+func isSupportedTerminalImageDropFile(file terminalImageDropUploadFile) bool {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(file.Type)), "image/") {
+		return true
+	}
+
+	switch strings.ToLower(filepath.Ext(file.Name)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".heif", ".svg":
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalImageDropTargetDir(ticketID string) string {
+	return filepath.Join(terminalImageDropBaseDir, repo.TicketPrefix(ticketID))
+}
+
+func terminalImageDropFilePath(ticketID string, file terminalImageDropUploadFile, data []byte) string {
+	hash := sha256.Sum256(data)
+	base := sanitizeTerminalImageDropBaseName(file.Name)
+	ext := terminalImageDropExtension(file)
+	filename := fmt.Sprintf("%s-%s%s", hex.EncodeToString(hash[:8]), base, ext)
+	return filepath.Join(terminalImageDropTargetDir(ticketID), filename)
+}
+
+func sanitizeTerminalImageDropBaseName(name string) string {
+	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	base = strings.ToLower(strings.TrimSpace(base))
+	base = strings.ReplaceAll(base, " ", "-")
+
+	var builder strings.Builder
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-' || r == '_':
+			builder.WriteRune(r)
+		}
+	}
+
+	cleaned := strings.Trim(builder.String(), "-_")
+	if cleaned == "" {
+		return "image"
+	}
+
+	return cleaned
+}
+
+func terminalImageDropExtension(file terminalImageDropUploadFile) string {
+	ext := strings.ToLower(filepath.Ext(file.Name))
+	if ext != "" {
+		return ext
+	}
+
+	switch strings.ToLower(strings.TrimSpace(file.Type)) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/bmp":
+		return ".bmp"
+	case "image/tiff":
+		return ".tiff"
+	case "image/avif":
+		return ".avif"
+	case "image/heic":
+		return ".heic"
+	case "image/heif":
+		return ".heif"
+	case "image/svg+xml":
+		return ".svg"
+	default:
+		return ".img"
+	}
+}
+
+func shellEscapePath(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'"
 }
 
 func bootstrapOutputSummary(stdout, stderr string) string {

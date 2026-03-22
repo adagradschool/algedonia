@@ -162,6 +162,31 @@ defmodule AlgedoniaWeb.LoopLive.Show do
     {:noreply, maybe_queue_scrollback(socket)}
   end
 
+  def handle_event("terminal_drop_feedback", %{"message" => message} = params, socket)
+      when is_binary(message) and message != "" do
+    level = if params["level"] == "info", do: :info, else: :error
+    {:noreply, put_flash(socket, level, message)}
+  end
+
+  def handle_event("terminal_drop_feedback", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("terminal_image_drop_upload", %{"files" => files}, socket) do
+    case terminal_image_drop_dispatch(socket, files) do
+      {:ok, daemon_name, loop_id, payload} ->
+        DaemonChannel.push_terminal_image_drop_upload(daemon_name, loop_id, payload)
+        {:noreply, socket}
+
+      {:error, level, message} ->
+        {:noreply, put_flash(socket, level, message)}
+    end
+  end
+
+  def handle_event("terminal_image_drop_upload", _params, socket) do
+    {:noreply, put_flash(socket, :error, "Dropped images could not be uploaded")}
+  end
+
   def handle_event("shortcut_back", _params, socket) do
     {:noreply, push_navigate(socket, to: ~p"/w/#{socket.assigns.workspace_slug}/tickets")}
   end
@@ -388,6 +413,14 @@ defmodule AlgedoniaWeb.LoopLive.Show do
   end
 
   def handle_info({:pr_merge_result, :error, message}, socket) do
+    {:noreply, put_flash(socket, :error, message)}
+  end
+
+  def handle_info({:terminal_image_drop_result, :info, message}, socket) do
+    {:noreply, put_flash(socket, :info, message)}
+  end
+
+  def handle_info({:terminal_image_drop_result, :error, message}, socket) do
     {:noreply, put_flash(socket, :error, message)}
   end
 
@@ -655,6 +688,87 @@ defmodule AlgedoniaWeb.LoopLive.Show do
       _ -> false
     end
   end
+
+  defp terminal_image_drop_dispatch(socket, files) do
+    with {:ok, ticket_id} <- terminal_image_drop_ticket_id(socket),
+         :ok <- terminal_image_drop_ready(socket),
+         {:ok, daemon} <- terminal_image_drop_daemon(socket),
+         {:ok, normalized_files} <- normalize_terminal_image_drop_files(files) do
+      {:ok, daemon.name, socket.assigns.terminal_stream_loop_id,
+       %{
+         "workspace_slug" => socket.assigns.workspace_slug,
+         "ticket_id" => ticket_id,
+         "files" => normalized_files
+       }}
+    end
+  end
+
+  defp terminal_image_drop_ticket_id(%{assigns: %{ticket: %{id: ticket_id}}})
+       when is_binary(ticket_id) do
+    {:ok, ticket_id}
+  end
+
+  defp terminal_image_drop_ticket_id(_socket) do
+    {:error, :error, "Image drop is only available for ticket-scoped loops"}
+  end
+
+  defp terminal_image_drop_ready(socket) do
+    stream_loop_id = socket.assigns[:terminal_stream_loop_id]
+
+    cond do
+      !socket.assigns[:active] ->
+        {:error, :error, "Image drop requires an active loop terminal"}
+
+      !is_binary(stream_loop_id) or stream_loop_id == "" ->
+        {:error, :error, "Image drop requires the active loop terminal, not scrollback"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp terminal_image_drop_daemon(socket) do
+    case resolve_daemon(socket) do
+      {:ok, daemon} -> {:ok, daemon}
+      {:error, :no_online_daemon} -> {:error, :error, "No online daemon available"}
+    end
+  end
+
+  defp normalize_terminal_image_drop_files(files) when is_list(files) do
+    normalized =
+      Enum.flat_map(files, fn
+        %{"name" => name, "data" => data} = file
+        when is_binary(name) and name != "" and is_binary(data) and data != "" ->
+          [
+            %{
+              "name" => name,
+              "type" => terminal_image_drop_type(Map.get(file, "type")),
+              "size" => terminal_image_drop_size(Map.get(file, "size")),
+              "data" => data
+            }
+          ]
+
+        _ ->
+          []
+      end)
+
+    if normalized == [] do
+      {:error, :error, "Dropped images could not be uploaded"}
+    else
+      {:ok, normalized}
+    end
+  end
+
+  defp normalize_terminal_image_drop_files(_files) do
+    {:error, :error, "Dropped images could not be uploaded"}
+  end
+
+  defp terminal_image_drop_type(type) when is_binary(type), do: type
+  defp terminal_image_drop_type(_type), do: ""
+
+  defp terminal_image_drop_size(size) when is_integer(size) and size >= 0, do: size
+  defp terminal_image_drop_size(size) when is_float(size) and size >= 0, do: trunc(size)
+  defp terminal_image_drop_size(_size), do: 0
 
   defp ensure_planning_loop(%{assigns: %{loop_record: %{role: :planning}}} = socket), do: socket
 

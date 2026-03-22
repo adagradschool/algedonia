@@ -72,6 +72,25 @@ func replayMaxBytesFromEnv(getenv func(string) string) int {
 	return size
 }
 
+func terminalImageDropMaxBytesFromEnv(getenv func(string) string) int {
+	raw := strings.TrimSpace(getenv("ALGEDONIA_TERMINAL_IMAGE_DROP_MAX_BYTES"))
+	if raw == "" {
+		return 10 * 1024 * 1024
+	}
+
+	size, err := strconv.Atoi(raw)
+	if err != nil || size <= 0 {
+		log.Printf(
+			"Invalid ALGEDONIA_TERMINAL_IMAGE_DROP_MAX_BYTES=%q, using default %d",
+			raw,
+			10*1024*1024,
+		)
+		return 10 * 1024 * 1024
+	}
+
+	return size
+}
+
 // sendPromptToTUI waits for warmup, types prompt text character-by-character
 // (simulating keyboard input), then presses Enter.
 //

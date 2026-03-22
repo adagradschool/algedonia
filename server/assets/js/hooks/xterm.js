@@ -1,11 +1,17 @@
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
+import {
+  DEFAULT_TERMINAL_DROP_MAX_BYTES,
+  handleTerminalImageDropUpload,
+  hasPotentialTerminalFileDrop,
+} from "./xterm_drop_upload.mjs"
 
 const FIT_DEBOUNCE_MS = 60
 const MIN_RENDERABLE_WIDTH_PX = 24
 const MIN_RENDERABLE_HEIGHT_PX = 24
 const WS_RECONNECT_MS = 1200
+const DROP_ACTIVE_CLASS = "xterm-terminal--drag-active"
 
 const FRAME_INPUT = 0x00
 const FRAME_CONTROL = 0x01
@@ -50,6 +56,9 @@ const XTerm = {
     this.loopId = this.el.dataset.loopId || ""
     this.terminalWsUrl = this.el.dataset.terminalWsUrl || ""
     this.terminalWsToken = this.el.dataset.terminalWsToken || ""
+    this.terminalDropMaxBytes =
+      Number.parseInt(this.el.dataset.terminalDropMaxBytes || "", 10) ||
+      DEFAULT_TERMINAL_DROP_MAX_BYTES
     this.liveStreamEnabled = Boolean(this.loopId && this.terminalWsUrl && this.terminalWsToken)
 
     this.metrics = {
@@ -103,6 +112,47 @@ const XTerm = {
 
     this.onPointerFocus = () => this.term?.focus()
     this.el.addEventListener("pointerdown", this.onPointerFocus)
+
+    this.onDragOver = (event) => {
+      if (!hasPotentialTerminalFileDrop(event.dataTransfer)) return
+      event.preventDefault()
+      this.el.classList.add(DROP_ACTIVE_CLASS)
+    }
+
+    this.onDragLeave = (event) => {
+      if (event.currentTarget === event.target || !this.el.contains(event.relatedTarget)) {
+        this.el.classList.remove(DROP_ACTIVE_CLASS)
+      }
+    }
+
+    this.onDrop = async (event) => {
+      this.el.classList.remove(DROP_ACTIVE_CLASS)
+      if (!hasPotentialTerminalFileDrop(event.dataTransfer)) return
+
+      event.preventDefault()
+
+      try {
+        const inserted = await handleTerminalImageDropUpload(event.dataTransfer, {
+          maxBytes: this.terminalDropMaxBytes,
+          pushUpload: (payload) => this.pushEvent("terminal_image_drop_upload", payload),
+          pushFeedback: (feedback) => this.pushEvent("terminal_drop_feedback", feedback),
+        })
+
+        if (inserted) {
+          this.term?.focus()
+        }
+      } catch (error) {
+        console.warn("XTerm drop error", error)
+        this.pushEvent("terminal_drop_feedback", {
+          level: "error",
+          message: "Dropped images could not be prepared for upload.",
+        })
+      }
+    }
+
+    this.el.addEventListener("dragover", this.onDragOver)
+    this.el.addEventListener("dragleave", this.onDragLeave)
+    this.el.addEventListener("drop", this.onDrop)
 
     this.connectTerminalSocket()
 
@@ -509,6 +559,16 @@ const XTerm = {
     }
     if (this.onPointerFocus) {
       this.el.removeEventListener("pointerdown", this.onPointerFocus)
+    }
+    if (this.onDragOver) {
+      this.el.removeEventListener("dragover", this.onDragOver)
+    }
+    if (this.onDragLeave) {
+      this.el.removeEventListener("dragleave", this.onDragLeave)
+    }
+    if (this.onDrop) {
+      this.el.removeEventListener("drop", this.onDrop)
+      this.el.classList.remove(DROP_ACTIVE_CLASS)
     }
     if (window.__algedoniaTerminalMetrics) {
       delete window.__algedoniaTerminalMetrics[this.el.id]
