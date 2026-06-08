@@ -293,37 +293,60 @@
                 <.icon name="hero-link-mini" class="size-3.5" /> Depends On
               </div>
               <% filtered_blocked_by_options =
-                if String.trim(@blocked_by_search) == "" do
-                  []
-                else
-                  AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
-                    @blocked_by_options,
-                    @blocked_by_search
-                  )
-                end %>
+                AlgedoniaWeb.TicketLive.TicketFormComponent.filtered_blocked_by_options(
+                  @blocked_by_options,
+                  @blocked_by_search
+                ) %>
+              <% blocked_by_options_visible? =
+                AlgedoniaWeb.TicketLive.ComboboxHelpers.options_visible?(
+                  @blocked_by_open,
+                  @blocked_by_search
+                ) %>
               <div :if={@blocked_by_options != []} class="space-y-1">
-                <input
-                  id="detail-blocked-by-search"
-                  type="text"
-                  placeholder="Search tickets..."
-                  value={@blocked_by_search}
-                  phx-keyup="filter_blocked_by_detail"
-                  class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
-                />
-                <select
-                  :if={filtered_blocked_by_options != []}
-                  id="detail-blocked-by"
-                  name="ticket[blocked_by][]"
-                  multiple
-                  size={min(length(filtered_blocked_by_options), 6)}
-                  class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
-                  phx-debounce="600"
+                <div
+                  id="detail-blocked-by-wrapper"
+                  phx-click-away="close_blocked_by_detail"
+                  class="space-y-1"
                 >
-                  {Phoenix.HTML.Form.options_for_select(
-                    filtered_blocked_by_options,
-                    @ticket_form[:blocked_by].value || []
-                  )}
-                </select>
+                  <input
+                    id="detail-blocked-by-search"
+                    type="text"
+                    placeholder="Search tickets..."
+                    value={@blocked_by_search}
+                    phx-focus="open_blocked_by_detail"
+                    phx-keyup="filter_blocked_by_detail"
+                    class="w-full bg-transparent border border-transparent text-xs text-fg placeholder-fg-muted px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                  />
+                  <select
+                    :if={blocked_by_options_visible? and filtered_blocked_by_options != []}
+                    id="detail-blocked-by"
+                    name="ticket[blocked_by][]"
+                    multiple
+                    size={min(length(filtered_blocked_by_options), 6)}
+                    class="w-full bg-transparent border border-transparent text-xs text-fg px-0 py-1 focus:outline-none focus:border-accent-indigo"
+                    phx-debounce="600"
+                    phx-focus="open_blocked_by_detail"
+                    phx-blur="close_blocked_by_detail"
+                  >
+                    {Phoenix.HTML.Form.options_for_select(
+                      filtered_blocked_by_options,
+                      @ticket_form[:blocked_by].value || []
+                    )}
+                  </select>
+                  <input
+                    :for={blocked_by_id <- @ticket_form[:blocked_by].value || []}
+                    :if={!blocked_by_options_visible?}
+                    type="hidden"
+                    name="ticket[blocked_by][]"
+                    value={blocked_by_id}
+                  />
+                  <p
+                    :if={blocked_by_options_visible? and filtered_blocked_by_options == []}
+                    class="text-[11px] text-fg-muted"
+                  >
+                    No matching tickets
+                  </p>
+                </div>
                 <p
                   :for={
                     msg <-

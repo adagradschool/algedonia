@@ -5,6 +5,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   use AlgedoniaWeb, :live_component
 
   alias Algedonia.Tickets
+  alias AlgedoniaWeb.TicketLive.ComboboxHelpers
 
   @impl true
   def update(%{ticket: ticket, action: action} = assigns, socket) do
@@ -26,6 +27,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
      |> assign(assigns)
      |> assign(:action_label, if(action == :new, do: "Save issue", else: "Update issue"))
      |> assign(:blocked_by_options, blocked_by_options)
+     |> assign(:blocked_by_open, false)
      |> assign(:blocked_by_search, "")
      |> assign(:assignee_options, assignee_options)
      |> assign(:assignee_open, false)
@@ -41,16 +43,32 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
 
   @impl true
   def handle_event("validate", %{"ticket" => ticket_params}, socket) do
+    blocked_by_changed? =
+      ComboboxHelpers.blocker_selection_changed?(socket.assigns.form, ticket_params)
+
     changeset =
       socket.assigns.ticket
       |> Tickets.change_ticket(ticket_params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign_form(socket, changeset)}
+    socket =
+      socket
+      |> assign_form(changeset)
+      |> maybe_close_blocked_by(blocked_by_changed?)
+
+    {:noreply, socket}
   end
 
   def handle_event("filter_blocked_by", %{"value" => query}, socket) do
-    {:noreply, assign(socket, :blocked_by_search, query)}
+    {:noreply, assign(socket, blocked_by_search: query, blocked_by_open: true)}
+  end
+
+  def handle_event("open_blocked_by", _params, socket) do
+    {:noreply, assign(socket, :blocked_by_open, true)}
+  end
+
+  def handle_event("close_blocked_by", _params, socket) do
+    {:noreply, assign(socket, :blocked_by_open, false)}
   end
 
   def handle_event("filter_assignee", %{"value" => query}, socket) do
@@ -162,6 +180,14 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
     end
   end
 
+  def selected_blocked_by_options(options, values) do
+    selected_ids = MapSet.new(ComboboxHelpers.normalize_multi_value(values))
+
+    Enum.filter(options, fn {_label, id} ->
+      MapSet.member?(selected_ids, to_string(id))
+    end)
+  end
+
   attr :id, :string, required: true
   attr :field, Phoenix.HTML.FormField, required: true
   attr :label, :string, default: "Assignee"
@@ -220,12 +246,16 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
         value={@search}
         placeholder="Search members..."
         phx-focus={@open_event}
+        phx-blur={@close_event}
         phx-keyup={@filter_event}
         phx-target={@target}
         class={@search_input_class}
       />
 
-      <div :if={@open and @filtered_options != []} class={@options_container_class}>
+      <div
+        :if={ComboboxHelpers.options_visible?(@open, @search) and @filtered_options != []}
+        class={@options_container_class}
+      >
         <button
           :for={{label, value} <- @filtered_options}
           id={assignee_option_id(@id, value)}
@@ -243,7 +273,7 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
       </div>
 
       <p
-        :if={@open and @filtered_options == [] and String.trim(@search) != ""}
+        :if={ComboboxHelpers.options_visible?(@open, @search) and @filtered_options == []}
         class={@no_matches_class}
       >
         No matching members
@@ -271,6 +301,9 @@ defmodule AlgedoniaWeb.TicketLive.TicketFormComponent do
   defp current_form_params(socket) do
     socket.assigns.form.source.params || %{}
   end
+
+  defp maybe_close_blocked_by(socket, true), do: assign(socket, :blocked_by_open, false)
+  defp maybe_close_blocked_by(socket, false), do: socket
 
   defp assignee_option_id(base_id, value) do
     suffix =

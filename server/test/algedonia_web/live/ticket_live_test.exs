@@ -124,7 +124,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert render(view) =~ "Edited title"
     end
 
-    test "modal assignee selector filters workspace members by prefix and persists selection", %{
+    test "modal assignee selector hides on empty or blur and persists selection", %{
       conn: conn,
       workspace: workspace
     } do
@@ -145,6 +145,12 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute has_element?(view, ~s{#ticket-form input[name="ticket[assignee]"][type="text"]})
       refute has_element?(view, "#ticket-form-assignee-option-alpha-modal")
 
+      view
+      |> element("#ticket-form-assignee-search")
+      |> render_focus()
+
+      refute has_element?(view, "#ticket-form-assignee-option-alpha-modal")
+
       html =
         view
         |> element("#ticket-form-assignee-search")
@@ -153,6 +159,16 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert html =~ "Alpha Modal"
       refute html =~ "Beta Modal"
       refute html =~ "Alfred Outside"
+
+      view
+      |> element("#ticket-form-assignee-search")
+      |> render_blur()
+
+      refute has_element?(view, "#ticket-form-assignee-option-alpha-modal")
+
+      view
+      |> element("#ticket-form-assignee-search")
+      |> render_keyup(%{"value" => "al"})
 
       view
       |> element("#ticket-form-assignee-option-alpha-modal")
@@ -244,10 +260,11 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert has_element?(view, "#ticket-rubric-field-editor[phx-hook='MarkdownEditor']")
     end
 
-    test "detail assignee selector autosaves selection and allows clearing", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "detail assignee selector hides on empty or blur, autosaves selection, and allows clearing",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       alpha = insert_user!(%{name: "Alpha Detail"})
       beta = insert_user!(%{name: "Beta Detail"})
       other_workspace = insert_workspace!(%{name: "Other Detail Workspace"})
@@ -271,6 +288,12 @@ defmodule AlgedoniaWeb.TicketLiveTest do
 
       refute has_element?(view, "#ticket-detail-assignee-option-alpha-detail")
 
+      view
+      |> element("#ticket-detail-assignee-search")
+      |> render_focus()
+
+      refute has_element?(view, "#ticket-detail-assignee-option-alpha-detail")
+
       html =
         view
         |> element("#ticket-detail-assignee-search")
@@ -280,7 +303,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Beta Detail"
       refute html =~ "Alpine Outside"
 
-      view |> render_click("close_assignee_detail", %{})
+      view
+      |> element("#ticket-detail-assignee-search")
+      |> render_blur()
+
       refute has_element?(view, "#ticket-detail-assignee-option-alpha-detail")
 
       view
@@ -1394,10 +1420,11 @@ defmodule AlgedoniaWeb.TicketLiveTest do
   end
 
   describe "Blocked-by / Depends On" do
-    test "create form keeps Depends On collapsed until expanded", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "create form keeps Depends On collapsed until expanded and hides options until searched",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       insert_ticket!(%{title: "Blocker ticket", workspace_id: workspace.id})
       {:ok, view, initial_html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
 
@@ -1405,20 +1432,20 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert has_element?(view, "#ticket-form-expand-depends-on")
       refute has_element?(view, "#ticket-form-blocked-by")
 
-      html =
-        view
-        |> element("#ticket-form-expand-depends-on")
-        |> render_click()
+      view
+      |> element("#ticket-form-expand-depends-on")
+      |> render_click()
 
       refute has_element?(view, "#ticket-form-expand-depends-on")
-      assert has_element?(view, "#ticket-form-blocked-by")
-      assert html =~ "Blocker ticket"
+      assert has_element?(view, "#ticket-form-blocked-by-search")
+      refute has_element?(view, "#ticket-form-blocked-by")
     end
 
-    test "create form persists blocked_by on submit after expanding Depends On", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "create form blocker selector hides on empty or blur and persists blocked_by on submit",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       blocker = insert_ticket!(%{title: "Must finish first", workspace_id: workspace.id})
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/new")
@@ -1426,6 +1453,36 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       view
       |> element("#ticket-form-expand-depends-on")
       |> render_click()
+
+      view
+      |> element("#ticket-form-blocked-by-search")
+      |> render_focus()
+
+      refute has_element?(view, "#ticket-form-blocked-by")
+
+      html =
+        view
+        |> element("#ticket-form-blocked-by-search")
+        |> render_keyup(%{"value" => "must"})
+
+      assert has_element?(view, "#ticket-form-blocked-by")
+      assert html =~ "Must finish first"
+
+      view
+      |> element("#ticket-form-blocked-by")
+      |> render_blur()
+
+      refute has_element?(view, "#ticket-form-blocked-by")
+
+      view
+      |> element("#ticket-form-blocked-by-search")
+      |> render_keyup(%{"value" => "must"})
+
+      view
+      |> form("#ticket-form", ticket: %{blocked_by: [blocker.id]})
+      |> render_change()
+
+      refute has_element?(view, "#ticket-form-blocked-by")
 
       view
       |> form("#ticket-form",
@@ -1496,10 +1553,11 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert html =~ "No other tickets available"
     end
 
-    test "detail sidebar hides blocker options until searched and hides them again on clear", %{
-      conn: conn,
-      workspace: workspace
-    } do
+    test "detail sidebar blocker selector hides on empty or blur, shows on search, and hides on clear",
+         %{
+           conn: conn,
+           workspace: workspace
+         } do
       insert_ticket!(%{title: "Alpha blocker", workspace_id: workspace.id})
       insert_ticket!(%{title: "Beta blocker", workspace_id: workspace.id})
       ticket = insert_ticket!(%{title: "Ticket under test", workspace_id: workspace.id})
@@ -1511,6 +1569,12 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Alpha blocker"
       refute html =~ "Beta blocker"
 
+      view
+      |> element("#detail-blocked-by-search")
+      |> render_focus()
+
+      refute has_element?(view, "#detail-blocked-by")
+
       html =
         view
         |> element("#detail-blocked-by-search")
@@ -1519,6 +1583,16 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       assert has_element?(view, "#detail-blocked-by")
       assert html =~ "Alpha blocker"
       refute html =~ "Beta blocker"
+
+      view
+      |> element("#detail-blocked-by")
+      |> render_blur()
+
+      refute has_element?(view, "#detail-blocked-by")
+
+      view
+      |> element("#detail-blocked-by-search")
+      |> render_keyup(%{"value" => "alp"})
 
       html =
         view
@@ -1530,7 +1604,7 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       refute html =~ "Beta blocker"
     end
 
-    test "detail sidebar persists blocked_by via autosave", %{
+    test "detail sidebar persists blocked_by via autosave and closes the candidate list", %{
       conn: conn,
       workspace: workspace
     } do
@@ -1542,9 +1616,13 @@ defmodule AlgedoniaWeb.TicketLiveTest do
       |> element("#detail-blocked-by-search")
       |> render_keyup(%{"value" => "new"})
 
+      assert has_element?(view, "#detail-blocked-by")
+
       view
       |> form("#ticket-detail-form", ticket: %{blocked_by: [blocker.id]})
       |> render_change()
+
+      refute has_element?(view, "#detail-blocked-by")
 
       updated = Tickets.get_ticket!(ticket.id)
       assert updated.blocked_by == [blocker.id]
@@ -1656,6 +1734,10 @@ defmodule AlgedoniaWeb.TicketLiveTest do
         })
 
       {:ok, view, _html} = live(conn, ~p"/w/#{workspace.slug}/tickets/#{ticket_a}/edit")
+
+      view
+      |> element("#ticket-form-blocked-by-search")
+      |> render_keyup(%{"value" => "ticket b"})
 
       html =
         view

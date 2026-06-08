@@ -11,6 +11,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
 
   alias Algedonia.{Agents, Loops, Tickets, Workspaces}
   alias Algedonia.Tickets.Comment
+  alias AlgedoniaWeb.TicketLive.ComboboxHelpers
 
   @ticket_detail_fields [:description, :acceptance_criteria, :rubric]
 
@@ -37,6 +38,7 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       assignee_search: ticket.assignee || "",
       blocker_tickets: resolve_blocker_tickets(ticket),
       blocked_by_options: blocked_by_options,
+      blocked_by_open: false,
       blocked_by_search: "",
       comments: Tickets.list_comments(ticket.id),
       comment_form: to_form(Tickets.change_comment(%Comment{ticket_id: ticket.id})),
@@ -346,7 +348,15 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   end
 
   def handle("filter_blocked_by_detail", %{"value" => query}, socket) do
-    {:noreply, assign(socket, blocked_by_search: query)}
+    {:noreply, assign(socket, blocked_by_search: query, blocked_by_open: true)}
+  end
+
+  def handle("open_blocked_by_detail", _params, socket) do
+    {:noreply, assign(socket, :blocked_by_open, true)}
+  end
+
+  def handle("close_blocked_by_detail", _params, socket) do
+    {:noreply, assign(socket, :blocked_by_open, false)}
   end
 
   def handle("filter_assignee_detail", %{"value" => query}, socket) do
@@ -402,14 +412,21 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
   # -- Helpers --
 
   defp autosave_ticket(socket, params) do
+    close_blocked_by? =
+      ComboboxHelpers.blocker_selection_changed?(socket.assigns.ticket_form, params)
+
     case Tickets.update_ticket(socket.assigns.ticket, params) do
-      {:ok, updated} -> {:noreply, assign_saved_ticket(socket, updated)}
-      {:error, cs} -> {:noreply, assign_save_error(socket, cs)}
+      {:ok, updated} ->
+        {:noreply, assign_saved_ticket(socket, updated, close_blocked_by?: close_blocked_by?)}
+
+      {:error, cs} ->
+        {:noreply, assign_save_error(socket, cs)}
     end
   end
 
-  defp assign_saved_ticket(socket, ticket) do
+  defp assign_saved_ticket(socket, ticket, opts \\ []) do
     workspace = Workspaces.get_workspace!(ticket.workspace_id)
+    close_blocked_by? = Keyword.get(opts, :close_blocked_by?, false)
 
     assign(socket,
       ticket: ticket,
@@ -417,6 +434,8 @@ defmodule AlgedoniaWeb.TicketLive.DetailEvents do
       effective_land_mode: format_land_mode(Tickets.resolve_land_mode(ticket, workspace)),
       assignee_open: false,
       assignee_search: ticket.assignee || "",
+      blocked_by_open:
+        if(close_blocked_by?, do: false, else: socket.assigns[:blocked_by_open] || false),
       blocker_tickets: resolve_blocker_tickets(ticket),
       loop_id: Loops.first_inspect_loop_id(ticket.id),
       review_loop_id: Loops.first_review_loop_id(ticket.id),
